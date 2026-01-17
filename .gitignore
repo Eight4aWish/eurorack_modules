@@ -1,0 +1,17 @@
+# Build outputs (local only)
+build_artifacts/
+.pio/
+
+# VS Code local settings caches
+.vscode/**
+!.vscode/settings.json
+!.vscode/c_cpp_properties.json
+
+# Platform-specific temp files
+.DS_Store
+
+# Do not track embedded Daisy libraries here
+libs/daisy_duino/
+.pio/
+.DS_Store
+build/
