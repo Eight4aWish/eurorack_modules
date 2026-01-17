@@ -37,7 +37,11 @@ AudioConnection patchUsbR(i2sIn, 1, usbOut, 1);
 
 static const uint8_t DRUM_BASE_NOTE = 36;
 static const uint8_t DRUM_COUNT = 4;
-static const uint32_t DRUM_TRIG_MS = 15;
+// Expander drum outputs are generated via a 74HC595 + inverter chain.
+// That means the external trigger is effectively a pulse created by a HIGH->LOW->HIGH transition.
+// Some drum circuits (e.g. variable-decay hi-hats) interpret longer pulses as a gate.
+// Keep this short (typ 1-5ms). Use microseconds for better control.
+static const uint32_t DRUM_TRIG_US[DRUM_COUNT] = { 500, 500, 500, 500 };
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 13
@@ -119,7 +123,7 @@ static volatile uint32_t clkUntil=0, rstUntil=0; const uint32_t PULSE_MS=5;
 
 // Drums
 static volatile bool drumTrig[DRUM_COUNT] = {false,false,false,false};
-static volatile uint32_t drumUntil[DRUM_COUNT] = {0,0,0,0};
+static volatile uint32_t drumUntilUs[DRUM_COUNT] = {0,0,0,0};
 static volatile bool drumDirty = false;
 
 // Debug
@@ -189,7 +193,14 @@ void onNoteOn(byte ch, byte note, byte vel){
   else if(ch==2){ v2.note=note; v2.modV=5.0f*(vel/127.0f); updatePitch(v2); gate2=true; dirtyMod2=true; dirtyPitch2=true; }
   else if(ch==3){ v3.note=note; v3.modV=5.0f*(vel/127.0f); updatePitch(v3); gate3=true; dirtyMod3=true; dirtyPitch3=true; }
   else if(ch==4){ v4.note=note; v4.modV=5.0f*(vel/127.0f); updatePitch(v4); gate4=true; dirtyMod4=true; dirtyPitch4=true; }
-  else if(ch==10){ int idx=(int)note-(int)DRUM_BASE_NOTE; if(idx>=0 && idx<(int)DRUM_COUNT){ drumTrig[idx]=true; drumUntil[idx]=millis()+DRUM_TRIG_MS; drumDirty=true; } }
+  else if(ch==10){
+    int idx=(int)note-(int)DRUM_BASE_NOTE;
+    if(idx>=0 && idx<(int)DRUM_COUNT){
+      drumTrig[idx]=true;
+      drumUntilUs[idx]=micros()+DRUM_TRIG_US[idx];
+      drumDirty=true;
+    }
+  }
 }
 void onNoteOff(byte ch, byte note, byte){
   lastMidiCh=ch; lastMidiNote=note; lastMidiVel=0; lastMidiMs=millis();
@@ -273,9 +284,17 @@ void loop(){
     btnPrev=b;
   }
   uint32_t now=millis();
+  uint32_t nowUs=micros();
   if(clkUntil && (int32_t)(now-(int32_t)clkUntil)>=0){ clk=false; clkUntil=0; }
   if(rstUntil && (int32_t)(now-(int32_t)rstUntil)>=0){ rst=false; rstUntil=0; }
-  for (uint8_t i=0;i<DRUM_COUNT;i++){ if (drumUntil[i] && (int32_t)(now - (int32_t)drumUntil[i]) >= 0) { drumTrig[i]=false; drumUntil[i]=0; drumDirty=true; } }
+  for (uint8_t i=0;i<DRUM_COUNT;i++){
+    uint32_t untilUs = drumUntilUs[i];
+    if (untilUs && (int32_t)(nowUs - untilUs) >= 0) {
+      drumTrig[i]=false;
+      drumUntilUs[i]=0;
+      drumDirty=true;
+    }
+  }
   GATE_WRITE(PIN_CLOCK, clk); GATE_WRITE(PIN_RESET, rst); GATE_WRITE(PIN_GATE1, gate1); GATE_WRITE(PIN_GATE2, gate2);
   if(dirtyMod1){ mcp4822_write(PIN_CS_DAC1, CH_A, modVolt_to_code_ch(0, v1.modV)); dirtyMod1=false; }
   if(dirtyPitch1){ mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code_ch(0, v1.pitchHeldV)); dirtyPitch1=false; }
@@ -289,10 +308,20 @@ void loop(){
   // Combined expander image update: gates + drums, keep CS high
   {
     uint8_t img = expanderImage(); uint8_t newImg = img;
+    // Expander bits are the *74HC595 Q level* (pre-inverter). With an inverter stage:
+    //   - newImg bit = 0 => Q LOW  => jack HIGH
+    //   - newImg bit = 1 => Q HIGH => jack LOW
+    // Gates are made active-HIGH at the jack by writing Q LOW when gate is ON.
     if (gate3) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
     if (gate4) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
     uint8_t drumsMask=(1u<<ExpanderBits::DRUM1)|(1u<<ExpanderBits::DRUM2)|(1u<<ExpanderBits::DRUM3)|(1u<<ExpanderBits::DRUM4);
-    newImg &= ~drumsMask; for(uint8_t i=0;i<DRUM_COUNT;i++){ if(drumTrig[i]) newImg |= (1u<<(ExpanderBits::DRUM1+i)); }
+    // Drum triggers default to a *HIGH pulse at the jack* (LOW->HIGH->LOW), which many drum inputs
+    // treat as a conventional rising-edge trigger. With an inverter stage this means:
+    // idle: Q HIGH (jack LOW), active: Q LOW (jack HIGH).
+    newImg |= drumsMask;
+    for(uint8_t i=0;i<DRUM_COUNT;i++){
+      if(drumTrig[i]) newImg &= ~(1u<<(ExpanderBits::DRUM1+i));
+    }
     newImg |= (1u<<ExpanderBits::DAC1_CS) | (1u<<ExpanderBits::DAC2_CS);
     if(newImg!=img){ expanderWrite(newImg); drumDirty=false; }
   }

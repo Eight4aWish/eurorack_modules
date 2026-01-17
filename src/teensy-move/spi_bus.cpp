@@ -2,7 +2,12 @@
 #include <SPI.h>
 
 static uint8_t g_latchPin = 255;
-static uint8_t g_image = 0xFF; // default all HIGH (gates/drums deasserted, DAC CS inactive)
+// NOTE: This byte is the *74HC595 Q output level* (pre-inverter).
+// If your expander hardware inverts these lines (e.g. via a 74HCT14), then:
+//   - Q HIGH -> jack LOW
+//   - Q LOW  -> jack HIGH
+// The main loop updates these bits continuously; this just defines a safe power-on image.
+static uint8_t g_image = 0xFF; // Q HIGH (DAC CS inactive; others depend on downstream inversion)
 
 void expanderInit(uint8_t latchPin){
   g_latchPin = latchPin;
