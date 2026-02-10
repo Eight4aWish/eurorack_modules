@@ -15,34 +15,45 @@ pio run -e pico2w_oc -t upload
 pio device monitor -b 115200
 ```
 
-## Teensy 4.1 — `teensy-move`
+## Teensy 4.1 — `teensy-move` / `teensy-move-v2`
 
 This target implements a modular synth controller on Teensy 4.1 with two on-board channels and two expander channels driven via a 74HCT595. USB runs in composite mode (Audio + MIDI + Serial).
 
-- Features:
-	- USB Audio passthrough: I2S input routed to both I2S out and USB out.
-	- MIDI: Channels 1–4 produce gates + Mod/Pitch CV; Channel 10 notes 36–39 produce drum triggers.
-	- MIDI clock: 24 PPQN divided to quarter-note pulses; Start emits a short Reset pulse.
-	- OLED: Status lines for CLK/G1/G2/R, P1/P2 and M1/M2; last MIDI event overlay or drums row.
+### V2 Features (`teensy41_v2` environment):
 
-- On-board channels (1–2):
-	- Gates: `PIN_GATE1=40`, `PIN_GATE2=38` (through 74HCT14; firmware writes inverted via `GATE_WRITE`).
-	- DACs: Two MCP4822 chips, chip-selects on `PIN_CS_DAC1=33`, `PIN_CS_DAC2=34`.
-	- Calibration: `kPitchSlope/kPitchOffset`, `kModSlope/kModOffset` map target volts to DAC codes (2× gain enabled).
+- **Two Operating Modes** (cycle with short button press):
+  - **CV Mode** (Pages 0-1): MIDI channels 1-4 produce gates + Pitch CV + Mod CV (velocity-based). Channel 10 drum triggers.
+  - **Chord Mode** (Page 2): One-finger chord progressions similar to Maschine/Ableton. MIDI channel 6 triggers 4-voice chords on all pitch/gate outputs.
 
-- Expander channels (3–4) via 74HCT595:
-	- Latch: `PIN_595_LATCH=32`. Shared SPI bus `MOSI=11`, `SCK=13`.
-	- Bit map: Q1→Gate1 (ch3), Q0→Gate2 (ch4), Q2–Q5→Drum1–4, Q6→Mod DAC CS, Q7→Pitch DAC CS.
-	- Gates: LOW at the 595 asserts gates at the jacks (through HCT14 inverters).
-	- DAC mapping: Q6 (active-low CS) selects Mod DAC (A=Mod3, B=Mod4); Q7 selects Pitch DAC (A=Pitch3, B=Pitch4).
+- **Chord Mode Details**:
+  - 40 chord progressions across 5 categories: Pop, Jazz, EDM, Cinematic, LoFi
+  - Pot 1: Root note (C through B)
+  - Pot 2: Category selection
+  - Pot 3: Progression within category
+  - Pot 4: Voicing (Root, Inv1, Inv2, Drop2, Spread)
+  - White keys trigger chords 1-7, higher C triggers chord 8
+  - Real-time chord name detection and display (e.g., "Am7", "CM7", "Dm")
+  - Drum triggers (ch10) work in both modes
 
-- Drum triggers:
-	- MIDI Channel 10, notes 36..39 (C1..D#1) → Q2..Q5; ~15 ms pulses.
+- **Optimized MIDI Timing**:
+  - Reduced OLED refresh rate (150ms with row caching)
+  - Partial display updates for minimal blocking
+  - Rock-solid timing for live performance
+
+- **Hardware**:
+  - On-board channels (1-2): Gates `PIN_GATE1=40`, `PIN_GATE2=38`; DACs on `PIN_CS_DAC1=33`, `PIN_CS_DAC2=34`
+  - Expander channels (3-4) via 74HCT595: Gates + Drums + two MCP4822 DACs
+  - USB Audio passthrough: I2S input routed to both I2S out and USB out
+  - MIDI clock: 24 PPQN divided to quarter-note pulses; Start emits Reset pulse
 
 - Build & Upload:
 
 ```sh
-# Teensy 4.1 (teensy-move)
+# Teensy 4.1 V2 (recommended - with chord mode)
+pio run -e teensy41_v2
+pio run -e teensy41_v2 -t upload
+
+# Teensy 4.1 V1 (original MIDI-to-CV only)
 pio run -e teensy41
 pio run -e teensy41 -t upload
 ```
