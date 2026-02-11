@@ -32,6 +32,7 @@ Bounce btn;
 static uint32_t lastUiMs = 0;
 static uint32_t lastTickMs = 0;
 #define UI_FRAME_MS_ACTIVE  50
+#define UI_FRAME_MS_SLOW   150   // slower OLED updates for CV-critical patches (Env, LFO)
 #define CTRL_TICK_MS         5
 
 // -------------------- Calibration-ish --------------------
@@ -54,6 +55,14 @@ static float dacToEurorackGain = (10.0f / mcpVdd);
 // Gate output codes (ignore calibration for clock-like gates)
 static const uint16_t kGateLowCode = 2047; // ~0V baseline
 static const uint16_t kGateHighCode = 0;   // ~+5V on your hardware
+
+// Gate detection thresholds (raw ADS1115 codes at GAIN_ONE).
+// The inverting front-end means LOWER codes = HIGHER Eurorack voltage.
+// With default mapping: code ≈ 13500 at 0V, ≈ 1500 at +5V.
+// Gate-ON threshold  ~+1.5V Eurorack (code drops below this).
+// Gate-OFF threshold ~+0.6V Eurorack (code rises above this) for hysteresis.
+static const int16_t kGateOnThresh  = 10000;
+static const int16_t kGateOffThresh = 12000;
 
 // -------------------- State --------------------
 struct Patch {
@@ -278,6 +287,7 @@ static uint32_t clock_last_external_edge_ms = 0;
 static uint32_t clock_base_interval_ms = 500; // default 120 BPM -> 500ms per beat
 static uint32_t clock_ext_interval_ms = 0;
 static int ads_prev0 = 0;
+static bool clock_ext_gate = false; // track gate state for threshold detection
 // division / multiplication options
 static const char* div_labels[] = { "1/4", "1/3", "1/2", "1", "x2", "x3", "x4" };
 static const float div_factors[] = { 0.25f, 0.3333333f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f };
@@ -304,7 +314,7 @@ void clock_enter() {
   clock_last_internal_ms = millis();
   clock_last_external_edge_ms = 0;
   clock_ext_interval_ms = 0;
-  ads_prev0 = 0;
+  clock_ext_gate = false;
   for (int i=0;i<4;i++) { ch_next_fire_ms[i]=0; ch_pulse_end_ms[i]=0; ch_state[i]=false; }
 }
 
@@ -328,17 +338,19 @@ void clock_tick() {
   // detect external clock on ADS channel 0 (if present)
   bool have_ext = false;
   if (haveADS) {
-    int a0 = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH);
-    // simple threshold edge detector: rising when value increases by > delta
-    const int delta = 4000; // heuristic for 16-bit readings
-    if (ads_prev0 && a0 - ads_prev0 > delta) {
-      // rising edge
+    int16_t a0 = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH);
+    // Threshold-based rising-edge detection with hysteresis.
+    // Lower ADC code = higher Eurorack voltage (inverting front-end).
+    bool gate_now = clock_ext_gate ? (a0 < kGateOffThresh) : (a0 < kGateOnThresh);
+    if (gate_now && !clock_ext_gate) {
+      // rising edge detected
       if (clock_last_external_edge_ms) {
         clock_ext_interval_ms = now - clock_last_external_edge_ms;
       }
       clock_last_external_edge_ms = now;
       have_ext = true;
     }
+    clock_ext_gate = gate_now;
     ads_prev0 = a0;
   }
 
@@ -768,7 +780,7 @@ void quadlfo_render() {
 Patch patch_mod = { "LFO", quadlfo_enter, quadlfo_tick, quadlfo_render };
 
 // ---- Env patch: Dual macro ADSR (per-env AD + SR + Velocity) ----
-enum EnvStage { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_RELEASE };
+enum EnvStage { ENV_IDLE, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
 static uint32_t env_last_ms = 0;   // last tick time for dt
 // Editing selection: which envelope pots are writing to (0=E1,1=E2)
 static int env_edit_idx = 0;
@@ -778,6 +790,10 @@ static float env_params_SR[2]  = {0.5f, 0.5f}; // 0..1 maps to sustain/release
 static float env_params_Vel[2] = {1.0f, 1.0f}; // 0..1 output scaling
 static float env_levels[2]     = {0.0f, 0.0f}; // current envelope levels
 static EnvStage env_stages[2]  = {ENV_IDLE, ENV_IDLE};
+// Gate state tracking for threshold-based detection
+static bool env_gate_state[2]  = {false, false};
+static uint8_t env_adc_divider = 0;         // tick sub-counter for ADC read decimation
+static uint16_t env_prev_code[2] = {0, 0};  // previous DAC codes for slew limiting
 
 void env_enter() {
   env_edit_idx = 0;
@@ -786,13 +802,27 @@ void env_enter() {
   env_params_Vel[0] = env_params_Vel[1] = 1.0f;
   env_levels[0] = env_levels[1] = 0.0f;
   env_stages[0] = env_stages[1] = ENV_IDLE;
+  env_gate_state[0] = env_gate_state[1] = false;
+  env_adc_divider = 0;
+  env_prev_code[0] = env_prev_code[1] = kGateLowCode;
   env_last_ms = millis();
+  // Zero all CV outputs so stale values from previous patch don't persist
+  if (haveMCP) {
+    mcp_values[CV0_DA_CH] = kGateLowCode;
+    mcp_values[CV1_DA_CH] = kGateLowCode;
+    mcp_values[CV2_DA_CH] = kGateLowCode;
+    mcp_values[CV3_DA_CH] = kGateLowCode;
+  }
 }
 
 void env_tick() {
   uint32_t now = millis();
   float dt = (float)(now - env_last_ms);
-  if (dt < 0) dt = 0; env_last_ms = now;
+  if (dt < 0) dt = 0;
+  // Cap dt to prevent large envelope jumps when OLED display() stalls the bus.
+  // At 5ms tick rate, anything above ~12ms indicates I2C contention.
+  if (dt > 12.0f) dt = 12.0f;
+  env_last_ms = now;
 
   // Pots inverted with smoothing so CW increases
   float potVel = readPotNormSmooth(PIN_POT1, 0); // 0..1 velocity (amplitude)
@@ -807,18 +837,29 @@ void env_tick() {
   env_params_SR[env_edit_idx]  = potSR;
   env_params_Vel[env_edit_idx] = potVel;
 
-  // External triggers: independent rising edges
-  // Env1: ADS channel `AD_EXT_CLOCK_CH` (external clock)
-  // Env2: ADS channel `AD1_CH` (second input)
-  if (haveADS) {
-    const int delta = 4000; // heuristic for 16-bit readings
-    static int prev_e0 = 0;
-    static int prev_e1 = 0;
-    int a0 = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH);
-    int a1 = ads.readADC_SingleEnded(AD1_CH);
-    if (prev_e0 && a0 - prev_e0 > delta) env_stages[0] = ENV_ATTACK;
-    if (prev_e1 && a1 - prev_e1 > delta) env_stages[1] = ENV_ATTACK;
-    prev_e0 = a0; prev_e1 = a1;
+  // External triggers: threshold-based gate detection with hysteresis.
+  // Lower ADC code = higher Eurorack voltage (inverting front-end).
+  // Only read ADS every 4th tick (~50 Hz) to keep most ticks fast for
+  // DAC writes. Gate detection at 50 Hz is sufficient for musical use.
+  env_adc_divider++;
+  if (haveADS && (env_adc_divider >= 4)) {
+    env_adc_divider = 0;
+    int16_t a0 = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH);
+    int16_t a1 = ads.readADC_SingleEnded(AD1_CH);
+
+    bool gate0_now = env_gate_state[0] ? (a0 < kGateOffThresh) : (a0 < kGateOnThresh);
+    bool gate1_now = env_gate_state[1] ? (a1 < kGateOffThresh) : (a1 < kGateOnThresh);
+
+    // Rising edge -> trigger attack (retrigger from any stage)
+    if (gate0_now && !env_gate_state[0]) env_stages[0] = ENV_ATTACK;
+    if (gate1_now && !env_gate_state[1]) env_stages[1] = ENV_ATTACK;
+
+    // Falling edge -> release if holding at sustain
+    if (!gate0_now && env_gate_state[0] && env_stages[0] == ENV_SUSTAIN) env_stages[0] = ENV_RELEASE;
+    if (!gate1_now && env_gate_state[1] && env_stages[1] == ENV_SUSTAIN) env_stages[1] = ENV_RELEASE;
+
+    env_gate_state[0] = gate0_now;
+    env_gate_state[1] = gate1_now;
   }
 
   // Advance both envelopes using their own params
@@ -842,7 +883,19 @@ void env_tick() {
       case ENV_DECAY: {
         float span = (1.0f - sustain); if (span < 1e-6f) span = 1e-6f;
         float step = (decay_ms <= 0.0f) ? span : (dt * span / decay_ms);
-        env_levels[i] -= step; if (env_levels[i] <= sustain) { env_levels[i] = sustain; env_stages[i] = ENV_RELEASE; }
+        env_levels[i] -= step;
+        if (env_levels[i] <= sustain) {
+          env_levels[i] = sustain;
+          // Hold at sustain while gate is HIGH; release when gate drops
+          env_stages[i] = ENV_SUSTAIN;
+        }
+      } break;
+      case ENV_SUSTAIN: {
+        // Hold at sustain level; gate-off transitions to RELEASE are
+        // handled above in the gate detection block.
+        env_levels[i] = sustain;
+        // If gate already dropped (e.g. very short trigger), release immediately
+        if (!env_gate_state[i]) env_stages[i] = ENV_RELEASE;
       } break;
       case ENV_RELEASE: {
         float span = sustain; if (span < 1e-6f) span = 1e-6f;
@@ -859,6 +912,19 @@ void env_tick() {
     // Map to target volts (0..+5V) then to calibrated DAC codes
     uint16_t c0 = voltsToDac(0, v0 * 5.0f);
     uint16_t c1 = voltsToDac(1, v1 * 5.0f);
+    // Slew-limit DAC code changes to avoid abrupt voltage jumps that
+    // produce audible clicks. Max step of ~100 codes per tick ≈ 80mV
+    // at ~0.8mV/code, giving a ~16V/s slew rate — fast enough for
+    // musical envelopes but eliminates staircase artifacts.
+    const int16_t maxStep = 100;
+    int16_t d0 = (int16_t)c0 - (int16_t)env_prev_code[0];
+    int16_t d1 = (int16_t)c1 - (int16_t)env_prev_code[1];
+    if (d0 >  maxStep) c0 = env_prev_code[0] + maxStep;
+    if (d0 < -maxStep) c0 = env_prev_code[0] - maxStep;
+    if (d1 >  maxStep) c1 = env_prev_code[1] + maxStep;
+    if (d1 < -maxStep) c1 = env_prev_code[1] - maxStep;
+    env_prev_code[0] = c0;
+    env_prev_code[1] = c1;
     mcp_values[CV0_DA_CH] = c0;
     mcp_values[CV1_DA_CH] = c1;
     mcp.fastWrite(
@@ -937,47 +1003,38 @@ static float quantize_voct(float v) {
   return st / 12.0f;
 }
 
-void quant_enter() {}
-void quant_tick() {}
-void quant_render() {
-  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 64, "Quant");
+// ---- Quant state for tick/render split ----
+static int16_t quant_raw0 = 0, quant_raw1 = 0;
+static float quant_vin0 = NAN, quant_vin1 = NAN;
+static float quant_vq0 = NAN, quant_vq1 = NAN;
+static uint16_t quant_code0 = 0, quant_code1 = 0;
 
-  int16_t a0 = 0, a1 = 0;
-  float vin0 = NAN, vin1 = NAN;
+void quant_enter() {
+  quant_raw0 = quant_raw1 = 0;
+  quant_vin0 = quant_vin1 = NAN;
+  quant_vq0 = quant_vq1 = NAN;
+  quant_code0 = quant_code1 = kGateLowCode;
+}
+void quant_tick() {
   if (haveADS) {
-    a0 = ads.readADC_SingleEnded(AD0_CH);
-    a1 = ads.readADC_SingleEnded(AD1_CH);
+    quant_raw0 = ads.readADC_SingleEnded(AD0_CH);
+    quant_raw1 = ads.readADC_SingleEnded(AD1_CH);
     #ifdef USE_STATIC_CALIB
-      vin0 = pico2w_oc_calib::adcCodeToVolts(0, a0);
-      vin1 = pico2w_oc_calib::adcCodeToVolts(1, a1);
+      quant_vin0 = pico2w_oc_calib::adcCodeToVolts(0, quant_raw0);
+      quant_vin1 = pico2w_oc_calib::adcCodeToVolts(1, quant_raw1);
     #else
-      vin0 = mapAdsToCv(ads.computeVolts(a0));
-      vin1 = mapAdsToCv(ads.computeVolts(a1));
+      quant_vin0 = mapAdsToCv(ads.computeVolts(quant_raw0));
+      quant_vin1 = mapAdsToCv(ads.computeVolts(quant_raw1));
     #endif
   }
-
-  float vq0 = quantize_voct(vin0);
-  float vq1 = quantize_voct(vin1);
-
-  // Output quantised values to the first two *logical* CV outputs: CV0 and CV1.
-  // These map to physical MCP4728 channels via CVx_DA_CH.
-  uint16_t code0 = kGateLowCode;
-  uint16_t code1 = kGateLowCode;
-  if (haveMCP) {
-    code0 = voltsToDac(0, vq0);
-    code1 = voltsToDac(1, vq1);
-    mcp_values[CV0_DA_CH] = code0;
-    mcp_values[CV1_DA_CH] = code1;
-    // Preserve other channels as-is; write in physical order A,B,C,D
-    mcp.fastWrite(mcp_values[0], mcp_values[1], mcp_values[2], mcp_values[3]);
-  }
+  quant_vq0 = quantize_voct(quant_vin0);
+  quant_vq1 = quantize_voct(quant_vin1);
 
   if (haveMCP) {
-    uint16_t c0 = voltsToDac(0, vq0);
-    uint16_t c1 = voltsToDac(1, vq1);
-    mcp_values[CV0_DA_CH] = c0;
-    mcp_values[CV1_DA_CH] = c1;
+    quant_code0 = voltsToDac(0, quant_vq0);
+    quant_code1 = voltsToDac(1, quant_vq1);
+    mcp_values[CV0_DA_CH] = quant_code0;
+    mcp_values[CV1_DA_CH] = quant_code1;
     mcp.fastWrite(
       mcp_values[CV3_DA_CH],
       mcp_values[CV0_DA_CH],
@@ -985,28 +1042,31 @@ void quant_render() {
       mcp_values[CV1_DA_CH]
     );
   }
+}
+void quant_render() {
+  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 64, "Quant");
 
-  // Display raw ADS codes and computed input volts
-  oled.setCursor(0,16);  oled.print("Raw0 "); oled.print(a0);
-  oled.setCursor(64,16); oled.print("V0 "); if (isnan(vin0)) oled.print("--"); else oled.print(vin0,2);
-  oled.setCursor(0,26);  oled.print("Raw1 "); oled.print(a1);
-  oled.setCursor(64,26); oled.print("V1 "); if (isnan(vin1)) oled.print("--"); else oled.print(vin1,2);
+  // Display raw ADS codes and computed input volts (from tick state)
+  oled.setCursor(0,16);  oled.print("Raw0 "); oled.print(quant_raw0);
+  oled.setCursor(64,16); oled.print("V0 "); if (isnan(quant_vin0)) oled.print("--"); else oled.print(quant_vin0,2);
+  oled.setCursor(0,26);  oled.print("Raw1 "); oled.print(quant_raw1);
+  oled.setCursor(64,26); oled.print("V1 "); if (isnan(quant_vin1)) oled.print("--"); else oled.print(quant_vin1,2);
   // Show quantised output target volts
-  oled.setCursor(0,36);  oled.print("Out0 "); if (isnan(vq0)) oled.print("--"); else oled.print(vq0,2);
-  oled.setCursor(64,36); oled.print("Out1 "); if (isnan(vq1)) oled.print("--"); else oled.print(vq1,2);
+  oled.setCursor(0,36);  oled.print("Out0 "); if (isnan(quant_vq0)) oled.print("--"); else oled.print(quant_vq0,2);
+  oled.setCursor(64,36); oled.print("Out1 "); if (isnan(quant_vq1)) oled.print("--"); else oled.print(quant_vq1,2);
   // Show the DAC codes being written for CV0/CV1, including which physical channel
   const uint8_t phys0 = CV0_DA_CH;
   const uint8_t phys1 = CV1_DA_CH;
-  oled.setCursor(0,46);  oled.print("CV0"); oled.print(mcpPhysLetter(phys0)); oled.print(' '); oled.print((int)code0);
-  oled.setCursor(64,46); oled.print("CV1"); oled.print(mcpPhysLetter(phys1)); oled.print(' '); oled.print((int)code1);
+  oled.setCursor(0,46);  oled.print("CV0"); oled.print(mcpPhysLetter(phys0)); oled.print(' '); oled.print((int)quant_code0);
+  oled.setCursor(64,46); oled.print("CV1"); oled.print(mcpPhysLetter(phys1)); oled.print(' '); oled.print((int)quant_code1);
   // Predicted MCP4728 pin volts for those physical channels
-  float vDac0 = (mcpVdd * (float)code0) / 4095.0f;
-  float vDac1 = (mcpVdd * (float)code1) / 4095.0f;
+  float vDac0 = (mcpVdd * (float)quant_code0) / 4095.0f;
+  float vDac1 = (mcpVdd * (float)quant_code1) / 4095.0f;
   oled.setCursor(0,56);  oled.print("V0p "); oled.print(vDac0,2);
   oled.setCursor(64,56); oled.print("V1p "); oled.print(vDac1,2);
 
   // Also show MCP4728 input-register config bits for the physical channels backing CV0/CV1.
-  // Format: <ch> <V/I><1/2> PD<pd>
   if (haveMCP) {
     uint8_t buf[24];
     if (mcp4728_readAll(buf)) {
@@ -1029,17 +1089,24 @@ Patch patch_quant = { "Quant", quant_enter, quant_tick, quant_render };
 static const int SCOPE_SAMPLES = 128;
 static int16_t scope_buf[SCOPE_SAMPLES];
 static int scope_idx = 0;
+static bool scope_buf_full = false; // true once buffer has wrapped at least once
 
 void scope_enter() {
   scope_idx = 0;
+  scope_buf_full = false;
   for (int i=0;i<SCOPE_SAMPLES;i++) scope_buf[i]=0;
 }
 
 void scope_tick() {
   if (!haveADS) return;
-  int16_t a0 = ads.readADC_SingleEnded(AD0_CH);
-  scope_buf[scope_idx++] = a0;
-  if (scope_idx >= SCOPE_SAMPLES) scope_idx = 0;
+  // Collect multiple samples per tick to increase effective sample rate.
+  // ADS1115 at 860SPS takes ~1.16ms per read; fit ~3-4 reads per 5ms tick.
+  for (int burst = 0; burst < 3; burst++) {
+    int16_t a0 = ads.readADC_SingleEnded(AD0_CH);
+    scope_buf[scope_idx] = a0;
+    scope_idx = (scope_idx + 1) % SCOPE_SAMPLES;
+    if (scope_idx == 0) scope_buf_full = true;
+  }
 }
 
 void scope_render() {
@@ -1052,6 +1119,9 @@ void scope_render() {
   int rawM = 4095 - analogRead(PIN_POT3);
   float vgain = 0.25f + (3.75f * (float)rawV / 4095.0f);      // ~0.25x .. 4x
   int visible = 32 + (rawH * (128 - 32)) / 4095; if (visible < 2) visible = 2; // 32..128
+
+  // Compute midpoint (constant for this frame) outside the per-sample loop
+  int midpoint = (int)((rawM / 4095.0f) * 32767.0f) - 16384;
 
   // Show zoom + midpoint status in title bar (right side)
   oled.setCursor(66,0);
@@ -1066,13 +1136,41 @@ void scope_render() {
   const int cy = y0 + (h/2);
   oled.drawFastHLine(0, cy, OLED_W, SSD1306_WHITE);
 
-  // Determine start index for last 'visible' samples
-  int start = scope_idx - visible; while (start < 0) start += SCOPE_SAMPLES;
+  // Determine available sample count
+  int avail = scope_buf_full ? SCOPE_SAMPLES : scope_idx;
+  if (avail < 2) { oled.display(); return; }
+  if (visible > avail) visible = avail;
+
+  // Trigger detection: find a rising Eurorack edge (falling raw ADC code
+  // crossing the midpoint) within the buffer so the display is stable.
+  // Search backwards from the most recent samples to find the latest trigger point.
+  int trigger_idx = -1;
+  int search_start = (scope_idx - 1 + SCOPE_SAMPLES) % SCOPE_SAMPLES;
+  int search_len = avail - 1; // need pairs, so one fewer than available
+  if (search_len > SCOPE_SAMPLES - 1) search_len = SCOPE_SAMPLES - 1;
+  for (int k = 0; k < search_len - visible; k++) {
+    int cur = (search_start - k + SCOPE_SAMPLES) % SCOPE_SAMPLES;
+    int prv = (cur - 1 + SCOPE_SAMPLES) % SCOPE_SAMPLES;
+    // Rising Eurorack voltage = falling raw ADC code crossing midpoint
+    if (scope_buf[prv] >= midpoint && scope_buf[cur] < midpoint) {
+      // Found a trigger point; use it as the start of the visible window
+      // so the rising edge appears near the left side.
+      trigger_idx = cur;
+      break;
+    }
+  }
+
+  // Fall back to latest samples if no trigger found (free-run mode)
+  int start;
+  if (trigger_idx >= 0) {
+    start = trigger_idx;
+  } else {
+    start = (scope_idx - visible + SCOPE_SAMPLES) % SCOPE_SAMPLES;
+  }
+
   int prevx = 0; int prevy = cy;
   for (int i=0;i<visible;i++) {
     int s = scope_buf[(start + i) % SCOPE_SAMPLES];
-    // midpoint adjust: map rawM to ADC units and subtract
-    int midpoint = (int)((rawM / 4095.0f) * 32767.0f) - 16384;
     int centered = s - midpoint; // ~-32767..+32767
     int y = cy - (int)((centered * vgain * (h-1)) / 32767.0f);
     if (y < y0) y = y0; else if (y > y0 + h - 1) y = y0 + h - 1;
@@ -1235,7 +1333,11 @@ void loop() {
     if (p && p->tick) p->tick();
   }
 
-  if (haveSSD && (now - lastUiMs >= UI_FRAME_MS_ACTIVE)) {
+  // Use slower OLED refresh for CV-critical patches (Env, LFO) to reduce
+  // I2C bus contention that causes audible DAC update jitter.
+  bool isCvPatch = (patchIdx == 4 || patchIdx == 3); // Env=4, LFO=3
+  uint32_t uiInterval = isCvPatch ? UI_FRAME_MS_SLOW : UI_FRAME_MS_ACTIVE;
+  if (haveSSD && (now - lastUiMs >= uiInterval)) {
     lastUiMs = now;
     if (homeMenuActive) {
       homeMenu.draw();
