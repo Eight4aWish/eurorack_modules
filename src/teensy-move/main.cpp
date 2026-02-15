@@ -220,11 +220,11 @@ void onControlChange(byte, byte, byte){ }
 
 // MIDI clock
 static volatile uint32_t midiTickCount=0; static const uint8_t PPQN=24, BEAT_DIV=24;
-static void resetMidiClockCounter(){ midiTickCount=0; }
-void onStart(){ rst=true; rstUntil=millis()+8; resetMidiClockCounter(); }
-void onStop(){ gate1=false; gate2=false; clk=false; rst=false; resetMidiClockCounter(); }
+static void resetMidiClockCounter(){ midiTickCount=BEAT_DIV-1; } // so first onClock() fires beat 1
+void onStart(){ rst=true; rstUntil=millis()+8; GATE_WRITE(PIN_RESET,true); resetMidiClockCounter(); }
+void onStop(){ gate1=false; gate2=false; clk=false; rst=false; GATE_WRITE(PIN_CLOCK,false); resetMidiClockCounter(); }
 void onContinue(){ resetMidiClockCounter(); }
-void onClock(){ midiTickCount++; if(midiTickCount % BEAT_DIV == 0){ clk=true; clkUntil=millis()+PULSE_MS; } }
+void onClock(){ midiTickCount++; if(midiTickCount % BEAT_DIV == 0){ clk=true; clkUntil=millis()+PULSE_MS; GATE_WRITE(PIN_CLOCK,true); } }
 
 // Setup
 void setup(){
@@ -270,9 +270,9 @@ void setup(){
 // Loop
 void loop(){
   // Diagnostics mode
-  if(gDiagMode){ usbMIDI.read(); diag_tick(); diag_render(); delay(10); return; }
+  if(gDiagMode){ while(usbMIDI.read()) {} diag_tick(); diag_render(); delay(10); return; }
   
-  usbMIDI.read();
+  while(usbMIDI.read()) {}  // drain ALL pending MIDI — critical for clock timing
   bool b=digitalRead(PIN_BTN);
   if(b!=btnPrev){
     if(b==LOW) btnDownAt=millis();
