@@ -30,14 +30,15 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2/Pot3: No effect.
 
 ### Clock
-- Purpose: Lightweight 4-channel clock with divisions and optional external clocking.
-- Outputs: 10 ms gates on CV0..CV3 using fixed “gate codes” (about 0 V at code ~2047, +5 V at code 0), intentionally ignoring calibration.
-- Display: `INT/EXT`, BPM, and `RUN/STOP`; per-channel division labels for CH0..CH3.
+- Purpose: Lightweight 4-channel clock with independent divisions/multiplications and optional external clocking.
+- Outputs: 10 ms gates on CV0..CV3 using fixed "gate codes" (about 0 V at code ~2047, +5 V at code 0), intentionally ignoring calibration.
+- Divisions: /16, /12, /8, /6, /5, /4, /3, /2, 1, x2, x3, x4, x5, x6, x8 (15 options per channel).
+- Display: `INT/EXT`, BPM, and `RUN/STOP`; per-channel division labels for CH0..CH3 with `>` indicating the selected channel.
 - Controls:
   - Short press: Toggle RUN/STOP.
   - Pot1: BPM (INT mode: 30–300 BPM). If external clock edges are detected on `AD_EXT_CLOCK_CH`, the clock follows the external period.
-  - Pot2: Division for CH0; CH1 is derived at half speed of CH0.
-  - Pot3: Division for CH2; CH3 is derived at half speed of CH2.
+  - Pot2: Select which channel to edit (CH0 / CH1 / CH2 / CH3).
+  - Pot3: Set division/multiplication for the selected channel.
 
 ### Euclid
 - Purpose: Euclidean drum triggers on up to 4 outputs.
@@ -85,7 +86,7 @@ This guide covers navigation, controls, and behavior for the current functional 
 - Approach: Use the `Diag` patch for DMM-first calibration. Record raw ADC codes vs known volts, and raw DAC codes vs measured volts, then fit straight lines per channel.
 - Integration: Static fits are compiled in (see `include/pico2w_oc/calib_static.h`). Diagnostics remain raw-only.
 
-### QuadLFO
+### LFO
 - Purpose: 4 independent LFOs with per-LFO amplitude, rate, and shape.
 - Outputs: CV0..CV3 emit LFOs; bipolar ±amp mapped via calibration to DAC codes.
 - Controls (smoothed, inverted):
@@ -98,6 +99,7 @@ This guide covers navigation, controls, and behavior for the current functional 
 
 ## Tips
 
+- I2C Buses: OLED is on Wire (I2C0, GP20/GP21). ADS1115 + MCP4728 are on Wire1 (I2C1, GP18/GP19). This eliminates bus contention between display updates and CV I/O.
 - Physical Mapping: DAC channels use physical macros `CV0_DA_CH..CV3_DA_CH`; ADS channels use `AD0_CH`, `AD1_CH`, and `AD_EXT_CLOCK_CH` in `include/pico2w_oc/pins.h`.
 - External Clocking: Provide clean rising edges into `AD_EXT_CLOCK_CH` for reliable detection.
 - OLED Grid: Keep titles at `y=0`; use rows `16/26/36/46/56` for content.
@@ -118,77 +120,6 @@ pio run -e pico2w_oc -t upload
 # Monitor serial at 115200
 pio device monitor -b 115200
 ```
-
-## Known Hardware Limitations — External Clock Detection
-
-The external clock detection path has several hardware-level constraints that limit timing accuracy. These are inherent to the current board design and cannot be fully resolved in firmware alone.
-
-### 1. I2C Bus Contention (Critical)
-
-The ADS1115 (ADC), SSD1306 OLED, and MCP4728 (DAC) all share a single I2C bus (Wire1 at 400 kHz). The OLED framebuffer push (~1 KB = 8192 bits) takes approximately **20 ms** to transfer. During that window the bus is locked — no ADS1115 reads or MCP4728 writes can occur.
-
-**Impact:** If an external clock edge arrives while an OLED frame is being pushed, detection is delayed by up to 20 ms. The Clock patch uses `UI_FRAME_MS_ACTIVE = 50 ms`, so roughly 40% of wall-clock time is occupied by OLED transfers (20 ms blocked out of every 50 ms cycle).
-
-**Mitigation (hardware):** Move the OLED to its own I2C bus. The RP2350 has two I2C peripherals (Wire and Wire1); currently only Wire1 is used. Wiring the OLED to Wire on separate SDA/SCL pins would eliminate contention entirely.
-
-**Mitigation (firmware):** Use `slowOled = true` for the Clock patch to reduce OLED refresh to 150 ms, shrinking the bus-blocked fraction to ~13%. Alternatively, implement partial OLED updates (dirty-rectangle) to shorten transfer time.
-
-### 2. No ADS1115 ALERT/DRDY Interrupt
-
-The ADS1115 has an ALERT/RDY output pin that can be configured as a data-ready signal or a window comparator output. **This pin is not connected to any Pico GPIO** on the current board.
-
-All edge detection is therefore polled: each `clock_tick()` call issues a blocking `readADC_SingleEnded()` which starts a single-shot conversion, waits for it to finish (~1.2 ms at 860 SPS), then reads the result.
-
-**Impact:** Worst-case edge detection latency is `CTRL_TICK_MS` (5 ms) + conversion time (1.2 ms) = **~6.2 ms**. At 300 BPM (200 ms period) this is 3% phase error per edge. At the rejection boundary of 600 BPM (100 ms period) it's 6%.
-
-**Mitigation (hardware):** Wire ADS1115 ALERT/RDY to a free Pico GPIO. Configure the ADS1115 in continuous mode with the comparator set as a window detector — the ALERT pin fires a hardware interrupt when the input crosses the gate threshold. This would reduce detection latency to sub-millisecond.
-
-### 3. Polled Single-Shot ADC Mode
-
-The Adafruit ADS1X15 library's `readADC_SingleEnded()` performs a full single-shot cycle per call:
-1. Write config register (start conversion + set mux channel)
-2. Poll the "conversion ready" bit over I2C
-3. Read the 16-bit result
-
-At 860 SPS, each call blocks for ~1.2 ms minimum, consuming I2C bandwidth and adding fixed latency to every tick.
-
-**Impact:** With `CTRL_TICK_MS = 5 ms`, the ADC read consumes ~24% of each tick's time budget. If additional reads are needed (e.g., Env reads two channels), the per-tick cost doubles.
-
-**Mitigation (firmware — no hardware change):** Switch to continuous conversion mode. Start a conversion at the end of each tick; on the next tick, read the ready result immediately (no polling wait). This saves ~0.8 ms per read. Combined with the ALERT/DRDY interrupt above, continuous mode with hardware interrupt is the ideal configuration.
-
-### 4. Polling Rate Ceiling
-
-`CTRL_TICK_MS = 5 ms` sets a hard ceiling of **200 Hz** on clock edge sampling. The firmware's exponential smoothing filter (α = 0.3) reduces average tempo drift but cannot correct the per-edge phase quantisation imposed by the 5 ms poll interval.
-
-| BPM  | Period (ms) | Polls/Period | Max Phase Error |
-|------|-------------|-------------|-----------------|
-| 120  | 500         | 100         | 1.0%            |
-| 200  | 300         | 60          | 1.7%            |
-| 300  | 200         | 40          | 2.5%            |
-| 600  | 100         | 20          | 5.0%            |
-
-**Mitigation (firmware):** Reducing `CTRL_TICK_MS` to 2 ms would cut phase error proportionally, but increases I2C traffic and CPU load. This is only practical if the ADS read pathway is optimised (continuous mode, non-blocking reads) so ticks complete within their budget.
-
-### 5. Shared Clock/CV Input Jack
-
-`AD_EXT_CLOCK_CH` is aliased to `AD0_CH` (ADS1115 channel 1). The external clock and CV input 0 are the **same physical jack**. The analog front-end is an inverting stage designed for ±5 V CV signals (biased around ~1.65 V midpoint), not optimised for digital gate/clock detection.
-
-**Impact:** The inverting front-end means lower ADC codes = higher Eurorack voltages. Threshold constants (`kGateOnThresh = 10000`, `kGateOffThresh = 12000`) are calibrated to this mapping at the current gain/bias. If the front-end is redesigned or the ADS gain changes, these thresholds must be recalibrated.
-
-**Consideration:** Gate signals from some modules can be +3.3 V (Pico-level) rather than the Eurorack-standard +5 V. At +3.3 V the ADC code would be ~(13567 − 3.3 × 2418) ≈ 5588, which is well below `kGateOnThresh = 10000`, so detection will work. However, modules outputting very low gates (+1.0 V or less) could fall between the `kGateOnThresh` and 0 V baseline, causing unreliable detection.
-
-**Mitigation (hardware):** Add a dedicated digital clock input jack with a simple comparator/Schmitt trigger circuit feeding a Pico GPIO directly. Schmitt-triggered GPIO input provides clean edges with sub-microsecond latency and zero I2C overhead.
-
-### Summary — Priority of Improvements
-
-| Priority | Change | Type | Impact |
-|----------|--------|------|--------|
-| 1 | Move OLED to separate I2C bus | HW | Eliminates 20 ms blind spots |
-| 2 | Wire ADS1115 ALERT/RDY to GPIO | HW | Sub-ms edge detection via interrupt |
-| 3 | Dedicated clock input (GPIO + Schmitt) | HW | Zero-latency digital clock; frees ADC channel |
-| 4 | Switch ADS to continuous mode | FW | Saves ~0.8 ms per read; enables DRDY interrupt |
-| 5 | Mark Clock patch `slowOled = true` | FW | Quick win: reduces bus contention |
-| 6 | Reduce `CTRL_TICK_MS` to 2 ms | FW | Halves phase quantisation error |
 
 ## Contributing
 

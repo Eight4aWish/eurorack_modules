@@ -7,10 +7,15 @@
 #define PIN_POT2 27   // ADC1
 #define PIN_POT3 26   // ADC2
 
-#define I2C_SDA 18
-#define I2C_SCL 19
+// I2C1 — ADS1115 + MCP4728 (CV ADC/DAC)
+#define I2C1_SDA 18
+#define I2C1_SCL 19
 
-#define I2C_ADDR_SSD1306 0x3C
+// I2C0 — SSD1306 OLED (separate bus to avoid contention)
+#define I2C0_SDA 20
+#define I2C0_SCL 21
+
+#define I2C_ADDR_SSD1306 0x3C //0x3C
 #define I2C_ADDR_ADS     0x48   // change if you wired A0 differently
 #define I2C_ADDR_MCP     0x60
 

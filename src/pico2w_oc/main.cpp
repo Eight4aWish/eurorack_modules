@@ -19,11 +19,11 @@
 #endif
 
 // -------------------- OLED --------------------
-Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire1, -1);
+Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);  // OLED on Wire (I2C0)
 
 // -------------------- Devices --------------------
-Adafruit_ADS1115  ads;    // pass Wire1 in begin()
-Adafruit_MCP4728  mcp;    // pass Wire1 in begin()
+Adafruit_ADS1115  ads;    // ADS on Wire1 (I2C1)
+Adafruit_MCP4728  mcp;    // MCP on Wire1 (I2C1)
 
 // -------------------- Button --------------------
 Bounce btn;
@@ -162,12 +162,15 @@ float readPotNormSmooth(int pin, int idx) {
 
 void i2cScan(bool &ssd, bool &adsOK, bool &mcpOK) {
   ssd = adsOK = mcpOK = false;
-  for (uint8_t addr : {I2C_ADDR_SSD1306, I2C_ADDR_ADS, I2C_ADDR_MCP}) {
+  // OLED is on Wire (I2C0)
+  Wire.beginTransmission(I2C_ADDR_SSD1306);
+  if (Wire.endTransmission() == 0) ssd = true;
+  // ADS + MCP are on Wire1 (I2C1)
+  for (uint8_t addr : {I2C_ADDR_ADS, I2C_ADDR_MCP}) {
     Wire1.beginTransmission(addr);
     uint8_t err = Wire1.endTransmission();
-    if (addr == I2C_ADDR_SSD1306 && err == 0) ssd = true;
-    if (addr == I2C_ADDR_ADS     && err == 0) adsOK = true;
-    if (addr == I2C_ADDR_MCP     && err == 0) mcpOK = true;
+    if (addr == I2C_ADDR_ADS && err == 0) adsOK = true;
+    if (addr == I2C_ADDR_MCP && err == 0) mcpOK = true;
   }
 }
 
@@ -308,15 +311,16 @@ static int ads_prev0 = 0;
 static bool clock_ext_gate = false; // track gate state for threshold detection
 static bool clock_ads_continuous = false; // true while ADS is in continuous mode for ext clock
 // division / multiplication options
-static const char* div_labels[] = { "1/4", "1/3", "1/2", "1", "x2", "x3", "x4" };
-static const float div_factors[] = { 0.25f, 0.3333333f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f };
+static const char* div_labels[] = { "/16", "/12", "/8", "/6", "/5", "/4", "/3", "/2", "1", "x2", "x3", "x4", "x5", "x6", "x8" };
+static const float div_factors[] = { 1.0f/16, 1.0f/12, 1.0f/8, 1.0f/6, 1.0f/5, 0.25f, 0.3333333f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f };
 static const int kDivCount = sizeof(div_factors) / sizeof(div_factors[0]);
 // per-channel scheduling
 static uint32_t ch_next_fire_ms[4] = {0,0,0,0};
 static uint32_t ch_pulse_end_ms[4] = {0,0,0,0};
 static bool ch_state[4] = {false,false,false,false};
-// Option B state
-static int clock_div_idx[4] = {kDivCount/2, kDivCount/2, kDivCount/2, kDivCount/2};
+// Per-channel division index — default to "1" (index 8)
+static int clock_div_idx[4] = {8, 8, 8, 8};
+static int clock_sel_ch = 0; // which channel (0..3) is being edited via Pot3
 
 // Helper: find nearest division index to a target factor
 static int clock_find_nearest_div(float target) {
@@ -353,13 +357,13 @@ void clock_tick() {
     patchShortPressed = false;
   }
 
-  // read pots (smoothed, inverted) POT1=BPM, POT2=CH0 base, POT3=CH2 base
+  // read pots (smoothed, inverted) POT1=BPM, POT2=channel select, POT3=division
   float p_bpm = readPotNormSmooth(PIN_POT1, 0);
-  float p_ch0 = readPotNormSmooth(PIN_POT2, 1);
-  float p_ch2 = readPotNormSmooth(PIN_POT3, 2);
+  float p_sel = readPotNormSmooth(PIN_POT2, 1);
+  float p_div = readPotNormSmooth(PIN_POT3, 2);
   int pot_raw_bpm = (int)(p_bpm * 4095.0f);
-  int pot_raw_ch0 = (int)(p_ch0 * 4095.0f);
-  int pot_raw_ch2 = (int)(p_ch2 * 4095.0f);
+  int pot_raw_sel = (int)(p_sel * 4095.0f);
+  int pot_raw_div = (int)(p_div * 4095.0f);
 
   uint32_t now = millis();
 
@@ -413,24 +417,13 @@ void clock_tick() {
     if (bpm <= 0) bpm = 120;
     clock_base_interval_ms = 60000 / bpm;
   }
-  // Map POT2 -> CH0 division index, POT3 -> CH2 division index
-  int idx_ch0 = (int)((uint32_t)pot_raw_ch0 * kDivCount / 4096);
-  if (idx_ch0 < 0) idx_ch0 = 0; else if (idx_ch0 >= kDivCount) idx_ch0 = kDivCount - 1;
-  int idx_ch2 = (int)((uint32_t)pot_raw_ch2 * kDivCount / 4096);
-  if (idx_ch2 < 0) idx_ch2 = 0; else if (idx_ch2 >= kDivCount) idx_ch2 = kDivCount - 1;
-  clock_div_idx[0] = idx_ch0;
-  clock_div_idx[2] = idx_ch2;
-
-  // Derived channels: CH1 = half speed of CH0, CH3 = half speed of CH2.
-  // "Half" interpreted as half the rate (interval doubled -> factor halved).
-  // NOTE: at the extremes (CH0 = /4), CH1 also clamps to /4 because the
-  // division table has no /8 entry. The display will show identical values.
-  float f0 = div_factors[clock_div_idx[0]] * 0.5f;
-  float f2 = div_factors[clock_div_idx[2]] * 0.5f;
-  if (f0 < div_factors[0]) f0 = div_factors[0];
-  if (f2 < div_factors[0]) f2 = div_factors[0];
-  clock_div_idx[1] = clock_find_nearest_div(f0);
-  clock_div_idx[3] = clock_find_nearest_div(f2);
+  // POT2 selects which channel (0..3) to edit; POT3 sets its division
+  int sel = (int)((uint32_t)pot_raw_sel * 4 / 4096);
+  if (sel < 0) sel = 0; else if (sel > 3) sel = 3;
+  clock_sel_ch = sel;
+  int div_idx = (int)((uint32_t)pot_raw_div * kDivCount / 4096);
+  if (div_idx < 0) div_idx = 0; else if (div_idx >= kDivCount) div_idx = kDivCount - 1;
+  clock_div_idx[clock_sel_ch] = div_idx;
 
   // On each external rising edge, resynchronize all channel schedules so
   // outputs are phase-locked to the incoming clock, not free-running.
@@ -469,7 +462,7 @@ void clock_tick() {
     }
   }
 
-  // CH1 & CH3 derived above; no independent editing.
+  // All 4 channels independently editable via Pot2/Pot3.
 
   // write MCP outputs if available (direct codes: low~2047, high~0)
   if (haveMCP) {
@@ -499,11 +492,14 @@ void clock_render() {
   oled.print(ext_mode ? "EXT " : "INT ");
   oled.print(bpm_disp); oled.print(' '); oled.print(clock_running ? "RUN" : "STOP");
 
-  // Channel divisions rows (fixed, no selection underline)
-  oled.setCursor(0, 26); oled.print("CH0 "); oled.print(div_labels[clock_div_idx[0]]);
-  oled.setCursor(64,26); oled.print("CH1 "); oled.print(div_labels[clock_div_idx[1]]);
-  oled.setCursor(0, 36); oled.print("CH2 "); oled.print(div_labels[clock_div_idx[2]]);
-  oled.setCursor(64,36); oled.print("CH3 "); oled.print(div_labels[clock_div_idx[3]]);
+  // Channel divisions rows — highlight selected channel
+  for (int ch = 0; ch < 4; ch++) {
+    int x = (ch & 1) ? 64 : 0;
+    int y = (ch < 2) ? 26 : 36;
+    oled.setCursor(x, y);
+    if (ch == clock_sel_ch) oled.print(">"); else oled.print(" ");
+    oled.print("CH"); oled.print(ch); oled.print(' '); oled.print(div_labels[clock_div_idx[ch]]);
+  }
 
   oled.display();
 }
@@ -1340,8 +1336,15 @@ void setup() {
 
   analogReadResolution(12); // 0..4095
 
-  Wire1.setSDA(I2C_SDA);
-  Wire1.setSCL(I2C_SCL);
+  // I2C0 (Wire) — OLED only
+  Wire.setSDA(I2C0_SDA);
+  Wire.setSCL(I2C0_SCL);
+  Wire.begin();
+  Wire.setClock(400000);
+
+  // I2C1 (Wire1) — ADS1115 + MCP4728
+  Wire1.setSDA(I2C1_SDA);
+  Wire1.setSCL(I2C1_SCL);
   Wire1.begin();
   Wire1.setClock(400000);
 
