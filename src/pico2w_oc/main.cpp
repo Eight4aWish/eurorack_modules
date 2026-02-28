@@ -7,6 +7,8 @@
 #include <math.h>
 #include <Bounce2.h>
 #include <EEPROM.h>
+#include <Adafruit_TinyUSB.h>
+#include <MIDI.h>
 
 #include "eurorack_ui/OledHelpers.hpp"
 #include "eurorack_ui/OledHomeMenu.hpp"
@@ -25,8 +27,32 @@ Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);  // OLED on Wire (I2C0)
 Adafruit_ADS1115  ads;    // ADS on Wire1 (I2C1)
 Adafruit_MCP4728  mcp;    // MCP on Wire1 (I2C1)
 
+// -------------------- USB MIDI --------------------
+Adafruit_USBD_MIDI usb_midi;
+MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, MIDI);
+
 // -------------------- Button --------------------
 Bounce btn;
+
+// -------------------- Patch recall (EEPROM) --------------------
+// Save the last-launched patch so it auto-resumes on next power-on,
+// mirroring the EuroPi bootloader behaviour.
+#define EEPROM_SIZE       16
+#define EEPROM_MAGIC_ADDR  0
+#define EEPROM_BANK_ADDR   1
+#define EEPROM_PATCH_ADDR  2
+#define EEPROM_MAGIC_VAL   0xA5
+
+static void saveLastPatch(uint8_t bank, uint8_t patch) {
+  EEPROM.write(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VAL);
+  EEPROM.write(EEPROM_BANK_ADDR,  bank);
+  EEPROM.write(EEPROM_PATCH_ADDR, patch);
+  EEPROM.commit();
+}
+static void clearLastPatch() {
+  EEPROM.write(EEPROM_MAGIC_ADDR, 0x00);
+  EEPROM.commit();
+}
 
 // -------------------- Timing --------------------
 static uint32_t lastUiMs = 0;
@@ -1256,15 +1282,206 @@ void scope_render() {
   oled.display();
 }
 Patch patch_scope = { "Scope", scope_enter, scope_tick, scope_render, false };
+
+// -------------------- Patch: MIDI-to-CV --------------------
+// USB MIDI input -> CV0 pitch, CV1 gate, CV2 velocity, CV3 mod wheel
+// Monophonic last-note-priority with a note stack for proper release behaviour.
+
+static const uint8_t kMidiNoteStackSize = 16;
+static uint8_t midi_note_stack[kMidiNoteStackSize];
+static uint8_t midi_note_stack_count = 0;
+static uint8_t midi_vel = 0;         // velocity of current note
+static uint8_t midi_mod = 0;         // CC1 mod wheel
+static uint8_t midi_channel = 0;     // 0 = OMNI, 1-16 = specific channel
+static bool    midi_gate = false;    // gate state
+static bool    midi_dirty = true;    // flag to update DAC outputs
+static uint8_t midi_last_note = 60;  // for display when gate is off
+
+// MIDI note -> Eurorack voltage (1V/oct, C2=0V, range roughly -2V to +8V)
+// MIDI note 36 (C2) = 0V, each semitone = 1/12 V
+static float midiNoteToVolts(uint8_t note) {
+  return (note - 36) / 12.0f;   // C2=0V, C3=1V, C4=2V, etc.
+}
+
+static void midi_handleNoteOff(byte channel, byte pitch, byte velocity);
+
+static void midi_push_note(uint8_t note) {
+  // Remove if already in stack (re-trigger)
+  for (uint8_t i = 0; i < midi_note_stack_count; i++) {
+    if (midi_note_stack[i] == note) {
+      for (uint8_t j = i; j < midi_note_stack_count - 1; j++)
+        midi_note_stack[j] = midi_note_stack[j+1];
+      midi_note_stack_count--;
+      break;
+    }
+  }
+  if (midi_note_stack_count < kMidiNoteStackSize) {
+    midi_note_stack[midi_note_stack_count++] = note;
+  }
+}
+
+static void midi_remove_note(uint8_t note) {
+  for (uint8_t i = 0; i < midi_note_stack_count; i++) {
+    if (midi_note_stack[i] == note) {
+      for (uint8_t j = i; j < midi_note_stack_count - 1; j++)
+        midi_note_stack[j] = midi_note_stack[j+1];
+      midi_note_stack_count--;
+      return;
+    }
+  }
+}
+
+static void midi_handleNoteOn(byte channel, byte pitch, byte velocity) {
+  (void)channel;
+  if (velocity == 0) { midi_handleNoteOff(channel, pitch, velocity); return; }
+  midi_push_note(pitch);
+  midi_vel = velocity;
+  midi_gate = true;
+  midi_last_note = pitch;
+  midi_dirty = true;
+}
+
+static void midi_handleNoteOff(byte channel, byte pitch, byte velocity) {
+  (void)channel; (void)velocity;
+  midi_remove_note(pitch);
+  if (midi_note_stack_count == 0) {
+    midi_gate = false;
+  } else {
+    // Last-note priority: switch to the most recent held note
+    midi_last_note = midi_note_stack[midi_note_stack_count - 1];
+  }
+  midi_dirty = true;
+}
+
+static void midi_handleCC(byte channel, byte cc, byte value) {
+  (void)channel;
+  if (cc == 1) { midi_mod = value; midi_dirty = true; } // mod wheel
+}
+
+void midi_enter() {
+  resetPotSmooth();
+  midi_note_stack_count = 0;
+  midi_vel = 0;
+  midi_mod = 0;
+  midi_gate = false;
+  midi_dirty = true;
+  midi_last_note = 60;
+  midi_channel = 0; // OMNI
+
+  // Register MIDI callbacks
+  MIDI.setHandleNoteOn(midi_handleNoteOn);
+  MIDI.setHandleNoteOff(midi_handleNoteOff);
+  MIDI.setHandleControlChange(midi_handleCC);
+
+  // Zero all outputs
+  for (int i = 0; i < 4; i++) mcp_values[i] = kGateLowCode;
+  if (haveMCP) mcp_writeAll();
+}
+
+void midi_tick() {
+  // Poll USB MIDI — callbacks fire here
+  MIDI.read();
+
+  // Pot2 selects MIDI channel (OMNI or 1-16)
+  float p_ch = readPotNormSmooth(PIN_POT2, 1);
+  uint8_t newCh = (uint8_t)(p_ch * 16.99f); // 0=OMNI, 1-16
+  if (newCh != midi_channel) {
+    midi_channel = newCh;
+    // Re-begin MIDI on new channel
+    MIDI.begin(midi_channel == 0 ? MIDI_CHANNEL_OMNI : midi_channel);
+    MIDI.setHandleNoteOn(midi_handleNoteOn);
+    MIDI.setHandleNoteOff(midi_handleNoteOff);
+    MIDI.setHandleControlChange(midi_handleCC);
+    midi_dirty = true;
+  }
+
+  if (!haveMCP) return;
+  if (!midi_dirty) return;
+  midi_dirty = false;
+
+  // CV0 = pitch (1V/oct)
+  uint8_t activeNote = midi_gate ? midi_note_stack[midi_note_stack_count - 1] : midi_last_note;
+  float pitchV = midiNoteToVolts(activeNote);
+  mcp_values[CV0_DA_CH] = voltsToDac(0, pitchV);
+
+  // CV1 = gate (+5V on / 0V off)
+  mcp_values[CV1_DA_CH] = midi_gate ? kGateHighCode : kGateLowCode;
+
+  // CV2 = velocity (0-5V)
+  float velV = (midi_vel / 127.0f) * 5.0f;
+  mcp_values[CV2_DA_CH] = voltsToDac(2, velV);
+
+  // CV3 = mod wheel (0-5V)
+  float modV = (midi_mod / 127.0f) * 5.0f;
+  mcp_values[CV3_DA_CH] = voltsToDac(3, modV);
+
+  mcp_writeAll();
+}
+
+static const char* midiNoteName(uint8_t note) {
+  static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+  return names[note % 12];
+}
+static int midiNoteOctave(uint8_t note) { return (note / 12) - 1; }
+
+void midi_render() {
+  oled.clearDisplay();
+  oled.setTextSize(1);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextWrap(false);
+  ui::printClipped(0, 0, 48, "MIDI");
+
+  // Channel display
+  oled.setCursor(50, 0);
+  if (midi_channel == 0) oled.print("OMNI");
+  else { oled.print("CH"); oled.print(midi_channel); }
+
+  // Gate indicator
+  oled.setCursor(100, 0);
+  oled.print(midi_gate ? "ON" : "--");
+
+  // Note + octave (large)
+  oled.setTextSize(2);
+  uint8_t dispNote = midi_gate ? midi_note_stack[midi_note_stack_count - 1] : midi_last_note;
+  oled.setCursor(0, 18);
+  oled.print(midiNoteName(dispNote));
+  oled.setTextSize(1);
+  oled.print(midiNoteOctave(dispNote));
+
+  // Voltage readout
+  oled.setCursor(50, 18);
+  float vDisp = midiNoteToVolts(dispNote);
+  oled.print(vDisp, 2); oled.print("V");
+
+  // Velocity bar
+  oled.setTextSize(1);
+  oled.setCursor(0, 38);
+  oled.print("Vel "); oled.print(midi_vel);
+  drawBar(40, 38, 86, 6, midi_vel / 127.0f);
+
+  // Mod wheel bar
+  oled.setCursor(0, 48);
+  oled.print("Mod "); oled.print(midi_mod);
+  drawBar(40, 48, 86, 6, midi_mod / 127.0f);
+
+  // Note stack count
+  oled.setCursor(0, 58);
+  oled.print("Notes: "); oled.print(midi_note_stack_count);
+
+  oled.display();
+}
+
+Patch patch_midi = { "MIDI", midi_enter, midi_tick, midi_render, true };
+
 // Arrange the bank so indexes match the home-menu ordering below.
-Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_diag }, 7 };
+Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_diag }, 8 };
 Bank* banks[] = { &bank_util };
 static uint8_t bankIdx  = 0;
 static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static int activePlaceholder = -1; // -1 = none; 0 reserved for Diag
@@ -1293,6 +1510,7 @@ void handleButtons() {
           homeMenuActive = false;
           activePlaceholder = -1;
           bankIdx = 0; patchIdx = sel;
+          saveLastPatch(bankIdx, patchIdx);
           Patch* p = banks[bankIdx]->patches[patchIdx];
           if (p && p->enter) p->enter();
         } else {
@@ -1314,6 +1532,7 @@ void handleButtons() {
         homeMenuActive = true;
         activePlaceholder = -1;
         patchShortPressed = false;
+        clearLastPatch(); // next boot will show menu instead of auto-launching
         menuIgnoreUntil = millis() + 400;
         lastUiMs = 0; // force next UI tick to redraw immediately
         homeMenu.invalidate();
@@ -1329,6 +1548,15 @@ void setup() {
   // Serial optional
   Serial.begin(115200);
   delay(50);
+
+  // Initialise EEPROM (flash-backed on RP2350)
+  EEPROM.begin(EEPROM_SIZE);
+
+  // USB MIDI init (TinyUSB composite: CDC serial + MIDI)
+  usb_midi.setStringDescriptor("Pico2W OC MIDI");
+  MIDI.begin(MIDI_CHANNEL_OMNI);
+  // Callbacks are registered per-patch in midi_enter(); MIDI.read() is a no-op
+  // until the MIDI patch is active, so this is safe to call early.
 
   pinMode(PIN_BTN, INPUT_PULLUP);
   btn.attach(PIN_BTN);
@@ -1399,6 +1627,23 @@ void setup() {
       (void)mcp.setChannelValue(MCP4728_CHANNEL_D, kGateLowCode, MCP4728_VREF_VDD, MCP4728_GAIN_1X);
       // Keep our mirror array consistent with what we just wrote.
       mcp_values[0] = mcp_values[1] = mcp_values[2] = mcp_values[3] = kGateLowCode;
+    }
+  }
+
+  // ---- Auto-restore last patch from EEPROM ----
+  if (EEPROM.read(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VAL) {
+    uint8_t savedBank  = EEPROM.read(EEPROM_BANK_ADDR);
+    uint8_t savedPatch = EEPROM.read(EEPROM_PATCH_ADDR);
+    uint8_t numBanks   = sizeof(banks) / sizeof(banks[0]);
+    if (savedBank < numBanks && savedPatch < banks[savedBank]->patchCount
+        && banks[savedBank]->patches[savedPatch] != nullptr) {
+      bankIdx  = savedBank;
+      patchIdx = savedPatch;
+      homeMenuActive   = false;
+      activePlaceholder = -1;
+      Patch* p = banks[bankIdx]->patches[patchIdx];
+      if (p && p->enter) p->enter();
+      Serial.printf("[BOOT] Auto-restored patch %s\n", p ? p->name : "?");
     }
   }
 }
