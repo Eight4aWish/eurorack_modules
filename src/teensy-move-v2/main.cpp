@@ -24,18 +24,59 @@
 Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
 
 // ============================================================================
-// AUDIO OBJECTS — Simple line passthrough
+// AUDIO OBJECTS — Line passthrough + Chord Drone
 // ============================================================================
 AudioInputI2S           i2sIn;
 AudioOutputI2S          i2sOut;
 AudioOutputUSB          usbOut;
 AudioControlSGTL5000    sgtl5000;
 
-// Audio connections — Direct passthrough
-AudioConnection         pcOutL(i2sIn, 0, i2sOut, 0);
-AudioConnection         pcOutR(i2sIn, 1, i2sOut, 1);
-AudioConnection         pcUsbL(i2sIn, 0, usbOut, 0);
-AudioConnection         pcUsbR(i2sIn, 1, usbOut, 1);
+// Chord drone: 2 oscillators per voice (4 voices = 8 oscillators total) for thick detuned sound
+// Architecture: (OscA + OscB detuned) -> VoiceMix -> Envelope -> MainMix -> Output
+AudioSynthWaveform       droneOscA[4];       // Primary oscillators
+AudioSynthWaveform       droneOscB[4];       // Detuned oscillators
+AudioMixer4              droneVoiceMix[4];   // Mix 2 oscs per voice
+AudioEffectEnvelope      droneEnv[4];
+AudioMixer4              droneMix;           // Combines 4 voices
+AudioAmplifier           droneAmp;           // Master volume control
+AudioMixer4              outputMixL;         // Combines passthrough + drone
+AudioMixer4              outputMixR;
+
+// Audio connections — Passthrough path
+AudioConnection         pcPassL(i2sIn, 0, outputMixL, 0);   // Line in L -> output mixer ch0
+AudioConnection         pcPassR(i2sIn, 1, outputMixR, 0);   // Line in R -> output mixer ch0
+
+// Audio connections — Drone voice 0: OscA + OscB -> Mix -> Env
+AudioConnection         pcV0OscA(droneOscA[0], 0, droneVoiceMix[0], 0);
+AudioConnection         pcV0OscB(droneOscB[0], 0, droneVoiceMix[0], 1);
+AudioConnection         pcV0Mix(droneVoiceMix[0], droneEnv[0]);
+// Audio connections — Drone voice 1
+AudioConnection         pcV1OscA(droneOscA[1], 0, droneVoiceMix[1], 0);
+AudioConnection         pcV1OscB(droneOscB[1], 0, droneVoiceMix[1], 1);
+AudioConnection         pcV1Mix(droneVoiceMix[1], droneEnv[1]);
+// Audio connections — Drone voice 2
+AudioConnection         pcV2OscA(droneOscA[2], 0, droneVoiceMix[2], 0);
+AudioConnection         pcV2OscB(droneOscB[2], 0, droneVoiceMix[2], 1);
+AudioConnection         pcV2Mix(droneVoiceMix[2], droneEnv[2]);
+// Audio connections — Drone voice 3
+AudioConnection         pcV3OscA(droneOscA[3], 0, droneVoiceMix[3], 0);
+AudioConnection         pcV3OscB(droneOscB[3], 0, droneVoiceMix[3], 1);
+AudioConnection         pcV3Mix(droneVoiceMix[3], droneEnv[3]);
+
+// Combine all 4 voices -> amp -> output
+AudioConnection         pcDroneMix0(droneEnv[0], 0, droneMix, 0);
+AudioConnection         pcDroneMix1(droneEnv[1], 0, droneMix, 1);
+AudioConnection         pcDroneMix2(droneEnv[2], 0, droneMix, 2);
+AudioConnection         pcDroneMix3(droneEnv[3], 0, droneMix, 3);
+AudioConnection         pcDroneToAmp(droneMix, 0, droneAmp, 0);
+AudioConnection         pcDroneToOutL(droneAmp, 0, outputMixL, 1);
+AudioConnection         pcDroneToOutR(droneAmp, 0, outputMixR, 1);
+
+// Audio connections — Output
+AudioConnection         pcOutL(outputMixL, 0, i2sOut, 0);
+AudioConnection         pcOutR(outputMixR, 0, i2sOut, 1);
+AudioConnection         pcUsbL(outputMixL, 0, usbOut, 0);
+AudioConnection         pcUsbR(outputMixR, 0, usbOut, 1);
 
 #define PIN_BTN      2
 #define PIN_CS_DAC1 33
@@ -143,11 +184,12 @@ static volatile uint8_t lastMidiCh=0, lastMidiNote=0, lastMidiVel=0; static vola
 
 // Button/OLED
 static uint32_t btnDownAt=0; static bool btnPrev=HIGH; const uint16_t LONG_MS=600; static uint32_t lastBeat=0;
+static uint32_t btnLastChange=0; const uint16_t DEBOUNCE_MS=30;  // Debounce window
 static uint32_t lastOledPaintMs=0;
 static const uint32_t OLED_FPS_MS=150;  // V2: Slower refresh (was 80ms) — reduces blocking
 static inline void drawRow(uint8_t row,const char* s){ oled.setCursor(0,row*8); oled.print(s); }
 static char lineBuf[64];
-static uint8_t gOledPage = 0; // 0 = CH1-2, 1 = CH3-4, 2 = CHORD, 3 = SYNTH
+static uint8_t gOledPage = 0; // 0 = CH1-2, 1 = CH3-4, 2 = CHORD, 3 = DRONE
 
 // V2: OLED row cache for partial updates
 static char oledRowCache[4][22] = {"","","",""};  // 21 chars max per row + null
@@ -184,6 +226,157 @@ static const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", 
 
 // Current chord name for display (updated when chord triggered)
 static char chordNameBuf[8] = "---";
+
+// ============================================================================
+// DRONE STATE
+// ============================================================================
+static bool droneEnabled = false;           // Drone on/off toggle
+static float droneLevel = 1.0f;             // Drone master volume (0.0 - 1.5)
+static float droneFreqs[4] = {0, 0, 0, 0};  // Current oscillator frequencies
+static float droneDetuneCents = 12.0f;      // Detune amount in cents (wider = thicker)
+static uint8_t droneWaveform = WAVEFORM_SAWTOOTH;  // Current waveform
+static float droneAttackMs = 350.0f;        // Attack time in ms
+static float droneReleaseMs = 600.0f;       // Release time in ms
+
+// Waveform names for display
+static const char* waveformNames[] = {"SAW", "SQR", "TRI", "SIN", "PUL"};
+static const uint8_t waveformTypes[] = {WAVEFORM_SAWTOOTH, WAVEFORM_SQUARE, WAVEFORM_TRIANGLE, WAVEFORM_SINE, WAVEFORM_PULSE};
+static const uint8_t NUM_WAVEFORMS = 5;
+
+// Helper: get detune ratio from cents
+static inline float getDetuneRatio(float cents) {
+    return powf(2.0f, cents / 1200.0f);
+}
+
+// Helper: Convert semitone interval to frequency (Hz)
+// Based on A4 = 440Hz, C3 = MIDI 48
+static inline float semitoneToFreq(int8_t semitone, uint8_t rootNote, uint8_t baseOctave) {
+    // Same calculation as semitoneToVolt but to frequency
+    int totalSemitones = (int)rootNote + (int)semitone + (baseOctave - 3) * 12;
+    // MIDI note 48 (C3) is our 0V reference
+    int midiNote = 48 + totalSemitones;
+    return 440.0f * powf(2.0f, (midiNote - 69) / 12.0f);
+}
+
+// Initialize drone audio objects
+static void initDrone() {
+    // Set up dual oscillators per voice for thick detuned sound
+    for (int i = 0; i < 4; i++) {
+        // Primary oscillator
+        droneOscA[i].begin(0.25f, 110.0f, droneWaveform);
+        droneOscA[i].amplitude(0.0f);  // Start silent
+        
+        // Detuned oscillator
+        droneOscB[i].begin(0.25f, 110.0f, droneWaveform);
+        droneOscB[i].amplitude(0.0f);  // Start silent
+        
+        // Voice mixer: combine both oscillators
+        droneVoiceMix[i].gain(0, 0.5f);  // OscA
+        droneVoiceMix[i].gain(1, 0.5f);  // OscB (detuned)
+        droneVoiceMix[i].gain(2, 0.0f);  // unused
+        droneVoiceMix[i].gain(3, 0.0f);  // unused
+        
+        // Envelope: smooth pad-like attack/release
+        droneEnv[i].attack(droneAttackMs);
+        droneEnv[i].decay(50);
+        droneEnv[i].sustain(0.9f);
+        droneEnv[i].release(droneReleaseMs);
+    }
+    
+    // Main mixer: combine all 4 voices
+    for (int i = 0; i < 4; i++) {
+        droneMix.gain(i, 0.25f);
+    }
+    
+    // Master volume amplifier
+    droneAmp.gain(droneLevel);
+    
+    // Output mixer: passthrough full, drone controlled by amp
+    outputMixL.gain(0, 1.0f);   // Passthrough
+    outputMixL.gain(1, 0.0f);   // Drone (off by default)
+    outputMixR.gain(0, 1.0f);
+    outputMixR.gain(1, 0.0f);
+}
+
+// Set drone oscillator frequencies from chord pitches (with detuning)
+static void updateDroneFrequencies(int8_t* intervals, uint8_t rootNote, uint8_t baseOctave) {
+    float detuneRatio = getDetuneRatio(droneDetuneCents);
+    for (int i = 0; i < 4; i++) {
+        float baseFreq = semitoneToFreq(intervals[i], rootNote, baseOctave);
+        droneFreqs[i] = baseFreq;
+        
+        // Alternate detune direction: voice 0,2 detune up; voice 1,3 detune down
+        float detuneA = (i % 2 == 0) ? detuneRatio : (1.0f / detuneRatio);
+        float detuneB = (i % 2 == 0) ? (1.0f / detuneRatio) : detuneRatio;
+        
+        droneOscA[i].frequency(baseFreq * detuneA);
+        droneOscB[i].frequency(baseFreq * detuneB);
+    }
+}
+
+// Trigger drone voices
+static void triggerDrone() {
+    if (!droneEnabled) return;
+    
+    for (int i = 0; i < 4; i++) {
+        droneOscA[i].amplitude(0.25f);
+        droneOscB[i].amplitude(0.25f);
+        droneEnv[i].noteOn();
+    }
+}
+
+// Release drone voices
+static void releaseDrone() {
+    for (int i = 0; i < 4; i++) {
+        droneEnv[i].noteOff();
+    }
+}
+
+// Toggle drone on/off
+static void toggleDrone() {
+    droneEnabled = !droneEnabled;
+    if (droneEnabled) {
+        outputMixL.gain(1, 1.0f);  // Full send to output, volume via droneAmp
+        outputMixR.gain(1, 1.0f);
+    } else {
+        // Release any playing notes
+        releaseDrone();
+        outputMixL.gain(1, 0.0f);
+        outputMixR.gain(1, 0.0f);
+    }
+}
+
+// Update drone waveform (all oscillators)
+static void updateDroneWaveform(uint8_t waveIdx) {
+    if (waveIdx >= NUM_WAVEFORMS) waveIdx = 0;
+    droneWaveform = waveformTypes[waveIdx];
+    for (int i = 0; i < 4; i++) {
+        droneOscA[i].begin(droneWaveform);
+        droneOscB[i].begin(droneWaveform);
+    }
+}
+
+// Update drone attack time (all envelopes)
+static void updateDroneAttack(float attackMs) {
+    droneAttackMs = attackMs;
+    for (int i = 0; i < 4; i++) {
+        droneEnv[i].attack(droneAttackMs);
+    }
+}
+
+// Update drone release time (all envelopes)
+static void updateDroneRelease(float releaseMs) {
+    droneReleaseMs = releaseMs;
+    for (int i = 0; i < 4; i++) {
+        droneEnv[i].release(droneReleaseMs);
+    }
+}
+
+// Update drone master volume
+static void updateDroneVolume(float vol) {
+    droneLevel = vol;
+    droneAmp.gain(droneLevel);
+}
 
 // ============================================================================
 // CHORD HELPERS
@@ -360,6 +553,10 @@ static void triggerChord(uint8_t midiNote) {
         chordGate[i] = true;
     }
     
+    // Update drone oscillator frequencies and trigger
+    updateDroneFrequencies(intervals, chordRootNote, baseOctave);
+    triggerDrone();
+    
     chordDirty = true;
 }
 
@@ -370,6 +567,7 @@ static void releaseChord(uint8_t midiNote) {
         for (int i = 0; i < 4; i++) {
             chordGate[i] = false;
         }
+        releaseDrone();
         chordDirty = true;
     }
 }
@@ -425,7 +623,8 @@ static void diag_tick() {
   // Button: short press cycles channel
   bool b = digitalRead(PIN_BTN);
   uint32_t now = millis();
-  if(b!=btnPrev){
+  if(b!=btnPrev && (now - btnLastChange) >= DEBOUNCE_MS){
+    btnLastChange = now;
     if(b==LOW) btnDownAt=now;
     else if(now - btnDownAt < LONG_MS) gDiagSel = (gDiagSel+1) & 7;
     btnPrev=b;
@@ -475,8 +674,8 @@ void onNoteOn(byte ch, byte note, byte vel){
       v4.note=note; v4.modV=modV; updatePitch(v4); 
       gate4=true; dirtyPitch4=true; dirtyMod4=true; 
     }
-  } else if(gOledPage == 2) {
-    // CHORD MODE: Channel 6 triggers chords on pitch/gate outputs
+  } else if(gOledPage >= 2) {
+    // CHORD/DRONE MODE: Channel 6 triggers chords on pitch/gate outputs
     if(ch==CHORD_MIDI_CH){
       triggerChord(note);
     }
@@ -492,8 +691,8 @@ void onNoteOff(byte ch, byte note, byte){
     else if(ch==2 && v2.note==note){ gate2=false; v2.note=-1; dirtyPitch2=true; }
     else if(ch==3 && v3.note==note){ gate3=false; v3.note=-1; dirtyPitch3=true; }
     else if(ch==4 && v4.note==note){ gate4=false; v4.note=-1; dirtyPitch4=true; }
-  } else if(gOledPage == 2) {
-    // CHORD MODE
+  } else if(gOledPage >= 2) {
+    // CHORD/DRONE MODE
     if(ch==CHORD_MIDI_CH){
       releaseChord(note);
     }
@@ -506,7 +705,35 @@ void onPitchBend(byte ch, int value){
   else if(ch==3){ v3.bend=semis; if(v3.note>=0){ updatePitch(v3); dirtyPitch3=true; } }
   else if(ch==4){ v4.bend=semis; if(v4.note>=0){ updatePitch(v4); dirtyPitch4=true; } }
 }
-void onControlChange(byte, byte, byte){ }
+void onControlChange(byte ch, byte cc, byte val){
+  // Chord mode drone controls (channel 6)
+  if (ch == CHORD_MIDI_CH) {
+    if (cc == 64) {
+      // CC 64 (Sustain): Toggle drone when pressed (val >= 64)
+      static bool lastSustain = false;
+      bool sustain = (val >= 64);
+      if (sustain && !lastSustain) {
+        toggleDrone();
+      }
+      lastSustain = sustain;
+    }
+    else if (cc == 7 || cc == 1) {
+      // CC 7 (Volume) or CC 1 (Mod Wheel): Master volume (0.0 - 1.5)
+      float vol = (val / 127.0f) * 1.5f;
+      updateDroneVolume(vol);
+    }
+    else if (cc == 73) {
+      // CC 73 (Attack): Attack time (10ms - 2000ms)
+      float attackMs = 10.0f + (val / 127.0f) * 1990.0f;
+      updateDroneAttack(attackMs);
+    }
+    else if (cc == 72) {
+      // CC 72 (Release): Release time (50ms - 3000ms)
+      float releaseMs = 50.0f + (val / 127.0f) * 2950.0f;
+      updateDroneRelease(releaseMs);
+    }
+  }
+}
 
 // MIDI clock
 static volatile uint32_t midiTickCount=0; static const uint8_t PPQN=24, BEAT_DIV=24;
@@ -542,7 +769,8 @@ void setup(){
   mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code(0.0f));
   mcp4822_write(PIN_CS_DAC2, CH_A, modVolt_to_code(0.0f));
   mcp4822_write(PIN_CS_DAC2, CH_B, pitchVolt_to_code(0.0f));
-  AudioMemory(16);
+  AudioMemory(24);  // Increased for drone voices
+  initDrone();  // Initialize drone oscillators, envelopes, filter
   sgtl5000.enable();
   sgtl5000.inputSelect(AUDIO_INPUT_LINEIN);
   sgtl5000.adcHighPassFilterDisable();
@@ -582,15 +810,62 @@ void loop(){
   // Read pots for chord parameters when in chord mode
   if (gOledPage == 2) {
     updateChordParams();    // Chord page: update chord parameters
+  } else if (gOledPage == 3) {
+    // Drone page: read pots for waveform, attack, release, volume
+    static int16_t lastDronePots[4] = {-1, -1, -1, -1};
+    int16_t raw[4];
+    raw[0] = 4095 - analogRead(PIN_POT1);  // Invert: CW = max
+    raw[1] = 4095 - analogRead(PIN_POT2);
+    raw[2] = 4095 - analogRead(PIN_POT3);
+    raw[3] = 4095 - analogRead(PIN_POT4);
+    
+    // POT1: Waveform (5 options)
+    uint8_t waveIdx = (raw[0] * NUM_WAVEFORMS) / 4096;
+    if (waveIdx >= NUM_WAVEFORMS) waveIdx = NUM_WAVEFORMS - 1;
+    if (abs(raw[0] - lastDronePots[0]) > 50 || lastDronePots[0] < 0) {
+      updateDroneWaveform(waveIdx);
+      lastDronePots[0] = raw[0];
+    }
+    
+    // POT2: Attack (10ms - 2000ms)
+    if (abs(raw[1] - lastDronePots[1]) > 30 || lastDronePots[1] < 0) {
+      float attackMs = 10.0f + (raw[1] / 4095.0f) * 1990.0f;
+      updateDroneAttack(attackMs);
+      lastDronePots[1] = raw[1];
+    }
+    
+    // POT3: Release (50ms - 3000ms)
+    if (abs(raw[2] - lastDronePots[2]) > 30 || lastDronePots[2] < 0) {
+      float releaseMs = 50.0f + (raw[2] / 4095.0f) * 2950.0f;
+      updateDroneRelease(releaseMs);
+      lastDronePots[2] = raw[2];
+    }
+    
+    // POT4: Volume (0.0 - 1.5, allows some boost)
+    if (abs(raw[3] - lastDronePots[3]) > 30 || lastDronePots[3] < 0) {
+      float vol = (raw[3] / 4095.0f) * 1.5f;
+      updateDroneVolume(vol);
+      lastDronePots[3] = raw[3];
+    }
   }
   
   bool b=digitalRead(PIN_BTN);
-  if(b!=btnPrev){
-    if(b==LOW) btnDownAt=millis();
-    else {
-      uint32_t held = millis() - btnDownAt;
-      if(held >= LONG_MS){ rst=true; rstUntil=millis()+8; }  // long press = reset
-      else { gOledPage = (gOledPage + 1) % 3; }  // short press = toggle page (3 pages: 0,1=CV, 2=Chord)
+  uint32_t btnNow = millis();
+  if(b!=btnPrev && (btnNow - btnLastChange) >= DEBOUNCE_MS){
+    btnLastChange = btnNow;
+    if(b==LOW) {
+      btnDownAt=btnNow;
+    } else {
+      uint32_t held = btnNow - btnDownAt;
+      if(held >= LONG_MS){
+        // Long press action depends on page
+        if(gOledPage == 2 || gOledPage == 3) {
+          toggleDrone();  // Chord/Drone page: toggle drone
+        } else {
+          rst=true; rstUntil=btnNow+8;  // CV pages: reset pulse
+        }
+      }
+      else { gOledPage = (gOledPage + 1) % 4; }  // short press = toggle page (4 pages)
     }
     btnPrev=b;
   }
@@ -609,8 +884,8 @@ void loop(){
   
   // Mode-dependent gate outputs for gates 1-2 (directly on Teensy pins)
   GATE_WRITE(PIN_CLOCK, clk); GATE_WRITE(PIN_RESET, rst);
-  if(gOledPage == 2) {
-    // CHORD MODE: Use gate1/2 for chord voice 1/2 gates
+  if(gOledPage >= 2) {
+    // CHORD/DRONE MODE: Use gate1/2 for chord voice 1/2 gates
     GATE_WRITE(PIN_GATE1, chordGate[0]); GATE_WRITE(PIN_GATE2, chordGate[1]);
   } else {
     // CV MODE: Normal gate1/2
@@ -640,8 +915,8 @@ void loop(){
     uint8_t img = expanderImage(); uint8_t newImg = img;
     
     // Gates 3-4 from expander - mode dependent
-    if(gOledPage == 2) {
-      // CHORD MODE: Use gate3/4 for chord voice 3/4 gates
+    if(gOledPage >= 2) {
+      // CHORD/DRONE MODE: Use gate3/4 for chord voice 3/4 gates
       if (chordGate[2]) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
       if (chordGate[3]) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
     } else {
@@ -724,14 +999,32 @@ void loop(){
       }
       updateOledRow(1, lineBuf);
       
-      // Show chord voltages
-      snprintf(lineBuf,sizeof(lineBuf),"V:%+.1f %+.1f %+.1f %+.1f", chordPitchV[0], chordPitchV[1], chordPitchV[2], chordPitchV[3]);
+      // Show drone status and volume
+      snprintf(lineBuf,sizeof(lineBuf),"Drone:%s Vol:%.0f%%", droneEnabled ? "ON " : "OFF", droneLevel * 67);
       updateOledRow(2, lineBuf);
       
-      // Show gates and drums
+      // Show gates, drums, and audio CPU
       char g1=chordGate[0]?'#':'-', g2=chordGate[1]?'#':'-', g3=chordGate[2]?'#':'-', g4=chordGate[3]?'#':'-';
       char d1=drumTrig[0]?'#':'-', d2=drumTrig[1]?'#':'-', d3=drumTrig[2]?'#':'-', d4=drumTrig[3]?'#':'-';
       snprintf(lineBuf,sizeof(lineBuf),"G:%c%c%c%c D:%c%c%c%c", g1, g2, g3, g4, d1, d2, d3, d4);
+      updateOledRow(3, lineBuf);
+    } else if(gOledPage == 3) {
+      // Page 3: DRONE MODE - synth parameters
+      snprintf(lineBuf,sizeof(lineBuf),"DRONE  %s  %s", droneEnabled ? "[ON]" : "[OFF]", waveformNames[droneWaveform == WAVEFORM_SAWTOOTH ? 0 : droneWaveform == WAVEFORM_SQUARE ? 1 : droneWaveform == WAVEFORM_TRIANGLE ? 2 : droneWaveform == WAVEFORM_SINE ? 3 : 4]);
+      updateOledRow(0, lineBuf);
+      
+      // Find waveform index for display
+      uint8_t waveIdx = 0;
+      for (uint8_t i = 0; i < NUM_WAVEFORMS; i++) {
+        if (waveformTypes[i] == droneWaveform) { waveIdx = i; break; }
+      }
+      snprintf(lineBuf,sizeof(lineBuf),"Wave: %s", waveformNames[waveIdx]);
+      updateOledRow(1, lineBuf);
+      
+      snprintf(lineBuf,sizeof(lineBuf),"A:%.0fms R:%.0fms", droneAttackMs, droneReleaseMs);
+      updateOledRow(2, lineBuf);
+      
+      snprintf(lineBuf,sizeof(lineBuf),"Volume: %.0f%%", droneLevel * 67);
       updateOledRow(3, lineBuf);
     }
     
