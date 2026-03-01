@@ -775,7 +775,7 @@ void setup(){
   sgtl5000.inputSelect(AUDIO_INPUT_LINEIN);
   sgtl5000.adcHighPassFilterDisable();
   sgtl5000.lineInLevel(6);
-  sgtl5000.lineOutLevel(29);
+  sgtl5000.lineOutLevel(14);   // ~3.0 Vpp → ×3.4 gain → ~10 Vpp (eurorack standard)
   sgtl5000.volume(0.8f);
   Wire.begin();
   Wire.setClock(400000);  // V2: Ensure 400kHz I2C for faster OLED
