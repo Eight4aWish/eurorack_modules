@@ -28,7 +28,9 @@ Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire, -1);
 // ============================================================================
 AudioInputI2S           i2sIn;
 AudioOutputI2S          i2sOut;
+#ifdef USB_MIDI_AUDIO_SERIAL
 AudioOutputUSB          usbOut;
+#endif
 AudioControlSGTL5000    sgtl5000;
 
 // Chord drone: 2 oscillators per voice (4 voices = 8 oscillators total) for thick detuned sound
@@ -75,8 +77,10 @@ AudioConnection         pcDroneToOutR(droneAmp, 0, outputMixR, 1);
 // Audio connections — Output
 AudioConnection         pcOutL(outputMixL, 0, i2sOut, 0);
 AudioConnection         pcOutR(outputMixR, 0, i2sOut, 1);
+#ifdef USB_MIDI_AUDIO_SERIAL
 AudioConnection         pcUsbL(outputMixL, 0, usbOut, 0);
 AudioConnection         pcUsbR(outputMixR, 0, usbOut, 1);
+#endif
 
 #define PIN_BTN      2
 #define PIN_CS_DAC1 33
