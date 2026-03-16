@@ -390,7 +390,7 @@ static void drawPatchUi(bool btn_pressed,bool /*showTapFlag*/){
 // ================== SETUP / LOOP ==================
 void setup(){
   Serial.begin(115200); uint32_t t0=millis(); while(!Serial && (millis()-t0)<1500) {}
-  hw = DAISY.init(DAISY_PATCH, AUDIO_SR_48K); samplerate = DAISY.get_samplerate(); analogReadResolution(16);
+  hw = DAISY.init(DAISY_SEED, AUDIO_SR_48K); samplerate = DAISY.get_samplerate(); analogReadResolution(16);
   Wire.setSCL(PIN_SCL); Wire.setSDA(PIN_SDA); Wire.begin(); Wire.setClock(I2C_CLOCK_HZ);
   pinMode(PIN_BTN,INPUT_PULLUP); pinMode(PIN_LED,OUTPUT);
   if(!oled.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)){ for(;;){ digitalWrite(PIN_LED,!digitalRead(PIN_LED)); delay(150);} }
