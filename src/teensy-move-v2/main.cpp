@@ -758,6 +758,11 @@ static void updateOledRow(uint8_t row, const char* newText) {
 
 // Setup
 void setup(){
+  // Force Full Speed USB (12 Mbps) for reliable operation through USB hubs.
+  // The Teensy 4.1 defaults to High Speed (480 Mbps) which causes intermittent
+  // enumeration failures via bus-powered hubs. MIDI needs negligible bandwidth.
+  USB1_PORTSC1 |= USB_PORTSC1_PFSC;
+
   if (CrashReport) { while (!Serial && millis() < 1500) {} Serial.print(CrashReport); }
   pinMode(LED_BUILTIN, OUTPUT); digitalWrite(LED_BUILTIN, LOW);
   pinMode(PIN_BTN,INPUT_PULLUP);
