@@ -49,6 +49,11 @@ bool button_s4(void)
     return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_13) == GPIO_PIN_RESET;
 }
 
+bool button_enc1(void)
+{
+    return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_RESET;
+}
+
 // ---------------------------------------------------------------------------
 // Initialisation
 // ---------------------------------------------------------------------------
@@ -86,10 +91,10 @@ void adc_init(void)
     g.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9;
     HAL_GPIO_Init(GPIOF, &g);
 
-    // --- Button GPIO: S3 (PB12), S4 (PB13) — input with pull-up ---
+    // --- Button GPIO: S3 (PB12), S4 (PB13), ENC1 push (PB5) — input with pull-up ---
     g.Mode = GPIO_MODE_INPUT;
     g.Pull = GPIO_PULLUP;
-    g.Pin  = GPIO_PIN_12 | GPIO_PIN_13;
+    g.Pin  = GPIO_PIN_5 | GPIO_PIN_12 | GPIO_PIN_13;
     HAL_GPIO_Init(GPIOB, &g);
 
     // --- ADC common prescaler: /4 → 84 MHz APB2 / 4 = 21 MHz ---

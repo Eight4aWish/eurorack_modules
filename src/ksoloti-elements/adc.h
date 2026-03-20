@@ -49,6 +49,9 @@ bool button_s3(void);
 // Button S4 (PB13): returns true when pressed.
 bool button_s4(void);
 
+// ENC1 push (PB5): returns true when pressed.
+bool button_enc1(void);
+
 #ifdef __cplusplus
 }
 #endif

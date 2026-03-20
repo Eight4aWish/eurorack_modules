@@ -11,6 +11,11 @@
 //   CV X:               V/Oct pitch
 //   CV Y:               FM modulation
 //   S3 button:          manual gate (fixed strength 0.7)
+//   ENC1 push:          cycle resonator model (modal/string/strings)
+//   LED1 green (PG6):   gate active
+//   LED2 red (PC6):     CPU overload
+//   LED4 (PB6/PB7):     resonator model (green=modal, red=string, both=strings)
+//   Gate1 (PD3):        gate echo output
 //
 // Audio: In L = blow exciter, In R = strike exciter
 //        Out L = main, Out R = aux (reverb)
@@ -41,6 +46,7 @@ static float aux_out[BUFSIZE];
 
 static elements::PerformanceState perf;
 static volatile bool dsp_ready = false;
+static volatile bool cpu_overload = false;
 
 // --- Audio callback ---
 
@@ -50,6 +56,8 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
         for (int i = 0; i < DOUBLE_BUFSIZE; i++) outp[i] = 0;
         return;
     }
+
+    uint32_t t0 = DWT->CYCCNT;
 
     const float kInScale  = 1.0f / 2147483648.0f;
     const float kOutScale = 2147483648.0f;
@@ -68,6 +76,9 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
         outp[i * 2]     = static_cast<int32_t>(main_out[i] * kOutScale);
         outp[i * 2 + 1] = static_cast<int32_t>(aux_out[i]  * kOutScale);
     }
+
+    // 16 samples @ 32 kHz = 500 µs. At 168 MHz = 84000 cycles budget.
+    cpu_overload = (DWT->CYCCNT - t0) > 80000;
 }
 
 // --- ADC helpers ---
@@ -134,14 +145,38 @@ int main(void)
     codec_init();
     dsp_ready = true;
 
-    // LED1 (PG6) = gate indicator
+    // --- GPIO outputs: LEDs and Gate1 ---
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
     __HAL_RCC_GPIOG_CLK_ENABLE();
+
     GPIO_InitTypeDef g = {};
-    g.Pin   = GPIO_PIN_6;
     g.Mode  = GPIO_MODE_OUTPUT_PP;
     g.Pull  = GPIO_NOPULL;
     g.Speed = GPIO_SPEED_FREQ_LOW;
+
+    g.Pin = GPIO_PIN_6;              // LED1 green (PG6) — gate
     HAL_GPIO_Init(GPIOG, &g);
+
+    g.Pin = GPIO_PIN_6;              // LED2 red (PC6) — CPU overload
+    HAL_GPIO_Init(GPIOC, &g);
+
+    g.Pin = GPIO_PIN_6 | GPIO_PIN_7; // LED4 dual (PB6 green, PB7 red) — model
+    HAL_GPIO_Init(GPIOB, &g);
+
+    g.Pin = GPIO_PIN_3;              // Gate1 output (PD3) — gate echo
+    HAL_GPIO_Init(GPIOD, &g);
+
+    // Enable DWT cycle counter for CPU load measurement
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    // --- Resonator model state ---
+    int resonator_model = 0;  // 0=modal, 1=string, 2=strings
+    bool enc1_prev = false;
+    uint32_t enc1_last_press = 0;
 
     // --- Main control loop (~1 kHz) ---
     while (1) {
@@ -183,8 +218,33 @@ int main(void)
         // CV Y -> FM modulation depth (-1..+1, 0 when unpatched)
         perf.modulation = cv(ADC_CV_Y);
 
-        // LED1 = gate active
+        // ENC1 push -> cycle resonator model (debounced, 200 ms lockout)
+        bool enc1_now = button_enc1();
+        if (enc1_now && !enc1_prev && (HAL_GetTick() - enc1_last_press > 200)) {
+            resonator_model = (resonator_model + 1) % 3;
+            part.set_resonator_model(
+                static_cast<elements::ResonatorModel>(resonator_model));
+            enc1_last_press = HAL_GetTick();
+        }
+        enc1_prev = enc1_now;
+
+        // LED1 green = gate active
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6,
+            perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        // LED2 red = CPU overload
+        HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6,
+            cpu_overload ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        // LED4 = resonator model: green=modal, red=string, both=strings
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6,
+            (resonator_model == 0 || resonator_model == 2)
+                ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7,
+            (resonator_model >= 1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        // Gate1 output = gate echo for chaining
+        HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
         HAL_Delay(1);
