@@ -135,6 +135,75 @@ pio device monitor -b 115200
 
 See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
+## Ksoloti Big Genes — `ksoloti-elements`
+
+A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
+
+- **Status**: Elements DSP running at 32 kHz. Internal excitation (bow + strike) and external audio inputs both drive the resonator. IO mapping agreed, ADC wiring next.
+- **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
+- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz).
+- **Hardware**: 8 pots, 4 CV inputs (summed with pots 1-4), 4 independent CVs (A-D), 2 V/Oct CVs (X/Y), 2 encoders, 2 buttons, 4 LEDs, SH1106 OLED, MIDI, 2 gate outputs, 2 CV outputs.
+
+### Setup
+
+```sh
+# After cloning, initialise submodules
+git submodule update --init --recursive
+
+# Apply the resonator resolution patch
+cd third_party/eurorack
+git apply ../../patches/ksoloti-elements-resonator-resolution.patch
+cd ../..
+
+# Build
+pio run -e ksoloti-elements
+
+# Flash via DFU (board must be in DFU mode)
+pio run -e ksoloti-elements -t upload
+```
+
+### Architecture
+
+```
+src/ksoloti-elements/
+  main.cc              — Entry point, Elements DSP integration
+  codec.cc / codec.h   — SAI1 + ADAU1961 driver (I2C2, DMA double-buffer)
+  elements/drivers/
+    debug_pin.h        — Local shim (empty stubs for hardware debug pins)
+
+scripts/
+  elements_build.py    — PlatformIO build script (FPU flags, extra source dirs)
+
+patches/
+  ksoloti-elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
+
+third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
+  elements/dsp/        — Elements DSP core
+  stmlib/              — Mutable Instruments DSP/utility library
+```
+
 ## Libraries
 
 - expander I/O: `libs/expander_io` — 74HC595 expander driver (`Expander595`) and MCP4822 helper (`Mcp4822Expander`). See `libs/expander_io/README.md` for API and wiring.
+
+## Third-Party Licenses
+
+### Mutable Instruments Eurorack Modules
+
+`third_party/eurorack/` and `third_party/eurorack/stmlib/` are by [Emilie Gillet](https://github.com/pichenettes) and released under the **MIT License**:
+
+> Copyright 2012-2015 Emilie Gillet.
+>
+> Permission is hereby granted, free of charge, to any person obtaining a copy
+> of this software and associated documentation files (the "Software"), to deal
+> in the Software without restriction, including without limitation the rights
+> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+> copies of the Software, and to permit persons to whom the Software is
+> furnished to do so, subject to the following conditions:
+>
+> The above copyright notice and this permission notice shall be included in
+> all copies or substantial portions of the Software.
+
+The full license text is in `third_party/eurorack/stmlib/LICENSE`.
+
+The `ksoloti-elements` firmware applies a local patch (`patches/ksoloti-elements-resonator-resolution.patch`) that reduces the resonator resolution for performance on the STM32F429. The original source is unmodified in the submodule.
