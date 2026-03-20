@@ -139,10 +139,14 @@ See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
 A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
 
-- **Status**: Elements DSP running at 32 kHz. Internal excitation (bow + strike) and external audio inputs both drive the resonator. IO mapping agreed, ADC wiring next.
+- **Status**: Fully playable. All primary controls wired — 8 pots, 6 CVs, gate input, resonator model switch, LED indicators, gate echo output. OLED + encoder secondary params next.
 - **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
-- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz).
-- **Hardware**: 8 pots, 4 CV inputs (summed with pots 1-4), 4 independent CVs (A-D), 2 V/Oct CVs (X/Y), 2 encoders, 2 buttons, 4 LEDs, SH1106 OLED, MIDI, 2 gate outputs, 2 CV outputs.
+- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via ENC1 push: modal, string, strings.
+- **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). POT5-8 = exciter levels + space. CV A-C = exciter modulation. CV D = gate + velocity. CV X = V/Oct. CV Y = FM. S3 = manual gate.
+- **Indicators**: LED1 green = gate. LED2 red = CPU overload. LED4 dual = resonator model (green/red/both). Gate1 = gate echo output.
+- **Resources**: RAM 68.9%, Flash 19.3%.
+
+See `docs/KSOLOTI_ELEMENTS.md` for full control mapping, secondary parameters, and ADC details.
 
 ### Setup
 
@@ -166,7 +170,8 @@ pio run -e ksoloti-elements -t upload
 
 ```
 src/ksoloti-elements/
-  main.cc              — Entry point, Elements DSP integration
+  main.cc              — Entry point, Elements DSP, control loop, parameter mapping
+  adc.cc / adc.h       — ADC1 DMA (10ch) + ADC3 polled (4ch) + button GPIO
   codec.cc / codec.h   — SAI1 + ADAU1961 driver (I2C2, DMA double-buffer)
   elements/drivers/
     debug_pin.h        — Local shim (empty stubs for hardware debug pins)
