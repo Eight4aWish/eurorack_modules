@@ -1,0 +1,11 @@
+--- a/elements/dsp/voice.cc
++++ b/elements/dsp/voice.cc
+@@ -70,7 +70,7 @@ void Voice::ResetResonator() {
+     string_[i].Init(true);
+   }
+   dc_blocker_.Init(1.0f - 10.0f / kSampleRate);
+-  resonator_.set_resolution(52);  // Runs with 56 extremely tightly.
++  resonator_.set_resolution(36);  // Reduced from 52 to fit CPU budget on Ksoloti.
+ }
+
+ float chords[11][5] = {
