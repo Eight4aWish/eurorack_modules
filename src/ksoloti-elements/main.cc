@@ -22,8 +22,10 @@
 
 #include "adc.h"
 #include "codec.h"
+#include "oled.h"
 #include "stm32f4xx_hal.h"
 #include "elements/dsp/part.h"
+#include <cstdio>
 
 extern "C" void SysTick_Handler(void)
 {
@@ -108,6 +110,58 @@ static inline float cv_uni(int ch)
     return cv(ch) * 0.5f + 0.5f;
 }
 
+// --- Display helpers ---
+
+static const char* model_names[] = { "MODAL", "STRING", "STRGS" };
+static const char* note_names[]  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+
+static void draw_display(int model, bool gate, float note)
+{
+    oled_clear();
+
+    // Row 0 (y=0): model name + note + gate
+    oled_str(0, 0, model_names[model]);
+
+    // Note name + octave
+    int midi = (int)(note + 0.5f);
+    if (midi < 0) midi = 0;
+    if (midi > 127) midi = 127;
+    int octave = (midi / 12) - 1;
+    const char* nn = note_names[midi % 12];
+    char nbuf[8];
+    snprintf(nbuf, sizeof(nbuf), "%s%d", nn, octave);
+    oled_str(48, 0, nbuf);
+
+    if (gate) oled_str(90, 0, "GT");
+
+    // Row 1 (y=9): separator line
+    oled_hline(0, 9, 128);
+
+    // Row 2 (y=12): pot 1-4 labels (resonator)
+    oled_str(0, 12, "Geo");
+    oled_str(32, 12, "Brt");
+    oled_str(64, 12, "Dmp");
+    oled_str(96, 12, "Pos");
+
+    // Row 3 (y=22): pot 5-8 labels (exciter + space)
+    oled_str(0, 22, "Bow");
+    oled_str(32, 22, "Blw");
+    oled_str(64, 22, "Str");
+    oled_str(96, 22, "Spc");
+
+    // Row 4 (y=32): separator
+    oled_hline(0, 31, 128);
+
+    // Rows 5-7 (y=34..): secondary params placeholder
+    // Will be replaced with encoder-scrollable list
+    oled_str(0, 34, "BwT BlT StT Sig");
+    oled_str(0, 44, "MdF MdO RvD RvL");
+
+    // Row 8 (y=56): CPU load bar
+    oled_str(0, 56, "CPU");
+    // Bar will be drawn from main loop with actual load
+}
+
 // --- Entry point ---
 
 int main(void)
@@ -116,6 +170,9 @@ int main(void)
 
     // ADC + buttons (populates initial readings before audio starts)
     adc_init();
+
+    // OLED display (I2C1, PB8/PB9)
+    oled_init();
 
     // Initialize Elements DSP BEFORE codec — DMA ISR calls Part::Process()
     // as soon as codec_init() enables DMA.
@@ -246,6 +303,14 @@ int main(void)
         // Gate1 output = gate echo for chaining
         HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+        // OLED: redraw framebuffer every 8 ticks, push 1 page per tick
+        static int oled_tick = 0;
+        if (oled_tick == 0) {
+            draw_display(resonator_model, perf.gate, perf.note);
+        }
+        oled_update();
+        oled_tick = (oled_tick + 1) % 8;
 
         HAL_Delay(1);
     }
