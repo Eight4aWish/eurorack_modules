@@ -8,7 +8,8 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 - **Codec**: ADAU1961, 32 kHz sample rate (Elements native), I2S master via SAI1
 - **MCLK**: 8 MHz HSE routed via MCO1 (PA8)
 - **DMA**: Double-buffered, 16-sample blocks (~500 us per callback)
-- **Resources**: RAM 68.9%, Flash 19.3%
+- **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer
+- **Resources**: RAM 69.4%, Flash 19.5%
 
 ## Controls
 
@@ -76,9 +77,22 @@ Selectable via ENC1 push button (cycles through all three):
 2. **String** — Sympathetic string model
 3. **Strings** — Polyphonic chord voicing from the resonator
 
-## Secondary Parameters (fixed defaults, OLED UI planned)
+### OLED Display
 
-These are currently set to sensible defaults. They will be adjustable via the OLED + encoder UI in a future update:
+SH1106 128x64 on I2C1 (PB8 SCL, PB9 SDA, 400 kHz, addr 0x3C).
+
+Displays:
+- Resonator model name (MODAL / STRING / STRGS)
+- Current note and octave (e.g. C4)
+- Gate state indicator
+- Pot function labels (Geo, Brt, Dmp, Pos / Bow, Blw, Str, Spc)
+- Secondary parameter names and values (planned)
+
+Page-at-a-time refresh: 1 of 8 pages sent per main loop tick (~1 ms each). Full frame refresh every 8 ms. No measurable audio impact.
+
+## Secondary Parameters (fixed defaults, encoder UI planned)
+
+These are currently set to sensible defaults. They will be adjustable via the encoder UI in a future update:
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
@@ -119,6 +133,8 @@ src/ksoloti-elements/
   main.cc              — Entry point, DSP integration, control loop, parameter mapping
   adc.cc / adc.h       — ADC1 DMA (10ch) + ADC3 polled (4ch) + button GPIO
   codec.cc / codec.h   — SAI1 + ADAU1961 driver (I2C2, DMA double-buffer, 32 kHz)
+  oled.cc / oled.h     — SH1106 128x64 OLED driver (I2C1, page-at-a-time update)
+  font5x7.h            — 5x7 bitmap font (ASCII 32-126)
   elements/drivers/
     debug_pin.h        — Local shim replacing Mutable's hardware-dependent debug pins
 
