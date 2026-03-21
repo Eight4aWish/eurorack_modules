@@ -106,7 +106,54 @@ These are currently set to sensible defaults. They will be adjustable via the en
 | reverb_lp | 0.8 | Reverb brightness |
 | modulation_frequency | 0.5 | Master modulation rate |
 
-## Build and Flash
+## Install (pre-built binary — no coding required)
+
+You just need the firmware `.bin` file and a free tool called `dfu-util` to flash it to your Big Genes module over USB.
+
+### Step 1: Download
+
+Download `ksoloti-elements.bin` from the [Releases](https://github.com/Eight4aWish/eurorack_modules/releases) page.
+
+### Step 2: Install dfu-util
+
+| OS | Install command |
+|----|-----------------|
+| macOS | `brew install dfu-util` |
+| Windows | Download from [dfu-util.sourceforge.net](http://dfu-util.sourceforge.net) and add to PATH |
+| Linux | `sudo apt install dfu-util` |
+
+### Step 3: Put Big Genes in DFU mode
+
+1. Connect Big Genes to your computer via USB
+2. Hold the **BOOT0** button (small button on the Ksoloti Core board)
+3. While holding BOOT0, press and release **RESET**
+4. Release BOOT0
+
+The module's LEDs and screen will be off — this is normal. Your computer should now detect a DFU device.
+
+### Step 4: Flash
+
+Open a terminal and run:
+
+```sh
+dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave -D ksoloti-elements.bin
+```
+
+You should see a progress bar. When it says "File downloaded successfully", the module will automatically restart and begin running Elements.
+
+### Step 5: Verify
+
+- The OLED should display "MODAL" and "C4"
+- LED1 (green) should light when you press the S3 button or send a gate to CV D
+- Sound should come from the audio outputs when a gate is active and pots are turned up
+
+### Troubleshooting
+
+- **"No DFU capable USB device available"** — The board isn't in DFU mode. Repeat Step 3, making sure you hold BOOT0 *before* pressing RESET.
+- **No sound** — Make sure POT5 (Bow), POT6 (Blow), or POT7 (Strike) is turned up. At least one exciter level must be non-zero.
+- **To restore original Ksoloti firmware** — Flash the original `.bin` file from [ksoloti.github.io](https://ksoloti.github.io) using the same DFU process.
+
+## Build from Source (for developers)
 
 ```sh
 # Initialise submodules (first time only)
