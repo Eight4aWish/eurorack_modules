@@ -52,6 +52,16 @@ bool button_s4(void);
 // ENC1 push (PB5): returns true when pressed.
 bool button_enc1(void);
 
+// ENC2 push (PA10): returns true when pressed.
+bool button_enc2(void);
+
+// Encoder rotation — call enc_poll() from main loop.
+// Returns accumulated clicks since last call (positive = CW, negative = CCW).
+void enc_init(void);
+void enc_poll(void);
+int enc1_read(void);   // ENC1 (PG11/PG12)
+int enc2_read(void);   // ENC2 (PG10/PA15)
+
 #ifdef __cplusplus
 }
 #endif

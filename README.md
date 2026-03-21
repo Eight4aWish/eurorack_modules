@@ -139,13 +139,13 @@ See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
 A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
 
-- **Status**: Fully playable with OLED display. All primary controls wired — 8 pots, 6 CVs, gate input, resonator model switch, LED indicators, gate echo output, SH1106 128x64 OLED. Encoder rotation for secondary params next.
+- **Status**: Fully playable with multi-page OLED UI, encoder-driven secondary params, all buttons and encoders working.
 - **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
-- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via ENC1 push: modal, string, strings.
-- **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). POT5-8 = exciter levels + space. CV A-C = exciter modulation. CV D = gate + velocity. CV X = V/Oct. CV Y = FM. S3 = manual gate.
-- **Display**: SH1106 128x64 OLED (I2C1) shows resonator model, note, gate state, and pot labels. Page-at-a-time refresh avoids audio impact.
+- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via S1: modal, string, chords.
+- **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). POT5-8 = exciter levels + space. CV A-B = blow/strike meta (modulate around base values). CV D = gate + velocity. CV X = V/Oct. CV Y = FM. ENC1 rotate = envelope shape. S3 = manual gate.
+- **Display**: Two-page OLED UI. Page 1: control reference. Page 2: 10 secondary params in two-column layout, adjustable via S2 (step) + ENC2 (adjust).
 - **Indicators**: LED1 green = gate. LED2 red = CPU overload. LED4 dual = resonator model (green/red/both). Gate1 = gate echo output.
-- **Resources**: RAM 69.4%, Flash 19.5%.
+- **Resources**: RAM 69.4%, Flash 19.6%.
 
 See `docs/KSOLOTI_ELEMENTS.md` for full control mapping, secondary parameters, and ADC details.
 

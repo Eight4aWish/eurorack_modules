@@ -9,7 +9,7 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 - **MCLK**: 8 MHz HSE routed via MCO1 (PA8)
 - **DMA**: Double-buffered, 16-sample blocks (~500 us per callback)
 - **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer
-- **Resources**: RAM 69.4%, Flash 19.5%
+- **Resources**: RAM 69.4%, Flash 19.6%
 
 ## Controls
 
@@ -35,20 +35,26 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 
 | Jack | Function | Notes |
 |------|----------|-------|
-| CV A (PA6) | exciter_blow_meta | Noise/granular model select. 0.5 when unpatched |
-| CV B (PA7) | exciter_strike_meta | Mallet/particles select. 0.5 when unpatched |
-| CV C (PB0) | exciter_envelope_shape | Contour. 0.5 when unpatched |
+| CV A (PA6) | exciter_blow_meta | Modulates around base value (set on page 2). 0.5 default |
+| CV B (PA7) | exciter_strike_meta | Modulates around base value (set on page 2). 0.5 default |
+| CV C (PB0) | Unassigned | Envelope shape now on ENC1 rotate |
 | CV D (PB1) | Gate + strength | >1V = gate on, voltage = velocity (0-1) |
 | CV X (PC1) | V/Oct pitch | Centered at middle C (MIDI 60). Trimmable |
 | CV Y (PC4) | FM modulation | Bipolar. 0 when unpatched |
 | CV P1-P4 | Summed with pots 1-4 | Hardware summing, no separate ADC |
 
-### Buttons
+### Buttons & Encoders
 
-| Button | Function |
-|--------|----------|
+| Control | Function |
+|---------|----------|
+| S1 / ENC1 push (PB5) | Cycle resonator model: modal -> string -> chords |
+| ENC1 rotate (PG11/PG12) | Envelope shape (always active, both pages) |
+| S2 / ENC2 push (PA10) | Step cursor through secondary params (page 2) |
+| ENC2 rotate (PG10/PA15) | Adjust selected secondary param (page 2) |
 | S3 (PB12) | Manual gate (fixed strength 0.7). CV D takes priority when patched |
-| ENC1 push (PB5) | Cycle resonator model: modal -> string -> strings |
+| S4 (PB13) | Cycle OLED page (main / params) |
+
+Note: S2 and S3 are active-high (no internal pull-up). S1 and S4 are active-low with internal pull-up.
 
 ### LEDs
 
@@ -75,36 +81,34 @@ Selectable via ENC1 push button (cycles through all three):
 
 1. **Modal** (default) — Tuned resonant modes, like a struck or bowed physical object
 2. **String** — Sympathetic string model
-3. **Strings** — Polyphonic chord voicing from the resonator
+3. **Chords** — Polyphonic chord voicing from the resonator
 
 ### OLED Display
 
 SH1106 128x64 on I2C1 (PB8 SCL, PB9 SDA, 400 kHz, addr 0x3C).
 
-Displays:
-- Resonator model name (MODAL / STRING / STRGS)
-- Current note and octave (e.g. C4)
-- Gate state indicator
-- Pot function labels (Geo, Brt, Dmp, Pos / Bow, Blw, Str, Spc)
-- Secondary parameter names and values (planned)
+**Page 1 (main):** Resonator model, envelope shape value, pot/CV assignment reference, control summary.
+
+**Page 2 (params):** Two-column layout showing all 10 secondary parameters with cursor. S2 steps cursor, ENC2 adjusts selected value.
 
 Page-at-a-time refresh: 1 of 8 pages sent per main loop tick (~1 ms each). Full frame refresh every 8 ms. No measurable audio impact.
 
-## Secondary Parameters (fixed defaults, encoder UI planned)
+## Secondary Parameters
 
-These are currently set to sensible defaults. They will be adjustable via the encoder UI in a future update:
+Adjustable via ENC2 on OLED page 2 (press S2 to step cursor, turn ENC2 to adjust):
 
-| Parameter | Default | Notes |
-|-----------|---------|-------|
-| exciter_bow_timbre | 0.5 | Bow brightness |
-| exciter_blow_timbre | 0.5 | Blow brightness |
-| exciter_strike_timbre | 0.5 | Strike brightness |
-| exciter_signature | 0.5 | Adds imperfection/character |
-| resonator_modulation_frequency | 0.5 | Internal vibrato rate |
-| resonator_modulation_offset | 0.5 | Vibrato depth |
-| reverb_diffusion | 0.7 | Reverb density |
-| reverb_lp | 0.8 | Reverb brightness |
-| modulation_frequency | 0.5 | Master modulation rate |
+| # | Name | Default | Notes |
+|---|------|---------|-------|
+| 1 | BlwMod | 0.5 | Blow meta base value (CV A modulates around this) |
+| 2 | StrMod | 0.5 | Strike meta base value (CV B modulates around this) |
+| 3 | BowTim | 0.5 | Bow brightness |
+| 4 | BlwTim | 0.5 | Blow brightness |
+| 5 | StrTim | 0.5 | Strike brightness |
+| 6 | Sig | 0.5 | Adds imperfection/character |
+| 7 | ModFrq | 0.5 | Resonator internal vibrato rate |
+| 8 | ModOfs | 0.5 | Resonator vibrato depth |
+| 9 | RvDiff | 0.7 | Reverb density |
+| 10 | RvLP | 0.8 | Reverb brightness |
 
 ## Install (pre-built binary — no coding required)
 
@@ -143,7 +147,7 @@ You should see a progress bar. When it says "File downloaded successfully", the 
 
 ### Step 5: Verify
 
-- The OLED should display "MODAL" and "C4"
+- The OLED should display "MODAL(S1) E1:Env0.50"
 - LED1 (green) should light when you press the S3 button or send a gate to CV D
 - Sound should come from the audio outputs when a gate is active and pots are turned up
 
@@ -206,7 +210,8 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 ## Known Limitations
 
 - Resonator resolution reduced from 52 to 36 modes to fit CPU budget at 168 MHz
-- CV A-C (blow_meta, strike_meta, envelope_shape) have no associated pots — defaults to 0.5 when unpatched, adjustable via OLED menu (planned)
+- CV A-B (blow_meta, strike_meta) modulate around encoder-set base values on page 2
+- CV C is unassigned (envelope shape moved to ENC1 rotate)
 - V/Oct tracking (CV X) needs calibration with board trimmer
 - No MIDI input yet (USART6 on PG9 available)
 

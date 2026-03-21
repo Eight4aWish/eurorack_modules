@@ -41,7 +41,7 @@ uint16_t adc_raw(int ch)
 
 bool button_s3(void)
 {
-    return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12) == GPIO_PIN_RESET;
+    return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_12) == GPIO_PIN_SET;
 }
 
 bool button_s4(void)
@@ -52,6 +52,84 @@ bool button_s4(void)
 bool button_enc1(void)
 {
     return HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_5) == GPIO_PIN_RESET;
+}
+
+bool button_enc2(void)
+{
+    return HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_10) == GPIO_PIN_SET;
+}
+
+// --- Encoder rotation (quadrature state machine, 1 count per detent) ---
+// Track all AB state transitions via lookup table.  Emit ±1 only after
+// 4 consistent sub-steps (= one physical detent click).  Sub-counter
+// resets to 0 on each emit so noise at the detent position cannot
+// accumulate a false count.
+
+static volatile int enc1_accum = 0;
+static volatile int enc2_accum = 0;
+static uint8_t enc1_prev_state = 0;
+static uint8_t enc2_prev_state = 0;
+static int8_t enc1_sub = 0;
+static int8_t enc2_sub = 0;
+
+// Quadrature lookup: index = (prev_state << 2) | new_state
+// Signs inverted to match Big Genes encoder wiring (CW = positive).
+// Invalid/no-change transitions return 0.
+static const int8_t enc_table[16] = {
+     0, -1, +1,  0,
+    +1,  0,  0, -1,
+    -1,  0,  0, +1,
+     0, +1, -1,  0
+};
+
+void enc_init(void)
+{
+    uint8_t a1 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_11) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t b1 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12) == GPIO_PIN_SET ? 1 : 0;
+    enc1_prev_state = (a1 << 1) | b1;
+    enc1_sub = 0;
+    enc1_accum = 0;
+
+    uint8_t a2 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_10) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t b2 = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_15) == GPIO_PIN_SET ? 1 : 0;
+    enc2_prev_state = (a2 << 1) | b2;
+    enc2_sub = 0;
+    enc2_accum = 0;
+}
+
+void enc_poll(void)
+{
+    // ENC1: A=PG11, B=PG12
+    uint8_t a1 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_11) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t b1 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_12) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t s1 = (a1 << 1) | b1;
+    enc1_sub += enc_table[(enc1_prev_state << 2) | s1];
+    enc1_prev_state = s1;
+    if (enc1_sub >= 2)       { enc1_accum++; enc1_sub = 0; }
+    else if (enc1_sub <= -2) { enc1_accum--; enc1_sub = 0; }
+
+    // ENC2: A=PG10, B=PA15
+    uint8_t a2 = HAL_GPIO_ReadPin(GPIOG, GPIO_PIN_10) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t b2 = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_15) == GPIO_PIN_SET ? 1 : 0;
+    uint8_t s2 = (a2 << 1) | b2;
+    enc2_sub += enc_table[(enc2_prev_state << 2) | s2];
+    enc2_prev_state = s2;
+    if (enc2_sub >= 2)       { enc2_accum++; enc2_sub = 0; }
+    else if (enc2_sub <= -2) { enc2_accum--; enc2_sub = 0; }
+}
+
+int enc1_read(void)
+{
+    int v = enc1_accum;
+    enc1_accum = 0;
+    return v;
+}
+
+int enc2_read(void)
+{
+    int v = enc2_accum;
+    enc2_accum = 0;
+    return v;
 }
 
 // ---------------------------------------------------------------------------
@@ -91,11 +169,28 @@ void adc_init(void)
     g.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9;
     HAL_GPIO_Init(GPIOF, &g);
 
-    // --- Button GPIO: S3 (PB12), S4 (PB13), ENC1 push (PB5) — input with pull-up ---
+    // --- Button GPIO: S1 (PB5) and S4 (PB13) — active-low, internal pull-up ---
     g.Mode = GPIO_MODE_INPUT;
     g.Pull = GPIO_PULLUP;
-    g.Pin  = GPIO_PIN_5 | GPIO_PIN_12 | GPIO_PIN_13;
+    g.Pin  = GPIO_PIN_5 | GPIO_PIN_13;
     HAL_GPIO_Init(GPIOB, &g);
+
+    // S3 (PB12) — active-high, no pull (external pull-down on board)
+    g.Pull = GPIO_NOPULL;
+    g.Pin  = GPIO_PIN_12;
+    HAL_GPIO_Init(GPIOB, &g);
+
+    // S2 / ENC2 push (PA10) — active-high, no pull (external pull-down on board)
+    __HAL_RCC_GPIOG_CLK_ENABLE();
+    g.Pin = GPIO_PIN_10;
+    HAL_GPIO_Init(GPIOA, &g);
+
+    // Encoder rotation GPIO: ENC1 A=PG11, B=PG12; ENC2 A=PG10, B=PA15
+    g.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12;
+    HAL_GPIO_Init(GPIOG, &g);
+
+    g.Pin = GPIO_PIN_15;
+    HAL_GPIO_Init(GPIOA, &g);
 
     // --- ADC common prescaler: /4 → 84 MHz APB2 / 4 = 21 MHz ---
     ADC->CCR = (ADC->CCR & ~ADC_CCR_ADCPRE) | ADC_CCR_ADCPRE_0;
@@ -167,6 +262,9 @@ void adc_init(void)
 
     // Initial poll to populate adc3_buf before audio starts
     adc_poll();
+
+    // Seed encoder state from actual pin values
+    enc_init();
 }
 
 // ---------------------------------------------------------------------------

@@ -3,15 +3,20 @@
 // Elements DSP running on STM32F429 + ADAU1961 codec at 32 kHz.
 // 8 pots, 6 CV jacks, gate button, and LED wired to Elements parameters.
 //
-// Pot/CV mapping (see memory/project_biggenes_io_mapping.md for full spec):
+// Pot/CV mapping:
 //   POT1-4 (+CV P1-P4): resonator geometry/brightness/damping/position
 //   POT5-8:             bow level / blow level / strike level / space
-//   CV A-C:             blow meta / strike meta / envelope shape
+//   CV A-B:             blow meta / strike meta
+//   CV C:               (unassigned)
 //   CV D:               gate + strength (velocity from voltage)
 //   CV X:               V/Oct pitch
 //   CV Y:               FM modulation
+//   S1 (ENC1 push):     cycle resonator model (modal/string/chords)
+//   ENC1 rotate:        envelope shape (always active)
+//   S2 (ENC2 push):     toggle scroll/edit mode (page 2)
+//   ENC2 rotate:        scroll or edit secondary params (page 2)
 //   S3 button:          manual gate (fixed strength 0.7)
-//   ENC1 push:          cycle resonator model (modal/string/strings)
+//   S4 button:          cycle OLED page (main / params)
 //   LED1 green (PG6):   gate active
 //   LED2 red (PC6):     CPU overload
 //   LED4 (PB6/PB7):     resonator model (green=modal, red=string, both=strings)
@@ -112,54 +117,95 @@ static inline float cv_uni(int ch)
 
 // --- Display helpers ---
 
-static const char* model_names[] = { "MODAL", "STRING", "STRGS" };
+static const char* model_names[] = { "MODAL", "STRING", "CHORDS" };
 static const char* note_names[]  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
 
-static void draw_display(int model, bool gate, float note)
+// Secondary parameter table
+struct SecParam {
+    const char* name;
+    float* ptr;
+    float default_val;
+    float min_val;
+    float max_val;
+};
+
+#define NUM_SEC_PARAMS 10
+static SecParam sec_params[NUM_SEC_PARAMS];  // initialized in main()
+
+static int oled_page = 0;       // 0 = main, 1 = secondary params
+static int sec_cursor = 0;      // which param is selected (0..NUM_SEC_PARAMS-1)
+
+// Format a float 0.0-1.0 as "0.XX" into buf (max 5 chars + null)
+static void fmt_val(char* buf, float v)
+{
+    int pct = (int)(v * 100.0f + 0.5f);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    buf[0] = '0' + (pct / 100);
+    buf[1] = '.';
+    buf[2] = '0' + ((pct / 10) % 10);
+    buf[3] = '0' + (pct % 10);
+    buf[4] = '\0';
+}
+
+static void draw_header(int model, float env_shape)
+{
+    // "MODAL (S1)  E1:Env 0.50"
+    char hdr[22];
+    char vbuf[6];
+    fmt_val(vbuf, env_shape);
+    snprintf(hdr, sizeof(hdr), "%s(S1) E1:Env%s", model_names[model], vbuf);
+    oled_str(0, 0, hdr);
+
+    oled_hline(0, 9, 128);
+}
+
+static void draw_page_main(int model, float env_shape)
 {
     oled_clear();
+    draw_header(model, env_shape);
 
-    // Row 0 (y=0): model name + note + gate
-    oled_str(0, 0, model_names[model]);
+    oled_str(0, 12, "P1-4: Geo Brt Dmp Pos");
+    oled_str(0, 22, "P5-8: Bow Blw Str Spc");
 
-    // Note name + octave
-    int midi = (int)(note + 0.5f);
-    if (midi < 0) midi = 0;
-    if (midi > 127) midi = 127;
-    int octave = (midi / 12) - 1;
-    const char* nn = note_names[midi % 12];
-    char nbuf[8];
-    snprintf(nbuf, sizeof(nbuf), "%s%d", nn, octave);
-    oled_str(48, 0, nbuf);
-
-    if (gate) oled_str(90, 0, "GT");
-
-    // Row 1 (y=9): separator line
-    oled_hline(0, 9, 128);
-
-    // Row 2 (y=12): pot 1-4 labels (resonator)
-    oled_str(0, 12, "Geo");
-    oled_str(32, 12, "Brt");
-    oled_str(64, 12, "Dmp");
-    oled_str(96, 12, "Pos");
-
-    // Row 3 (y=22): pot 5-8 labels (exciter + space)
-    oled_str(0, 22, "Bow");
-    oled_str(32, 22, "Blw");
-    oled_str(64, 22, "Str");
-    oled_str(96, 22, "Spc");
-
-    // Row 4 (y=32): separator
     oled_hline(0, 31, 128);
 
-    // Rows 5-7 (y=34..): secondary params placeholder
-    // Will be replaced with encoder-scrollable list
-    oled_str(0, 34, "BwT BlT StT Sig");
-    oled_str(0, 44, "MdF MdO RvD RvL");
+    oled_str(0, 34, "CvAD: Blw Str - Gte");
+    oled_str(0, 44, "CvX: V/Oct  CvY: FM");
 
-    // Row 8 (y=56): CPU load bar
-    oled_str(0, 56, "CPU");
-    // Bar will be drawn from main loop with actual load
+    oled_str(0, 56, "S3: ManGte S4: Page2");
+}
+
+static void draw_page_params(int model, float env_shape)
+{
+    oled_clear();
+    draw_header(model, env_shape);
+
+    // Two-column layout: 5 rows × 2 columns = 10 params
+    // Left column: params 0-4, right column: params 5-9
+    // Each entry: cursor(1) + name(6) + value(4) = ~66px per column
+    const int col_x[2] = {0, 66};
+    const int rows = 5;
+
+    for (int col = 0; col < 2; col++) {
+        for (int row = 0; row < rows; row++) {
+            int idx = col * rows + row;
+            if (idx >= NUM_SEC_PARAMS) break;
+
+            int x = col_x[col];
+            int y = 12 + row * 10;
+
+            if (idx == sec_cursor) {
+                oled_str(x, y, ">");
+            }
+
+            oled_str(x + 6, y, sec_params[idx].name);
+
+            char vbuf[6];
+            fmt_val(vbuf, *sec_params[idx].ptr);
+            oled_str(x + 42, y, vbuf);
+        }
+    }
 }
 
 // --- Entry point ---
@@ -181,16 +227,33 @@ int main(void)
     // Patch pointer — lives for the duration of the program
     elements::Patch* p = part.mutable_patch();
 
-    // Secondary parameters: fixed defaults until OLED encoder UI is added
+    // Secondary parameters — adjustable via OLED encoder UI
     p->exciter_bow_timbre             = 0.5f;
     p->exciter_blow_timbre            = 0.5f;
     p->exciter_strike_timbre          = 0.5f;
+    p->exciter_envelope_shape         = 0.5f;
     p->exciter_signature              = 0.5f;
     p->resonator_modulation_frequency = 0.5f;
     p->resonator_modulation_offset    = 0.5f;
     p->reverb_diffusion               = 0.7f;
     p->reverb_lp                      = 0.8f;
-    p->modulation_frequency           = 0.5f;
+
+    // CV A-B base values (CV modulates around these)
+    static float blow_meta_base   = 0.5f;
+    static float strike_meta_base = 0.5f;
+
+    // Build secondary param table (name, pointer, default, min, max)
+    // BlwMod/StrMod first (most useful), then timbres, then modulation, then reverb
+    sec_params[0] = {"BlwMod",  &blow_meta_base,                     0.5f, 0.0f, 1.0f};
+    sec_params[1] = {"StrMod",  &strike_meta_base,                   0.5f, 0.0f, 1.0f};
+    sec_params[2] = {"BowTim",  &p->exciter_bow_timbre,             0.5f, 0.0f, 1.0f};
+    sec_params[3] = {"BlwTim",  &p->exciter_blow_timbre,            0.5f, 0.0f, 1.0f};
+    sec_params[4] = {"StrTim",  &p->exciter_strike_timbre,          0.5f, 0.0f, 1.0f};
+    sec_params[5] = {"Sig",     &p->exciter_signature,              0.5f, 0.0f, 1.0f};
+    sec_params[6] = {"ModFrq",  &p->resonator_modulation_frequency, 0.5f, 0.0f, 1.0f};
+    sec_params[7] = {"ModOfs",  &p->resonator_modulation_offset,    0.5f, 0.0f, 1.0f};
+    sec_params[8] = {"RvDiff",  &p->reverb_diffusion,               0.7f, 0.0f, 1.0f};
+    sec_params[9] = {"RvLP",    &p->reverb_lp,                      0.8f, 0.0f, 1.0f};
 
     // Performance defaults
     perf.note       = 60.0f;
@@ -230,35 +293,40 @@ int main(void)
     DWT->CYCCNT = 0;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-    // --- Resonator model state ---
-    int resonator_model = 0;  // 0=modal, 1=string, 2=strings
-    bool enc1_prev = false;
-    uint32_t enc1_last_press = 0;
+    // --- UI state ---
+    int resonator_model = 0;  // 0=modal, 1=string, 2=chords
+    bool enc1_push_prev = button_enc1();   // read actual state to avoid spurious edge
+    uint32_t enc1_push_last = 0;
+    bool s4_prev = button_s4();            // read actual state to avoid startup page flip
+    uint32_t s4_last = 0;
+    bool enc2_push_prev = button_enc2();
+    uint32_t enc2_push_last = 0;
 
     // --- Main control loop (~1 kHz) ---
     while (1) {
-        adc_poll();  // Update pots 5-8 (ADC3)
+        adc_poll();   // Update pots 5-8 (ADC3)
+        enc_poll();   // Update encoder rotation
 
-        // Pots 1-4 (hardware-summed with CV P1-P4) -> Resonator
+        // --- Pot -> Patch mapping ---
         p->resonator_geometry   = pot(ADC_POT1);
         p->resonator_brightness = pot(ADC_POT2);
         p->resonator_damping    = pot(ADC_POT3);
         p->resonator_position   = pot(ADC_POT4);
-
-        // Pots 5-8 -> Exciter levels + Space
         p->exciter_bow_level    = pot(ADC_POT5);
         p->exciter_blow_level   = pot(ADC_POT6);
         p->exciter_strike_level = pot(ADC_POT7);
-        p->space                = pot(ADC_POT8) * 2.0f;  // 0..2
+        p->space                = pot(ADC_POT8) * 2.0f;
 
-        // CV A-C -> Exciter modulation (0..1, centered at 0.5 unpatched)
-        p->exciter_blow_meta      = cv_uni(ADC_CV_A);
-        p->exciter_strike_meta    = cv_uni(ADC_CV_B);
-        p->exciter_envelope_shape = cv_uni(ADC_CV_C);
+        // --- CV -> Patch/Perf mapping ---
+        // CV A-B modulate around encoder-set base values (clamped 0..1)
+        float bm = blow_meta_base + cv(ADC_CV_A) * 0.5f;
+        p->exciter_blow_meta = (bm < 0.0f) ? 0.0f : (bm > 1.0f) ? 1.0f : bm;
+        float sm = strike_meta_base + cv(ADC_CV_B) * 0.5f;
+        p->exciter_strike_meta = (sm < 0.0f) ? 0.0f : (sm > 1.0f) ? 1.0f : sm;
+        // CV C unassigned — envelope shape now on ENC1 rotate
 
-        // CV D -> Gate + Strength (velocity from gate voltage)
         float gate_cv = cv(ADC_CV_D);
-        bool cv_gate = gate_cv > 0.2f;       // ~1 V threshold
+        bool cv_gate = gate_cv > 0.2f;
         bool manual_gate = button_s3();
         perf.gate = cv_gate || manual_gate;
 
@@ -268,46 +336,78 @@ int main(void)
             perf.strength = 0.7f;
         }
 
-        // CV X -> V/Oct pitch (centered at middle C, ~+/-2.5 octaves)
-        // TODO: calibrate with trimmer for exact 1V/oct tracking
         perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
-
-        // CV Y -> FM modulation depth (-1..+1, 0 when unpatched)
         perf.modulation = cv(ADC_CV_Y);
 
-        // ENC1 push -> cycle resonator model (debounced, 200 ms lockout)
+        // --- ENC1 push: cycle resonator model (debounced 200ms) ---
         bool enc1_now = button_enc1();
-        if (enc1_now && !enc1_prev && (HAL_GetTick() - enc1_last_press > 200)) {
+        if (enc1_now && !enc1_push_prev && (HAL_GetTick() - enc1_push_last > 200)) {
             resonator_model = (resonator_model + 1) % 3;
             part.set_resonator_model(
                 static_cast<elements::ResonatorModel>(resonator_model));
-            enc1_last_press = HAL_GetTick();
+            enc1_push_last = HAL_GetTick();
         }
-        enc1_prev = enc1_now;
+        enc1_push_prev = enc1_now;
 
-        // LED1 green = gate active
+        // --- S4: cycle OLED page (debounced 200ms) ---
+        bool s4_now = button_s4();
+        if (s4_now && !s4_prev && (HAL_GetTick() - s4_last > 200)) {
+            oled_page = (oled_page + 1) % 2;
+            s4_last = HAL_GetTick();
+        }
+        s4_prev = s4_now;
+
+        // --- ENC1 rotate: envelope shape (always active, both pages) ---
+        int enc1_delta = enc1_read();
+        if (enc1_delta != 0) {
+            p->exciter_envelope_shape += enc1_delta * 0.02f;
+            if (p->exciter_envelope_shape < 0.0f) p->exciter_envelope_shape = 0.0f;
+            if (p->exciter_envelope_shape > 1.0f) p->exciter_envelope_shape = 1.0f;
+        }
+
+        // --- Page 2: S2 steps cursor, E2 adjusts selected param ---
+        if (oled_page == 1) {
+            // S2 (ENC2 push) = step to next param (debounced 200ms)
+            bool enc2_now = button_enc2();
+            if (enc2_now && !enc2_push_prev && (HAL_GetTick() - enc2_push_last > 200)) {
+                sec_cursor = (sec_cursor + 1) % NUM_SEC_PARAMS;
+                enc2_push_last = HAL_GetTick();
+            }
+            enc2_push_prev = enc2_now;
+
+            // E2 rotate = adjust selected param value
+            int enc2_delta = enc2_read();
+            if (enc2_delta != 0) {
+                SecParam& sp = sec_params[sec_cursor];
+                float step = (sp.max_val - sp.min_val) * 0.02f;
+                *sp.ptr += enc2_delta * step;
+                if (*sp.ptr < sp.min_val) *sp.ptr = sp.min_val;
+                if (*sp.ptr > sp.max_val) *sp.ptr = sp.max_val;
+            }
+        } else {
+            enc2_read();  // drain accumulator
+        }
+
+        // --- LEDs ---
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        // LED2 red = CPU overload
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6,
             cpu_overload ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        // LED4 = resonator model: green=modal, red=string, both=strings
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6,
             (resonator_model == 0 || resonator_model == 2)
                 ? GPIO_PIN_SET : GPIO_PIN_RESET);
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7,
             (resonator_model >= 1) ? GPIO_PIN_SET : GPIO_PIN_RESET);
-
-        // Gate1 output = gate echo for chaining
         HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
-        // OLED: redraw framebuffer every 8 ticks, push 1 page per tick
+        // --- OLED: redraw every 8 ticks, push 1 page per tick ---
         static int oled_tick = 0;
         if (oled_tick == 0) {
-            draw_display(resonator_model, perf.gate, perf.note);
+            if (oled_page == 0)
+                draw_page_main(resonator_model, p->exciter_envelope_shape);
+            else
+                draw_page_params(resonator_model, p->exciter_envelope_shape);
         }
         oled_update();
         oled_tick = (oled_tick + 1) % 8;
