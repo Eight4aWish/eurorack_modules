@@ -166,6 +166,29 @@ void oled_str(int x, int y, const char* s)
     }
 }
 
+void oled_str_inv(int x, int y, const char* s)
+{
+    while (*s) {
+        // Fill 6x8 white block, then punch out glyph pixels
+        for (int col = 0; col < 6; col++)
+            for (int row = 0; row < 8; row++)
+                oled_pixel(x + col, y + row, 1);
+
+        if (*s >= 32 && *s <= 126) {
+            const uint8_t* glyph = font5x7[*s - 32];
+            for (int col = 0; col < 5; col++) {
+                uint8_t bits = glyph[col];
+                for (int row = 0; row < 7; row++) {
+                    if (bits & (1 << row))
+                        oled_pixel(x + col, y + row, 0);
+                }
+            }
+        }
+        x += 6;
+        s++;
+    }
+}
+
 void oled_bar(int x, int y, int w, int h, float fill)
 {
     if (fill < 0.0f) fill = 0.0f;

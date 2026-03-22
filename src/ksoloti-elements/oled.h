@@ -29,6 +29,9 @@ void oled_char(int x, int y, char c);
 // Draw a null-terminated string at pixel position (x, y).
 void oled_str(int x, int y, const char* s);
 
+// Draw a null-terminated string with inverted colors (black on white).
+void oled_str_inv(int x, int y, const char* s);
+
 // Draw a filled horizontal bar at pixel position (x, y), w pixels wide,
 // h pixels tall, filled to 'fill' fraction (0.0 .. 1.0).
 void oled_bar(int x, int y, int w, int h, float fill);

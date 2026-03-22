@@ -1,26 +1,27 @@
 // main.cc — Ksoloti Big Genes: Mutable Instruments Elements
 //
 // Elements DSP running on STM32F429 + ADAU1961 codec at 32 kHz.
-// 8 pots, 6 CV jacks, gate button, and LED wired to Elements parameters.
+// Single-page OLED UI with two pot modes (levels / timbres).
 //
-// Pot/CV mapping:
-//   POT1-4 (+CV P1-P4): resonator geometry/brightness/damping/position
-//   POT5-8:             bow level / blow level / strike level / space
-//   CV A-B:             blow meta / strike meta
-//   CV C:               (unassigned)
-//   CV D:               gate + strength (velocity from voltage)
-//   CV X:               V/Oct pitch
-//   CV Y:               FM modulation
-//   S1 (ENC1 push):     cycle resonator model (modal/string/chords)
-//   ENC1 rotate:        envelope shape (always active)
-//   S2 (ENC2 push):     toggle scroll/edit mode (page 2)
-//   ENC2 rotate:        scroll or edit secondary params (page 2)
-//   S3 button:          manual gate (fixed strength 0.7)
-//   S4 button:          cycle OLED page (main / params)
-//   LED1 green (PG6):   gate active
-//   LED2 red (PC6):     CPU overload
-//   LED4 (PB6/PB7):     resonator model (green=modal, red=string, both=strings)
-//   Gate1 (PD3):        gate echo output
+// Controls:
+//   P1-4 (+CV P1-P4): resonator geometry / brightness / damping / position
+//   P5-8 mode 1:      bow level / blow level / strike level / space
+//   P5-8 mode 2:      blow timbre / flow(blow_meta) / mallet(strike_meta) / strike timbre
+//   E1 mode 1:        contour (envelope shape)
+//   E1 mode 2:        bow timbre
+//   S1 (ENC1 push):   cycle resonator model (modal / string / chords)
+//   S2 (ENC2 push):   select CV for assignment (A / B / C)
+//   E2 rotate:        cycle CV target parameter
+//   S3:               play (manual gate, strength 0.7)
+//   S4:               toggle pot mode (levels / timbres)
+//   CV A-C:           assignable modulation (default A=Flow, B=Mallet, C=none)
+//   CV D:             gate + strength (velocity from voltage)
+//   CV X:             V/Oct pitch
+//   CV Y:             FM modulation
+//   LED1 green (PG6): gate active
+//   LED2 red (PC6):   CPU overload
+//   LED4 (PB6/PB7):   resonator model (green=modal, red=string, both=chords)
+//   Gate1 (PD3):      gate echo output
 //
 // Audio: In L = blow exciter, In R = strike exciter
 //        Out L = main, Out R = aux (reverb)
@@ -31,6 +32,7 @@
 #include "stm32f4xx_hal.h"
 #include "elements/dsp/part.h"
 #include <cstdio>
+#include <cmath>
 
 extern "C" void SysTick_Handler(void)
 {
@@ -42,7 +44,6 @@ extern "C" void SysTick_Handler(void)
 static elements::Part part;
 
 // Reverb buffer: 64 KB of uint16_t.
-// TODO: move to CCM RAM (0x10000000) via linker section if main SRAM is tight.
 static uint16_t reverb_buffer[32768];
 
 // Per-block float buffers (16 mono samples each = kMaxBlockSize)
@@ -69,22 +70,19 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
     const float kInScale  = 1.0f / 2147483648.0f;
     const float kOutScale = 2147483648.0f;
 
-    // De-interleave stereo input -> mono blow/strike buffers
     for (int i = 0; i < BUFSIZE; i++) {
         blow_in[i]   = static_cast<float>(inp[i * 2])     * kInScale;
         strike_in[i] = static_cast<float>(inp[i * 2 + 1]) * kInScale;
     }
 
-    // Run Elements DSP
     part.Process(perf, blow_in, strike_in, main_out, aux_out, BUFSIZE);
 
-    // Re-interleave mono outputs -> stereo int32
     for (int i = 0; i < BUFSIZE; i++) {
         outp[i * 2]     = static_cast<int32_t>(main_out[i] * kOutScale);
         outp[i * 2 + 1] = static_cast<int32_t>(aux_out[i]  * kOutScale);
     }
 
-    // 16 samples @ 32 kHz = 500 µs. At 168 MHz = 84000 cycles budget.
+    // 16 samples @ 32 kHz = 500 us. At 168 MHz = 84000 cycles budget.
     cpu_overload = (DWT->CYCCNT - t0) > 80000;
 }
 
@@ -109,103 +107,53 @@ static inline float cv(int ch)
     return v;
 }
 
-// CV mapped to unipolar 0.0 .. 1.0 (centered at 0.5 when unpatched)
-static inline float cv_uni(int ch)
+static inline float clampf(float v, float lo, float hi)
 {
-    return cv(ch) * 0.5f + 0.5f;
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
 }
+
+// --- CV assignment system ---
+
+enum CvTarget {
+    CVT_FLOW,       // blow_meta
+    CVT_MALLET,     // strike_meta
+    CVT_CONTOUR,    // envelope_shape
+    CVT_BOW_TIM,    // bow_timbre
+    CVT_BLOW_TIM,   // blow_timbre
+    CVT_STRIKE_TIM, // strike_timbre
+    CVT_SIG,        // exciter_signature
+    CVT_MOD_FRQ,    // resonator_modulation_frequency
+    CVT_MOD_OFS,    // resonator_modulation_offset
+    CVT_RV_DIFF,    // reverb_diffusion
+    CVT_RV_LP,      // reverb_lp
+    CVT_NONE,       // unassigned
+    NUM_CV_TARGETS
+};
+
+static const char* cv_target_abbr[NUM_CV_TARGETS] = {
+    "Flw", "Mal", "Cnt", "BwT", "BlT", "StT",
+    "Sig", "MFr", "MOf", "RvD", "RvL", "---"
+};
 
 // --- Display helpers ---
 
-static const char* model_names[] = { "MODAL", "STRING", "CHORDS" };
-static const char* note_names[]  = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+static const char* model_names[] = { "Mod", "Str", "Chd" };
 
-// Secondary parameter table
-struct SecParam {
-    const char* name;
-    float* ptr;
-    float default_val;
-    float min_val;
-    float max_val;
-};
-
-#define NUM_SEC_PARAMS 10
-static SecParam sec_params[NUM_SEC_PARAMS];  // initialized in main()
-
-static int oled_page = 0;       // 0 = main, 1 = secondary params
-static int sec_cursor = 0;      // which param is selected (0..NUM_SEC_PARAMS-1)
-
-// Format a float 0.0-1.0 as "0.XX" into buf (max 5 chars + null)
-static void fmt_val(char* buf, float v)
+// Pitch note name from MIDI note number
+static void fmt_note(char* buf, float note)
 {
-    int pct = (int)(v * 100.0f + 0.5f);
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
-    buf[0] = '0' + (pct / 100);
-    buf[1] = '.';
-    buf[2] = '0' + ((pct / 10) % 10);
-    buf[3] = '0' + (pct % 10);
-    buf[4] = '\0';
-}
-
-static void draw_header(int model, float env_shape)
-{
-    // "MODAL (S1)  E1:Env 0.50"
-    char hdr[22];
-    char vbuf[6];
-    fmt_val(vbuf, env_shape);
-    snprintf(hdr, sizeof(hdr), "%s(S1) E1:Env%s", model_names[model], vbuf);
-    oled_str(0, 0, hdr);
-
-    oled_hline(0, 9, 128);
-}
-
-static void draw_page_main(int model, float env_shape)
-{
-    oled_clear();
-    draw_header(model, env_shape);
-
-    oled_str(0, 12, "P1-4: Geo Brt Dmp Pos");
-    oled_str(0, 22, "P5-8: Bow Blw Str Spc");
-
-    oled_hline(0, 31, 128);
-
-    oled_str(0, 34, "CvAD: Blw Str - Gte");
-    oled_str(0, 44, "CvX: V/Oct  CvY: FM");
-
-    oled_str(0, 56, "S3: ManGte S4: Page2");
-}
-
-static void draw_page_params(int model, float env_shape)
-{
-    oled_clear();
-    draw_header(model, env_shape);
-
-    // Two-column layout: 5 rows × 2 columns = 10 params
-    // Left column: params 0-4, right column: params 5-9
-    // Each entry: cursor(1) + name(6) + value(4) = ~66px per column
-    const int col_x[2] = {0, 66};
-    const int rows = 5;
-
-    for (int col = 0; col < 2; col++) {
-        for (int row = 0; row < rows; row++) {
-            int idx = col * rows + row;
-            if (idx >= NUM_SEC_PARAMS) break;
-
-            int x = col_x[col];
-            int y = 12 + row * 10;
-
-            if (idx == sec_cursor) {
-                oled_str(x, y, ">");
-            }
-
-            oled_str(x + 6, y, sec_params[idx].name);
-
-            char vbuf[6];
-            fmt_val(vbuf, *sec_params[idx].ptr);
-            oled_str(x + 42, y, vbuf);
-        }
-    }
+    static const char* names[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    int n = (int)(note + 0.5f);
+    if (n < 0) n = 0;
+    if (n > 127) n = 127;
+    int oct = (n / 12) - 1;
+    int idx = n % 12;
+    if (names[idx][1] == '#')
+        snprintf(buf, 5, "%s%d", names[idx], oct);
+    else
+        snprintf(buf, 5, "%c%d", names[idx][0], oct);
 }
 
 // --- Entry point ---
@@ -227,33 +175,38 @@ int main(void)
     // Patch pointer — lives for the duration of the program
     elements::Patch* p = part.mutable_patch();
 
-    // Secondary parameters — adjustable via OLED encoder UI
-    p->exciter_bow_timbre             = 0.5f;
-    p->exciter_blow_timbre            = 0.5f;
-    p->exciter_strike_timbre          = 0.5f;
-    p->exciter_envelope_shape         = 0.5f;
-    p->exciter_signature              = 0.5f;
-    p->resonator_modulation_frequency = 0.5f;
-    p->resonator_modulation_offset    = 0.5f;
-    p->reverb_diffusion               = 0.7f;
-    p->reverb_lp                      = 0.8f;
+    // --- Parameter base values ---
+    // Mode 1 (levels): written by pots when active, frozen when in mode 2
+    float val_bow_level    = 0.0f;
+    float val_blow_level   = 0.0f;
+    float val_strike_level = 0.0f;
+    float val_space        = 0.0f;
+    float val_contour      = 0.5f;   // E1 in mode 1
 
-    // CV A-B base values (CV modulates around these)
-    static float blow_meta_base   = 0.5f;
-    static float strike_meta_base = 0.5f;
+    // Mode 2 (timbres): written by pots/E1 when active, frozen when in mode 1
+    float val_bow_tim      = 0.5f;   // E1 in mode 2
+    float val_blow_tim     = 0.5f;   // P5 in mode 2
+    float val_flow         = 0.5f;   // P6 in mode 2 (blow_meta base)
+    float val_mallet       = 0.5f;   // P7 in mode 2 (strike_meta base)
+    float val_strike_tim   = 0.5f;   // P8 in mode 2
 
-    // Build secondary param table (name, pointer, default, min, max)
-    // BlwMod/StrMod first (most useful), then timbres, then modulation, then reverb
-    sec_params[0] = {"BlwMod",  &blow_meta_base,                     0.5f, 0.0f, 1.0f};
-    sec_params[1] = {"StrMod",  &strike_meta_base,                   0.5f, 0.0f, 1.0f};
-    sec_params[2] = {"BowTim",  &p->exciter_bow_timbre,             0.5f, 0.0f, 1.0f};
-    sec_params[3] = {"BlwTim",  &p->exciter_blow_timbre,            0.5f, 0.0f, 1.0f};
-    sec_params[4] = {"StrTim",  &p->exciter_strike_timbre,          0.5f, 0.0f, 1.0f};
-    sec_params[5] = {"Sig",     &p->exciter_signature,              0.5f, 0.0f, 1.0f};
-    sec_params[6] = {"ModFrq",  &p->resonator_modulation_frequency, 0.5f, 0.0f, 1.0f};
-    sec_params[7] = {"ModOfs",  &p->resonator_modulation_offset,    0.5f, 0.0f, 1.0f};
-    sec_params[8] = {"RvDiff",  &p->reverb_diffusion,               0.7f, 0.0f, 1.0f};
-    sec_params[9] = {"RvLP",    &p->reverb_lp,                      0.8f, 0.0f, 1.0f};
+    // Hidden params (CV-modulatable only, sensible defaults)
+    float val_sig      = 0.5f;
+    float val_mod_frq  = 0.5f;
+    float val_mod_ofs  = 0.5f;
+    float val_rv_diff  = 0.7f;
+    float val_rv_lp    = 0.8f;
+
+    // Set initial patch values
+    p->exciter_bow_timbre             = val_bow_tim;
+    p->exciter_blow_timbre            = val_blow_tim;
+    p->exciter_strike_timbre          = val_strike_tim;
+    p->exciter_envelope_shape         = val_contour;
+    p->exciter_signature              = val_sig;
+    p->resonator_modulation_frequency = val_mod_frq;
+    p->resonator_modulation_offset    = val_mod_ofs;
+    p->reverb_diffusion               = val_rv_diff;
+    p->reverb_lp                      = val_rv_lp;
 
     // Performance defaults
     perf.note       = 60.0f;
@@ -295,97 +248,218 @@ int main(void)
 
     // --- UI state ---
     int resonator_model = 0;  // 0=modal, 1=string, 2=chords
-    bool enc1_push_prev = button_enc1();   // read actual state to avoid spurious edge
+    int pot_mode = 0;         // 0=levels, 1=timbres
+
+    // CV assignment: which target each CV modulates
+    int cv_assign[3] = { CVT_FLOW, CVT_MALLET, CVT_NONE };
+    int cv_sel = 0;           // currently selected CV for editing (0=A, 1=B, 2=C)
+
+    // Button debounce state
+    bool enc1_push_prev = button_enc1();
     uint32_t enc1_push_last = 0;
-    bool s4_prev = button_s4();            // read actual state to avoid startup page flip
+    bool s4_prev = button_s4();
     uint32_t s4_last = 0;
-    bool enc2_push_prev = button_enc2();
-    uint32_t enc2_push_last = 0;
+    bool s2_prev = button_enc2();
+    uint32_t s2_last = 0;
+
+    // Pot pickup for P5-8 on mode switch
+    bool pot_picked[4] = {true, true, true, true};
+    float pickup_target[4] = {0};
+    #define PICKUP_THRESH 0.03f
+
+    // Activity tracking for bottom-line display
+    // Indices: 0-3 = P1-4, 4-7 = P5-8, 8 = E1
+    uint32_t act_ts[9] = {0};
+    float act_prev[9] = {0};
+    #define ACT_THRESH 0.015f
+    #define ACT_DURATION 2000
+
+    // Control names for bottom-line display (6 chars max, %-6s padded)
+    static const char* ctrl_name_m0[] = {
+        "Geom", "Bright", "Damp", "Posn",
+        "BowLvl", "BlwLvl", "StkLvl", "Space",
+        "Contr"
+    };
+    static const char* ctrl_name_m1[] = {
+        "Geom", "Bright", "Damp", "Posn",
+        "BlwTmb", "Flow", "Mallet", "StkTmb",
+        "BowTmb"
+    };
+
+    // Read initial pot positions and set mode 1 values
+    adc_poll();
+    val_bow_level    = pot(ADC_POT5);
+    val_blow_level   = pot(ADC_POT6);
+    val_strike_level = pot(ADC_POT7);
+    val_space        = pot(ADC_POT8) * 2.0f;
+
+    // Seed activity prev values
+    act_prev[0] = pot(ADC_POT1); act_prev[1] = pot(ADC_POT2);
+    act_prev[2] = pot(ADC_POT3); act_prev[3] = pot(ADC_POT4);
+    act_prev[4] = pot(ADC_POT5); act_prev[5] = pot(ADC_POT6);
+    act_prev[6] = pot(ADC_POT7); act_prev[7] = pot(ADC_POT8);
+    act_prev[8] = val_contour;
 
     // --- Main control loop (~1 kHz) ---
     while (1) {
-        adc_poll();   // Update pots 5-8 (ADC3)
-        enc_poll();   // Update encoder rotation
+        adc_poll();
+        enc_poll();
+        uint32_t now = HAL_GetTick();
 
-        // --- Pot -> Patch mapping ---
-        p->resonator_geometry   = pot(ADC_POT1);
-        p->resonator_brightness = pot(ADC_POT2);
-        p->resonator_damping    = pot(ADC_POT3);
-        p->resonator_position   = pot(ADC_POT4);
-        p->exciter_bow_level    = pot(ADC_POT5);
-        p->exciter_blow_level   = pot(ADC_POT6);
-        p->exciter_strike_level = pot(ADC_POT7);
-        p->space                = pot(ADC_POT8) * 2.0f;
+        // --- P1-4: always resonator ---
+        float cur_pot[8];
+        cur_pot[0] = pot(ADC_POT1); cur_pot[1] = pot(ADC_POT2);
+        cur_pot[2] = pot(ADC_POT3); cur_pot[3] = pot(ADC_POT4);
+        p->resonator_geometry   = cur_pot[0];
+        p->resonator_brightness = cur_pot[1];
+        p->resonator_damping    = cur_pot[2];
+        p->resonator_position   = cur_pot[3];
 
-        // --- CV -> Patch/Perf mapping ---
-        // CV A-B modulate around encoder-set base values (clamped 0..1)
-        float bm = blow_meta_base + cv(ADC_CV_A) * 0.5f;
-        p->exciter_blow_meta = (bm < 0.0f) ? 0.0f : (bm > 1.0f) ? 1.0f : bm;
-        float sm = strike_meta_base + cv(ADC_CV_B) * 0.5f;
-        p->exciter_strike_meta = (sm < 0.0f) ? 0.0f : (sm > 1.0f) ? 1.0f : sm;
-        // CV C unassigned — envelope shape now on ENC1 rotate
+        // --- P5-8: mode-dependent with pickup ---
+        cur_pot[4] = pot(ADC_POT5); cur_pot[5] = pot(ADC_POT6);
+        cur_pot[6] = pot(ADC_POT7); cur_pot[7] = pot(ADC_POT8);
 
+        for (int i = 0; i < 4; i++) {
+            if (!pot_picked[i]) {
+                if (fabsf(cur_pot[4 + i] - pickup_target[i]) < PICKUP_THRESH)
+                    pot_picked[i] = true;
+            }
+        }
+
+        if (pot_mode == 0) {
+            if (pot_picked[0]) val_bow_level    = cur_pot[4];
+            if (pot_picked[1]) val_blow_level   = cur_pot[5];
+            if (pot_picked[2]) val_strike_level = cur_pot[6];
+            if (pot_picked[3]) val_space        = cur_pot[7] * 2.0f;
+        } else {
+            if (pot_picked[0]) val_blow_tim   = cur_pot[4];
+            if (pot_picked[1]) val_flow       = cur_pot[5];
+            if (pot_picked[2]) val_mallet     = cur_pot[6];
+            if (pot_picked[3]) val_strike_tim = cur_pot[7];
+        }
+
+        // Activity detection for P1-8
+        for (int i = 0; i < 8; i++) {
+            if (fabsf(cur_pot[i] - act_prev[i]) > ACT_THRESH) {
+                act_ts[i] = now;
+                act_prev[i] = cur_pot[i];
+            }
+        }
+
+        // --- E1 rotate: mode-dependent ---
+        int enc1_delta = enc1_read();
+        if (enc1_delta != 0) {
+            act_ts[8] = now;
+            if (pot_mode == 0) {
+                val_contour += enc1_delta * 0.02f;
+                val_contour = clampf(val_contour, 0.0f, 1.0f);
+            } else {
+                val_bow_tim += enc1_delta * 0.02f;
+                val_bow_tim = clampf(val_bow_tim, 0.0f, 1.0f);
+            }
+        }
+
+        // --- Write all base values to patch ---
+        p->exciter_bow_level      = val_bow_level;
+        p->exciter_blow_level     = val_blow_level;
+        p->exciter_strike_level   = val_strike_level;
+        p->space                  = val_space;
+        p->exciter_envelope_shape = val_contour;
+        p->exciter_bow_timbre     = val_bow_tim;
+        p->exciter_blow_timbre    = val_blow_tim;
+        p->exciter_blow_meta      = val_flow;
+        p->exciter_strike_meta    = val_mallet;
+        p->exciter_strike_timbre  = val_strike_tim;
+        p->exciter_signature      = val_sig;
+        p->resonator_modulation_frequency = val_mod_frq;
+        p->resonator_modulation_offset    = val_mod_ofs;
+        p->reverb_diffusion       = val_rv_diff;
+        p->reverb_lp              = val_rv_lp;
+
+        // --- Apply CV modulation on top of base values ---
+        static const int cv_adc[3] = { ADC_CV_A, ADC_CV_B, ADC_CV_C };
+        for (int i = 0; i < 3; i++) {
+            if (cv_assign[i] == CVT_NONE) continue;
+            float mod = cv(cv_adc[i]) * 0.5f;
+            float* target = nullptr;
+            switch (cv_assign[i]) {
+                case CVT_FLOW:       target = &p->exciter_blow_meta; break;
+                case CVT_MALLET:     target = &p->exciter_strike_meta; break;
+                case CVT_CONTOUR:    target = &p->exciter_envelope_shape; break;
+                case CVT_BOW_TIM:    target = &p->exciter_bow_timbre; break;
+                case CVT_BLOW_TIM:   target = &p->exciter_blow_timbre; break;
+                case CVT_STRIKE_TIM: target = &p->exciter_strike_timbre; break;
+                case CVT_SIG:        target = &p->exciter_signature; break;
+                case CVT_MOD_FRQ:    target = &p->resonator_modulation_frequency; break;
+                case CVT_MOD_OFS:    target = &p->resonator_modulation_offset; break;
+                case CVT_RV_DIFF:    target = &p->reverb_diffusion; break;
+                case CVT_RV_LP:      target = &p->reverb_lp; break;
+                default: break;
+            }
+            if (target) *target = clampf(*target + mod, 0.0f, 1.0f);
+        }
+
+        // --- CV D: gate + strength ---
         float gate_cv = cv(ADC_CV_D);
         bool cv_gate = gate_cv > 0.2f;
         bool manual_gate = button_s3();
         perf.gate = cv_gate || manual_gate;
 
         if (cv_gate) {
-            perf.strength = (gate_cv > 1.0f) ? 1.0f : gate_cv;
+            perf.strength = clampf(gate_cv, 0.0f, 1.0f);
         } else if (manual_gate) {
             perf.strength = 0.7f;
         }
 
+        // --- CV X/Y: pitch and FM ---
         perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
         perf.modulation = cv(ADC_CV_Y);
 
-        // --- ENC1 push: cycle resonator model (debounced 200ms) ---
+        // --- S1 (ENC1 push): cycle resonator model (debounced 200ms) ---
         bool enc1_now = button_enc1();
-        if (enc1_now && !enc1_push_prev && (HAL_GetTick() - enc1_push_last > 200)) {
+        if (enc1_now && !enc1_push_prev && (now - enc1_push_last > 200)) {
             resonator_model = (resonator_model + 1) % 3;
             part.set_resonator_model(
                 static_cast<elements::ResonatorModel>(resonator_model));
-            enc1_push_last = HAL_GetTick();
+            enc1_push_last = now;
         }
         enc1_push_prev = enc1_now;
 
-        // --- S4: cycle OLED page (debounced 200ms) ---
+        // --- S4: toggle pot mode (debounced 200ms) ---
         bool s4_now = button_s4();
-        if (s4_now && !s4_prev && (HAL_GetTick() - s4_last > 200)) {
-            oled_page = (oled_page + 1) % 2;
-            s4_last = HAL_GetTick();
+        if (s4_now && !s4_prev && (now - s4_last > 200)) {
+            pot_mode ^= 1;
+            if (pot_mode == 0) {
+                pickup_target[0] = val_bow_level;
+                pickup_target[1] = val_blow_level;
+                pickup_target[2] = val_strike_level;
+                pickup_target[3] = val_space * 0.5f;
+            } else {
+                pickup_target[0] = val_blow_tim;
+                pickup_target[1] = val_flow;
+                pickup_target[2] = val_mallet;
+                pickup_target[3] = val_strike_tim;
+            }
+            for (int i = 0; i < 4; i++) pot_picked[i] = false;
+            s4_last = now;
         }
         s4_prev = s4_now;
 
-        // --- ENC1 rotate: envelope shape (always active, both pages) ---
-        int enc1_delta = enc1_read();
-        if (enc1_delta != 0) {
-            p->exciter_envelope_shape += enc1_delta * 0.02f;
-            if (p->exciter_envelope_shape < 0.0f) p->exciter_envelope_shape = 0.0f;
-            if (p->exciter_envelope_shape > 1.0f) p->exciter_envelope_shape = 1.0f;
+        // --- S2 (ENC2 push): cycle selected CV (debounced 200ms) ---
+        bool s2_now = button_enc2();
+        if (s2_now && !s2_prev && (now - s2_last > 200)) {
+            cv_sel = (cv_sel + 1) % 3;
+            s2_last = now;
         }
+        s2_prev = s2_now;
 
-        // --- Page 2: S2 steps cursor, E2 adjusts selected param ---
-        if (oled_page == 1) {
-            // S2 (ENC2 push) = step to next param (debounced 200ms)
-            bool enc2_now = button_enc2();
-            if (enc2_now && !enc2_push_prev && (HAL_GetTick() - enc2_push_last > 200)) {
-                sec_cursor = (sec_cursor + 1) % NUM_SEC_PARAMS;
-                enc2_push_last = HAL_GetTick();
-            }
-            enc2_push_prev = enc2_now;
-
-            // E2 rotate = adjust selected param value
-            int enc2_delta = enc2_read();
-            if (enc2_delta != 0) {
-                SecParam& sp = sec_params[sec_cursor];
-                float step = (sp.max_val - sp.min_val) * 0.02f;
-                *sp.ptr += enc2_delta * step;
-                if (*sp.ptr < sp.min_val) *sp.ptr = sp.min_val;
-                if (*sp.ptr > sp.max_val) *sp.ptr = sp.max_val;
-            }
-        } else {
-            enc2_read();  // drain accumulator
+        // --- E2 rotate: cycle CV target for selected CV ---
+        int enc2_delta = enc2_read();
+        if (enc2_delta != 0) {
+            int t = cv_assign[cv_sel] + enc2_delta;
+            if (t < 0) t = NUM_CV_TARGETS - 1;
+            if (t >= NUM_CV_TARGETS) t = 0;
+            cv_assign[cv_sel] = t;
         }
 
         // --- LEDs ---
@@ -401,13 +475,83 @@ int main(void)
         HAL_GPIO_WritePin(GPIOD, GPIO_PIN_3,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
 
-        // --- OLED: redraw every 8 ticks, push 1 page per tick ---
+        // --- OLED: single-page display ---
+        // Layout:
+        //   S1 Mod E1 Con SE2 Cv
+        //   P1-4 Geo Brt Dmp Pos
+        //   P5-8 Bow Blw Stk Spc      <- "P5-8" underlined when active
+        //   P5-8 BlT Flw Mal StT      <- "P5-8" underlined when active
+        //   CvAD Flw Mal --- Gte      <- active CV underlined
+        //   (bottom: active param display or static reference)
         static int oled_tick = 0;
         if (oled_tick == 0) {
-            if (oled_page == 0)
-                draw_page_main(resonator_model, p->exciter_envelope_shape);
-            else
-                draw_page_params(resonator_model, p->exciter_envelope_shape);
+            oled_clear();
+            char line[22];
+
+            // Row 0 (y=0): "S1 Mod E1 Con SE2 Cv"
+            const char* e1_lbl = (pot_mode == 0) ? "Con" : "BoT";
+            snprintf(line, sizeof(line), "S1 %s E1 %s SE2 Cv",
+                     model_names[resonator_model], e1_lbl);
+            oled_str(0, 0, line);
+
+            oled_hline(0, 9, 128);
+
+            // Row 1 (y=11): "P1-4 Geo Brt Dmp Pos"
+            oled_str(0, 11, "P1-4 Geo Brt Dmp Pos");
+
+            // Row 2 (y=21): "P5-8 Bow Blw Stk Spc"
+            oled_str(0, 21, "P5-8 Bow Blw Stk Spc");
+            if (pot_mode == 0)
+                oled_hline(0, 29, 24);  // underline "P5-8" only
+
+            // Row 3 (y=31): "P5-8 BlT Flw Mal StT"
+            oled_str(0, 31, "P5-8 BlT Flw Mal StT");
+            if (pot_mode == 1)
+                oled_hline(0, 39, 24);  // underline "P5-8" only
+
+            // Row 4 (y=42): "CvAD Flw Mal --- Gte"
+            snprintf(line, sizeof(line), "CvAD %s %s %s Gte",
+                     cv_target_abbr[cv_assign[0]],
+                     cv_target_abbr[cv_assign[1]],
+                     cv_target_abbr[cv_assign[2]]);
+            oled_str(0, 42, line);
+
+            // Underline active CV: "CvAD " = 30px, then 3-char groups at 30, 54, 78
+            oled_hline(30 + cv_sel * 24, 50, 18);
+
+            // Row 5 (y=53): activity display or static reference
+            // Find the two most recently active controls (within 2s)
+            const char** names = (pot_mode == 0) ? ctrl_name_m0 : ctrl_name_m1;
+            float ctrl_val[9];
+            for (int i = 0; i < 8; i++) ctrl_val[i] = cur_pot[i];
+            ctrl_val[8] = (pot_mode == 0) ? val_contour : val_bow_tim;
+
+            int s0 = -1, s1 = -1;
+            uint32_t t0 = 0, t1 = 0;
+            for (int i = 0; i < 9; i++) {
+                if (now - act_ts[i] < ACT_DURATION) {
+                    if (act_ts[i] > t0) {
+                        s1 = s0; t1 = t0;
+                        s0 = i;  t0 = act_ts[i];
+                    } else if (act_ts[i] > t1) {
+                        s1 = i;  t1 = act_ts[i];
+                    }
+                }
+            }
+
+            if (s0 >= 0) {
+                int v0 = (int)(ctrl_val[s0] * 100.0f + 0.5f);
+                if (s1 >= 0) {
+                    int v1 = (int)(ctrl_val[s1] * 100.0f + 0.5f);
+                    snprintf(line, sizeof(line), "%-6s %3d %-6s %3d",
+                             names[s0], v0, names[s1], v1);
+                } else {
+                    snprintf(line, sizeof(line), "%-6s %3d", names[s0], v0);
+                }
+                oled_str(0, 53, line);
+            } else {
+                oled_str(0, 53, "S34 PyPge CvXY VO FM");
+            }
         }
         oled_update();
         oled_tick = (oled_tick + 1) % 8;
