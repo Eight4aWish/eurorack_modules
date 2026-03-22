@@ -9,7 +9,7 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 - **MCLK**: 8 MHz HSE routed via MCO1 (PA8)
 - **DMA**: Double-buffered, 16-sample blocks (~500 us per callback)
 - **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer
-- **Resources**: RAM 69.4%, Flash 19.6%
+- **Resources**: RAM 69.4%, Flash 19.7%
 
 ## Controls
 
@@ -22,7 +22,11 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 | POT3 | resonator_damping | 0-1 |
 | POT4 | resonator_position | 0-1 |
 
-### Pots 5-8 (bottom row, standalone) — Exciter + Space
+### Pots 5-8 (bottom row) — Dual Mode
+
+S4 toggles P5-8 between two modes. Pot pickup prevents parameter jumps on mode switch.
+
+**Mode 1 — Levels (default):**
 
 | Pot | Parameter | Range |
 |-----|-----------|-------|
@@ -31,28 +35,41 @@ A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules
 | POT7 | exciter_strike_level | 0-1 |
 | POT8 | space | 0-2 (>1 = increasing reverb, >1.5 = frozen) |
 
+**Mode 2 — Timbres:**
+
+| Pot | Parameter | Range |
+|-----|-----------|-------|
+| POT5 | exciter_blow_timbre | 0-1 |
+| POT6 | exciter_blow_meta (Flow) | 0-1 |
+| POT7 | exciter_strike_meta (Mallet) | 0-1 |
+| POT8 | exciter_strike_timbre | 0-1 |
+
 ### CV Inputs
 
-| Jack | Function | Notes |
-|------|----------|-------|
-| CV A (PA6) | exciter_blow_meta | Modulates around base value (set on page 2). 0.5 default |
-| CV B (PA7) | exciter_strike_meta | Modulates around base value (set on page 2). 0.5 default |
-| CV C (PB0) | Unassigned | Envelope shape now on ENC1 rotate |
-| CV D (PB1) | Gate + strength | >1V = gate on, voltage = velocity (0-1) |
+CV A-C are assignable via S2 (select CV) + E2 (cycle target). Default assignments shown.
+
+| Jack | Default Target | Notes |
+|------|----------------|-------|
+| CV A (PA6) | Flow (blow_meta) | Modulates ±0.5 around base value |
+| CV B (PA7) | Mallet (strike_meta) | Modulates ±0.5 around base value |
+| CV C (PB0) | Unassigned | Assignable to any parameter via S2/E2 |
+| CV D (PB1) | Gate + strength | >0.2V = gate on, voltage = velocity (0-1) |
 | CV X (PC1) | V/Oct pitch | Centered at middle C (MIDI 60). Trimmable |
 | CV Y (PC4) | FM modulation | Bipolar. 0 when unpatched |
 | CV P1-P4 | Summed with pots 1-4 | Hardware summing, no separate ADC |
+
+**Assignable CV targets:** Flow, Mallet, Contour, Bow Timbre, Blow Timbre, Strike Timbre, Signature, Mod Frequency, Mod Offset, Reverb Diffusion, Reverb LP, None.
 
 ### Buttons & Encoders
 
 | Control | Function |
 |---------|----------|
 | S1 / ENC1 push (PB5) | Cycle resonator model: modal -> string -> chords |
-| ENC1 rotate (PG11/PG12) | Envelope shape (always active, both pages) |
-| S2 / ENC2 push (PA10) | Step cursor through secondary params (page 2) |
-| ENC2 rotate (PG10/PA15) | Adjust selected secondary param (page 2) |
-| S3 (PB12) | Manual gate (fixed strength 0.7). CV D takes priority when patched |
-| S4 (PB13) | Cycle OLED page (main / params) |
+| ENC1 rotate (PG11/PG12) | Mode 1: contour (envelope shape). Mode 2: bow timbre |
+| S2 / ENC2 push (PA10) | Cycle selected CV for assignment (A -> B -> C) |
+| ENC2 rotate (PG10/PA15) | Cycle CV target parameter for selected CV |
+| S3 (PB12) | Play — manual gate (fixed strength 0.7). CV D takes priority when patched |
+| S4 (PB13) | Toggle pot mode (levels / timbres) |
 
 Note: S2 and S3 are active-high (no internal pull-up). S1 and S4 are active-low with internal pull-up.
 
@@ -62,10 +79,10 @@ Note: S2 and S3 are active-high (no internal pull-up). S1 and S4 are active-low 
 |-----|----------|
 | LED1 green (PG6) | Gate active |
 | LED2 red (PC6) | CPU overload (>95% of 500 us budget) |
-| LED4 green (PB6) | On for modal or strings model |
-| LED4 red (PB7) | On for string or strings model |
+| LED4 green (PB6) | On for modal or chords model |
+| LED4 red (PB7) | On for string or chords model |
 
-LED4 encoding: green only = modal, red only = string, both = strings.
+LED4 encoding: green only = modal, red only = string, both = chords.
 
 ### Outputs
 
@@ -83,32 +100,37 @@ Selectable via ENC1 push button (cycles through all three):
 2. **String** — Sympathetic string model
 3. **Chords** — Polyphonic chord voicing from the resonator
 
-### OLED Display
+## OLED Display
 
 SH1106 128x64 on I2C1 (PB8 SCL, PB9 SDA, 400 kHz, addr 0x3C).
 
-**Page 1 (main):** Resonator model, envelope shape value, pot/CV assignment reference, control summary.
+Single-page layout with six rows:
 
-**Page 2 (params):** Two-column layout showing all 10 secondary parameters with cursor. S2 steps cursor, ENC2 adjusts selected value.
+```
+S1 Mod E1 Con SE2 Cv       <- model, E1 param, CV config reminder
+─────────────────────
+P1-4 Geo Brt Dmp Pos       <- resonator pots (always active)
+P5-8 Bow Blw Stk Spc       <- mode 1: levels (underlined when active)
+P5-8 BlT Flw Mal StT       <- mode 2: timbres (underlined when active)
+CvAD Flw Mal --- Gte       <- CV A-C assignments + gate (active CV underlined)
+S34 PyPge CvXY VO FM       <- button/CV reference (or active param + value)
+```
+
+The bottom line shows parameter name and 0-100 value when pots or E1 are being adjusted (up to two simultaneous controls), reverting to the static reference after 2 seconds.
 
 Page-at-a-time refresh: 1 of 8 pages sent per main loop tick (~1 ms each). Full frame refresh every 8 ms. No measurable audio impact.
 
-## Secondary Parameters
+## Hidden Parameters
 
-Adjustable via ENC2 on OLED page 2 (press S2 to step cursor, turn ENC2 to adjust):
+These parameters have sensible defaults and are accessible only via CV assignment (S2/E2):
 
-| # | Name | Default | Notes |
-|---|------|---------|-------|
-| 1 | BlwMod | 0.5 | Blow meta base value (CV A modulates around this) |
-| 2 | StrMod | 0.5 | Strike meta base value (CV B modulates around this) |
-| 3 | BowTim | 0.5 | Bow brightness |
-| 4 | BlwTim | 0.5 | Blow brightness |
-| 5 | StrTim | 0.5 | Strike brightness |
-| 6 | Sig | 0.5 | Adds imperfection/character |
-| 7 | ModFrq | 0.5 | Resonator internal vibrato rate |
-| 8 | ModOfs | 0.5 | Resonator vibrato depth |
-| 9 | RvDiff | 0.7 | Reverb density |
-| 10 | RvLP | 0.8 | Reverb brightness |
+| Parameter | Default | Effect |
+|-----------|---------|--------|
+| Signature (Sig) | 0.5 | Adds imperfection/character to exciters |
+| Mod Frequency (MFr) | 0.5 | Resonator internal vibrato rate |
+| Mod Offset (MOf) | 0.5 | Resonator vibrato depth |
+| Reverb Diffusion (RvD) | 0.7 | Reverb density |
+| Reverb LP (RvL) | 0.8 | Reverb brightness |
 
 ## Install (pre-built binary — no coding required)
 
@@ -147,14 +169,14 @@ You should see a progress bar. When it says "File downloaded successfully", the 
 
 ### Step 5: Verify
 
-- The OLED should display "MODAL(S1) E1:Env0.50"
-- LED1 (green) should light when you press the S3 button or send a gate to CV D
+- The OLED should display "S1 Mod E1 Con SE2 Cv" on the top line
+- LED1 (green) should light when you press S3 or send a gate to CV D
 - Sound should come from the audio outputs when a gate is active and pots are turned up
 
 ### Troubleshooting
 
 - **"No DFU capable USB device available"** — The board isn't in DFU mode. Repeat Step 3, making sure you hold BOOT0 *before* pressing RESET.
-- **No sound** — Make sure POT5 (Bow), POT6 (Blow), or POT7 (Strike) is turned up. At least one exciter level must be non-zero.
+- **No sound** — Make sure POT5 (Bow), POT6 (Blow), or POT7 (Strike) is turned up in levels mode. At least one exciter level must be non-zero.
 - **To restore original Ksoloti firmware** — Flash the original `.bin` file from [ksoloti.github.io](https://ksoloti.github.io) using the same DFU process.
 
 ## Build from Source (for developers)
@@ -210,10 +232,9 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 ## Known Limitations
 
 - Resonator resolution reduced from 52 to 36 modes to fit CPU budget at 168 MHz
-- CV A-B (blow_meta, strike_meta) modulate around encoder-set base values on page 2
-- CV C is unassigned (envelope shape moved to ENC1 rotate)
 - V/Oct tracking (CV X) needs calibration with board trimmer
 - No MIDI input yet (USART6 on PG9 available)
+- Hidden parameters (Sig, MFr, MOf, RvD, RvL) only accessible via CV assignment — no direct knob control
 
 ## License
 
