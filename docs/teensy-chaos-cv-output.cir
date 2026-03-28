@@ -1,0 +1,130 @@
+* ============================================================
+* TeensyChaos — Bipolar CV Output Stage
+* ============================================================
+* Converts MCP4822 DAC (0 – 4.096 V) to ±5 V bipolar CV.
+*
+* Topology  : inverting summing amplifier (one per channel)
+* Op-amp    : U1 = TL072 dual (or TL082, OPA2134, NE5532)
+* Supply    : Eurorack ±12 V rails
+* Channels  : A (VOUTA → CVOUT1), B (VOUTB → CVOUT2)
+*
+* Transfer function (per channel):
+*
+*   Vout = -(Rf/Rin) × Vdac  +  |VEE| × (Rf/Roff)
+*        = -2.427 × Vdac  +  5.000 V
+*
+* Output range (with software inversion, writing 4095-value):
+*   DAC code 4095 (Vdac ≈ 0.000 V) → Vout ≈ +5.00 V
+*   DAC code 2048 (Vdac ≈ 2.048 V) → Vout ≈  0.03 V
+*   DAC code    0 (Vdac ≈ 4.096 V) → Vout ≈ -4.94 V
+*
+* Gate output: write DAC code 2048 for 0 V (low),
+*              4095 for +5 V (high).
+*
+* ============================================================
+* SCHEMATIC (one channel — duplicate for B)
+* ============================================================
+*
+*                     R3x  100k         C1x  100p (optional)
+*                   ┌──/\/\/──┬────────┤├────┐
+*                   │         │              │
+*   DAC_x ──/\/\/──┤         │        ┌─────┴──── CVOUTx
+*           R1x     │        ┌┴┐       │
+*           41.2k   │        │ │ R4x   │
+*                  (─)  U1x  │ │ 1k    │
+*                  (+)       └┬┘       │
+*   VEE ───/\/\/───┤    │    │        │
+*          R2x     │    GND   └────────┘
+*          240k    │
+*                  └──────────────────────────
+*
+* ============================================================
+* POWER SUPPLY
+* ============================================================
+V_VCC  VCC  0  DC  +12
+V_VEE  VEE  0  DC  -12
+
+* Decoupling — mount close to U1 power pins (pin 8 = V+, pin 4 = V-)
+C_PVCC  VCC  0  100n        ; ceramic, MLCC
+C_PVEE  VEE  0  100n        ; ceramic, MLCC
+C_BVCC  VCC  0  10u         ; electrolytic (omit if already on power header)
+C_BVEE  VEE  0  10u         ; electrolytic
+
+* ============================================================
+* CHANNEL A — MCP4822 VOUTA → CVOUT1
+* ============================================================
+
+* Gain resistor: Rf/Rin = 100k/41.2k = 2.427
+*   E96 (1%) : R1A = 41.2k  →  +5.00 / -4.94 V  (59 mV asymmetry)
+*   E24 (5%) : R1A = 39k    →  +5.00 / -5.50 V  (clamp in software)
+*   Trimpot  : R1A = 33k fixed + RV1A 20k trim  →  calibrate for 0 V at midcode
+R1A   VOUTA   INVA    41.2k
+
+* Offset resistor: |VEE| × Rf/Roff = 12 × 100k/240k = 5.000 V
+R2A   VEE     INVA    240k
+
+* Feedback resistor
+R3A   INVA    OUTA    100k
+
+* HF rolloff (optional): -3 dB at 1/(2 pi Rf Cf) ≈ 16 kHz
+* Omit for fastest CV response; include for cleaner output.
+C1A   INVA    OUTA    100p
+
+* U1A — TL072 half  (non-inv+ = GND, inv- = INVA, out = OUTA)
+XU1A  0  INVA  VCC  VEE  OUTA  TL072_HALF
+
+* Output protection: 1k series limits short-circuit current
+R4A   OUTA    CVOUT1  1k
+
+
+* ============================================================
+* CHANNEL B — MCP4822 VOUTB → CVOUT2
+* ============================================================
+
+R1B   VOUTB   INVB    41.2k
+R2B   VEE     INVB    240k
+R3B   INVB    OUTB    100k
+C1B   INVB    OUTB    100p
+
+XU1B  0  INVB  VCC  VEE  OUTB  TL072_HALF
+
+R4B   OUTB    CVOUT2  1k
+
+
+* ============================================================
+* OP-AMP MODEL (ideal — substitute vendor model for AC analysis)
+* ============================================================
+.subckt TL072_HALF  INP INM VCC VEE OUT
+* Pinout: non-inv(+), inv(-), V+, V-, output
+E1  OUT  0  INP  INM  200k    ; open-loop gain ≈ 106 dB
+.ends
+
+
+* ============================================================
+* BILL OF MATERIALS (per module — both channels)
+* ============================================================
+*
+*   Qty  Value       Package     Ref         Notes
+*   ---  ----------  ----------  ----------  -------------------------
+*   1    TL072       DIP-8       U1          dual op-amp (or TL082/NE5532/OPA2134)
+*   2    41.2k 1%    0603/0805   R1A, R1B    gain (see E24 alternatives above)
+*   2    240k        0603/0805   R2A, R2B    offset from -12 V rail
+*   2    100k        0603/0805   R3A, R3B    feedback
+*   2    1k          0603/0805   R4A, R4B    output protection
+*   2    100pF       0603/0805   C1A, C1B    HF rolloff (optional)
+*   2    100nF       0603/0805   C_PVCC/VEE  supply decoupling (ceramic)
+*   2    10uF        radial      C_BVCC/VEE  supply bulk (omit if on header)
+*
+*   For trimpot calibration option (replaces each 41.2k):
+*   2    33k         0603/0805   R1A, R1B    fixed portion
+*   2    20k trim    3296W       RV1A, RV1B  adjust for 0 V at DAC midcode
+*
+* ============================================================
+* CALIBRATION (trimpot option)
+* ============================================================
+*   1. Set DAC to midcode (2048 → Vdac ≈ 2.048 V)
+*   2. Measure CVOUT with multimeter
+*   3. Adjust trimpot until CVOUT reads 0.000 V
+*   4. Verify: DAC 0 → ≈ +5 V, DAC 4095 → ≈ -5 V
+*
+.end

@@ -4,6 +4,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "teensy-chaos/pins.h"
 
 // ---------------------------------------------------------------------------
 // Rössler oscillator as a Teensy AudioStream (stereo: x→L, y→R)
@@ -89,11 +90,22 @@ private:
 // ---------------------------------------------------------------------------
 // Audio objects
 // ---------------------------------------------------------------------------
-AudioRossler         rossler;
+AudioInputI2S        audioIn;
+AudioAmplifier       ampL;
+AudioAmplifier       ampR;
 AudioOutputI2S       audioOut;
+AudioAnalyzePeak     peakL;
+AudioAnalyzePeak     peakR;
 AudioControlSGTL5000 codec;
-AudioConnection      patchL(rossler, 0, audioOut, 0);
-AudioConnection      patchR(rossler, 1, audioOut, 1);
+
+// Mono right input → both outputs (with software gain)
+AudioConnection      patchInL(audioIn, 1, ampL, 0);
+AudioConnection      patchInR(audioIn, 1, ampR, 0);
+AudioConnection      patchOutL(ampL, 0, audioOut, 0);
+AudioConnection      patchOutR(ampR, 0, audioOut, 1);
+// Tap input for level metering (post-gain)
+AudioConnection      patchPeakL(ampL, 0, peakL, 0);
+AudioConnection      patchPeakR(ampR, 0, peakR, 0);
 
 // ---------------------------------------------------------------------------
 // OLED
@@ -129,13 +141,26 @@ const uint16_t DAC_STEP = 4;
 
 // ---------------------------------------------------------------------------
 void setup() {
+    // Disable Audio Shield SD card — its CS is also on pin 10 (shared with
+    // OLED_CS).  Drive it HIGH early so the SD card stays deselected and
+    // doesn't contend on the SPI bus.  The Teensy 4.1 built-in SD card uses
+    // SDIO (a separate bus) and is unaffected.
+    pinMode(10, OUTPUT);
+    digitalWriteFast(10, HIGH);
+
     AudioMemory(12);
 
     codec.enable();
-    codec.volume(0.6);
-    codec.lineOutLevel(29);  // ~1.29 Vpp — safe default
+    codec.inputSelect(AUDIO_INPUT_LINEIN);
+    codec.lineInLevel(5);     // 0-15: 5 = default (~1.33 Vpp full-scale)
+    codec.volume(0.7);
+    codec.lineOutLevel(29);   // 29 = ~1.29 Vpp (conservative)
 
-    rossler.setParams(5.7f, 0.05f, 0.2f);
+    ampL.gain(1.0);           // unity — no software boost
+    ampR.gain(1.0);
+
+    // Button
+    pinMode(PIN_BTN, INPUT_PULLUP);
 
     // DAC CS
     pinMode(PIN_CS_DAC, OUTPUT);
@@ -152,48 +177,45 @@ void setup() {
         display.println("CHAOS");
         display.setTextSize(1);
         display.setCursor(4, 48);
-        display.print("DAC test running...");
+        display.print("Audio passthrough");
         display.display();
     }
 }
 
 void loop() {
-    // Update triangle waves
-    if (dirA) {
-        dacValA += DAC_STEP;
-        if (dacValA >= 4095) { dacValA = 4095; dirA = false; }
-    } else {
-        dacValA -= DAC_STEP;
-        if (dacValA <= 0 || dacValA > 4095) { dacValA = 0; dirA = true; }
-    }
-
-    if (dirB) {
-        dacValB += DAC_STEP;
-        if (dacValB >= 4095) { dacValB = 4095; dirB = false; }
-    } else {
-        dacValB -= DAC_STEP;
-        if (dacValB <= 0 || dacValB > 4095) { dacValB = 0; dirB = true; }
-    }
-
-    dacWrite(0, dacValA);
-    dacWrite(1, dacValB);
-
-    // Update OLED every 250ms
     static uint32_t lastDisp = 0;
-    if (millis() - lastDisp > 250) {
+    if (millis() - lastDisp > 100) {
         lastDisp = millis();
-        float voltA = dacValA * 4.096f / 4095.0f;
-        float voltB = dacValB * 4.096f / 4095.0f;
-        display.fillRect(0, 48, 128, 16, SSD1306_BLACK);
-        display.setCursor(0, 48);
+
+        int p1 = readPot(PIN_POT1);
+        int p2 = readPot(PIN_POT2);
+        int p3 = readPot(PIN_POT3);
+        int p4 = readPot(PIN_POT4);
+        bool btn = !digitalRead(PIN_BTN);  // active-low
+
+        display.clearDisplay();
         display.setTextSize(1);
-        display.print("A:");
-        display.print(voltA, 2);
-        display.print("V  B:");
-        display.print(voltB, 2);
-        display.print("V");
+        display.setTextColor(SSD1306_WHITE);
+
+        display.setCursor(0, 0);
+        display.print("P1:"); display.print(p1);
+        display.setCursor(64, 0);
+        display.print("P2:"); display.print(p2);
+
+        display.setCursor(0, 12);
+        display.print("P3:"); display.print(p3);
+        display.setCursor(64, 12);
+        display.print("P4:"); display.print(p4);
+
+        display.setCursor(0, 24);
+        display.print("BTN:"); display.print(btn ? "PRESSED" : "open");
+
+        display.setCursor(0, 36);
+        display.print("PASS L:");
+        display.print(peakL.available() ? peakL.read() : 0.0f, 2);
+        display.print(" R:");
+        display.print(peakR.available() ? peakR.read() : 0.0f, 2);
+
         display.display();
     }
-
-    delay(50);  // ~20 steps/sec, full sweep ~50 sec
 }

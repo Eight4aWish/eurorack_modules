@@ -12,17 +12,20 @@
 //   CVin4   POT4    Audio-in
 
 // ---------- Analog inputs (pots) ----------
+// A6/A7 (pins 20/21) avoided — conflict with Audio Shield I2S LRCLK/BCLK.
+// Pots are wired so CCW = max ADC, CW = min ADC — invert to match user expectation.
+#define readPot(pin) (1023 - analogRead(pin))
 #ifndef PIN_POT1
-#define PIN_POT1 A2   // Chaos / bifurcation
+#define PIN_POT1 A15  // Chaos / bifurcation  (pin 39)
 #endif
 #ifndef PIN_POT2
-#define PIN_POT2 A3   // Rate / frequency
+#define PIN_POT2 A12  // Rate / frequency     (pin 26)
 #endif
 #ifndef PIN_POT3
-#define PIN_POT3 A6   // Character / secondary
+#define PIN_POT3 A14  // Character / secondary (pin 38)
 #endif
 #ifndef PIN_POT4
-#define PIN_POT4 A7   // Depth / mix
+#define PIN_POT4 A13  // Depth / mix          (pin 27)
 #endif
 
 // ---------- CV inputs ----------
@@ -62,6 +65,9 @@
 #endif
 
 // ---------- OLED (SPI) ----------
+// Pin 10 is also the Audio Shield SD card CS.  The SD card is disabled in
+// setup() (driven HIGH) so the OLED can use pin 10 without bus contention.
+// The Teensy 4.1 built-in SD card uses SDIO and is unaffected.
 #ifndef OLED_CS
 #define OLED_CS  10
 #endif
