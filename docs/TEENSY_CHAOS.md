@@ -4,35 +4,44 @@ Chaotic / fractal synthesis module exploiting the Teensy 4.1's 600 MHz
 Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 (SGTL5000 codec, I2S).
 
-## Hardware — 6 HP
+## Hardware — 10 HP
 
 ```
 ┌──────────────────┐
-│    OLED 128x64   │  SSD1306, I2C
-├──────────────────┤
-│  POT1   │  BTN   │
-│  POT2   │  POT3  │
-│  CV1 in │  CV2 in│  CV1 = clock, CV2 = reset
-│  CV3 in │  CV4 in│
-│  L out  │  R out │  Audio via SGTL5000 I2S
-└──────────────────┘
+│    OLED 128x64   │  SSD1306, SPI
+│                  │
+├────────┬─────────┤
+│        │   BTN   │
+│        │  X out  │  CV out 1 — attractor x-axis
+│  MOD   │  CHAOS  │  CV in / pot
+│  ASGN  │  RATE   │  CV in / pot
+│  CLK   │  CHAR   │  CV in / pot
+│  RST   │  DEPTH  │  CV in / pot
+│  Y out │  L out  │  CV out 2 / audio L
+│        │  R out  │  audio R
+│        │  A in   │  audio in
+└────────┴─────────┘
 ```
 
 ### I/O Summary
 
-| I/O       | Type              | Notes                                  |
-|-----------|-------------------|----------------------------------------|
-| POT1      | Analog            | Chaos / bifurcation parameter          |
-| POT2      | Analog            | Rate / frequency (integration dt)      |
-| POT3      | Analog            | Character / secondary parameter        |
-| BTN       | Digital           | Short press: next algo. Long: group    |
-| CV1       | Analog in         | Clock input (quantises rate)           |
-| CV2       | Analog in         | Reset (snap to initial conditions)     |
-| CV3       | Analog in         | Modulates chaos parameter (POT1)       |
-| CV4       | Analog in         | Assignable mod target (menu)           |
-| L OUT     | Audio out (I2S)   | Attractor axis x / oscillator 1       |
-| R OUT     | Audio out (I2S)   | Attractor axis y / oscillator 2       |
-| OLED      | I2C display       | Algorithm name, phase-space plot, bars |
+| Label  | Type              | Notes                                        |
+|--------|-------------------|----------------------------------------------|
+| CHAOS  | Pot               | Bifurcation / chaos parameter                |
+| RATE   | Pot               | Integration step / frequency                 |
+| CHAR   | Pot               | Character / secondary algorithm parameter    |
+| DEPTH  | Pot               | Depth / mix                                  |
+| BTN    | Digital           | Short press: next algo. Long press: group    |
+| MOD    | CV in (ADS1115)   | Chaos modulation — bipolar mod of CHAOS      |
+| ASGN   | CV in (ADS1115)   | Assignable mod target (selectable via menu)  |
+| CLK    | CV in (ADS1115)   | Clock / V-Oct — locks rate or tracks pitch   |
+| RST    | CV in (ADS1115)   | Reset / trigger — snaps to initial conditions|
+| X      | CV out (MCP4822)  | Attractor x-axis / oscillator 1              |
+| Y      | CV out (MCP4822)  | Attractor y-axis / oscillator 2              |
+| L OUT  | Audio out (I2S)   | Attractor x-axis (audio rate)                |
+| R OUT  | Audio out (I2S)   | Attractor y-axis (audio rate)                |
+| A IN   | Audio in (I2S)    | Line in via SGTL5000                         |
+| OLED   | I2C display       | Algorithm name, phase-space plot, param bars |
 
 Pin assignments TBD — see `include/teensy-chaos/pins.h` once hardware is
 finalised.
@@ -43,10 +52,10 @@ Algorithms are grouped by character to aid live navigation.
 
 ### Group 1 — Melodic (pitched, tuneable)
 
-These have a clear oscillatory core. Frequency is controllable via POT2
-(integration step size) and can track V/Oct on CV1 when not clocked.
+These have a clear oscillatory core. Frequency is controllable via RATE
+(integration step size) and can track V/Oct on CLK when not clocked.
 
-| #  | Algorithm   | Equations                                                        | Key parameter (POT1)       | Character                            |
+| #  | Algorithm   | Equations                                                        | Key parameter (CHAOS)      | Character                            |
 |----|-------------|------------------------------------------------------------------|----------------------------|--------------------------------------|
 | 1  | Rossler     | dx=-y-z, dy=x+ay, dz=b+z(x-c)                                  | c (bifurcation ~2-8)      | Warm, musical period-doubling        |
 | 2  | Van der Pol | dx=y, dy=mu(1-x^2)y - x                                         | mu (nonlinearity ~0.1-10) | Clean sine to gritty relaxation      |
@@ -55,10 +64,10 @@ These have a clear oscillatory core. Frequency is controllable via POT2
 
 ### Group 2 — Percussive (burst, transient, clockable)
 
-Best used with CV2 reset triggering or CV1 clock. Produce finite bursts or
+Best used with RST triggering or CLK input. Produce finite bursts or
 gritty noise-like textures.
 
-| #  | Algorithm   | Equations                                                        | Key parameter (POT1)       | Character                            |
+| #  | Algorithm   | Equations                                                        | Key parameter (CHAOS)      | Character                            |
 |----|-------------|------------------------------------------------------------------|----------------------------|--------------------------------------|
 | 5  | Logistic    | x[n+1] = r * x[n] * (1 - x[n])                                 | r (bifurcation ~2.5-4.0)  | Classic cascade, digital crunch      |
 | 6  | Henon       | x[n+1]=1-a*x[n]^2+y[n], y[n+1]=b*x[n]                          | a (chaos ~0.5-1.4)        | 2D strange attractor, crunchy        |
@@ -69,7 +78,7 @@ gritty noise-like textures.
 
 Rich evolving timbres. Less pitched, more about movement and density.
 
-| #  | Algorithm       | Equations                                                    | Key parameter (POT1)       | Character                            |
+| #  | Algorithm       | Equations                                                    | Key parameter (CHAOS)      | Character                            |
 |----|-----------------|--------------------------------------------------------------|----------------------------|--------------------------------------|
 | 9  | Lorenz          | dx=sigma(y-x), dy=x(rho-z)-y, dz=xy-beta*z                 | rho (~20-32)               | Two-lobe switching, aggressive       |
 | 10 | Coupled Rossler | Two Rossler systems, cross-coupled: dx1+=k(x2-x1) etc       | k (coupling ~0-0.5)       | True stereo, beating to unison       |
@@ -80,28 +89,28 @@ Rich evolving timbres. Less pitched, more about movement and density.
 
 ## Control Mapping Detail
 
-### POT1 — Chaos / Bifurcation
+### CHAOS — Bifurcation / Chaos Parameter
 
 Primary parameter for each algorithm (see tables above). Sweeps from
 ordered/periodic through period-doubling into full chaos. The musical sweet
 spot is near the transition.
 
-CV3 adds bipolar modulation to this parameter.
+MOD adds bipolar modulation to this parameter.
 
-### POT2 — Rate / Frequency
+### RATE — Rate / Frequency
 
 - **Continuous oscillators (1-4, 9-10, 13):** Integration step size dt.
-  Smaller = lower pitch. Can be mapped to V/Oct via CV1 for melodic playing.
+  Smaller = lower pitch. Can be mapped to V/Oct via CLK for melodic playing.
 - **Discrete maps (5-6, 11-12, 14):** Iteration rate or sample-and-hold
   divisor. Controls pitch / density of the output.
 - **Fractal orbits (7-8):** Iteration rate. Faster = higher pitch of the
   burst.
 
-### POT3 — Character / Secondary
+### CHAR — Character / Secondary
 
 Algorithm-dependent second parameter:
 
-| Algorithm       | POT3 controls           |
+| Algorithm       | CHAR controls           |
 |-----------------|-------------------------|
 | Rossler         | a (spiral tightness)    |
 | Van der Pol     | (reserved / output mix) |
@@ -120,30 +129,30 @@ Algorithm-dependent second parameter:
 - **Long press (>500 ms):** Cycle to next group (Melodic -> Percussive ->
   Texture -> Melodic).
 
-### CV1 — Clock / V-Oct
+### CLK — Clock / V-Oct
 
-- **Unclocked (no signal):** POT2 sets rate freely.
+- **Unclocked (no signal):** RATE sets rate freely.
 - **Clock detected:** Rate locks to clock period. For melodic algorithms
   this quantises pitch; for percussive algorithms it sets repetition rate.
 - Detection threshold: ~1V rising edge.
 
-### CV2 — Reset / Trigger
+### RST — Reset / Trigger
 
 - Rising edge resets all state variables to initial conditions.
 - Creates a percussive transient as the trajectory diverges from the
   starting point back toward the attractor.
-- Useful for rhythmic use — clock CV1, trigger CV2 on downbeats.
+- Useful for rhythmic use — clock CLK, trigger RST on downbeats.
 
-### CV3 — Chaos Modulation
+### MOD — Chaos Modulation
 
-Bipolar modulation of POT1's parameter. Summed with pot value, clamped to
+Bipolar modulation of CHAOS parameter. Summed with pot value, clamped to
 valid range. An LFO here sweeps through bifurcation cascades automatically.
 
-### CV4 — Assignable
+### ASGN — Assignable
 
 Target selectable via OLED menu (long press BTN to access):
-- POT2 modulation (rate/pitch)
-- POT3 modulation (character)
+- RATE modulation (rate/pitch)
+- CHAR modulation (character)
 - Stereo width / axis rotation
 - Output amplitude
 
@@ -170,7 +179,7 @@ Target selectable via OLED menu (long press BTN to access):
 │        · ·  ·              │
 │                            │
 │ C=5.7  dt=0.04  a=0.2     │  Parameter values
-│ ████░░  ██████  ███░░░    │  POT1    POT2    POT3 bars
+│ ████░░  ██████  ███░░░    │  CHAOS   RATE    CHAR bars
 └────────────────────────────┘
 ```
 
@@ -206,7 +215,7 @@ Uses Teensy Audio Library for I2S output to the Audio Shield (SGTL5000).
   linear interpolation for anti-aliasing.
 - **Fractal orbits:** Iterate until escape (|z| > bailout) or max
   iterations, output orbit samples. When orbit ends, optionally restart
-  with perturbed c (auto-trigger) or wait for CV2 reset.
+  with perturbed c (auto-trigger) or wait for RST.
 
 ## Code Structure
 
@@ -236,8 +245,8 @@ struct ChaosAlgorithm {
 
     void  init();                // reset to initial conditions
     void  process(float dt,      // integration step / iteration rate
-                  float param1,  // chaos / bifurcation (POT1 + CV3)
-                  float param2); // character / secondary (POT3)
+                  float param1,  // chaos / bifurcation (CHAOS + MOD)
+                  float param2); // character / secondary (CHAR)
     // Scaling hints for display
     float x_min, x_max;         // expected output range for normalisation
     float y_min, y_max;

@@ -5,44 +5,44 @@
 // Panel layout (6 rows × 3 columns):
 //
 //   OLED    OLED    BTN
-//   OLED    OLED    CVout1
-//   CVin1   POT1    CVout2
-//   CVin2   POT2    Audio-L-out
-//   CVin3   POT3    Audio-R-out
-//   CVin4   POT4    Audio-in
+//   OLED    OLED    X (CVout1)
+//   MOD     CHAOS   Y (CVout2)
+//   ASGN    RATE    Audio-L-out
+//   CLK     CHAR    Audio-R-out
+//   RST     DEPTH   Audio-in
 
-// ---------- Analog inputs (pots) ----------
+// ---------- Pots ----------
 // A6/A7 (pins 20/21) avoided — conflict with Audio Shield I2S LRCLK/BCLK.
 // Pots are wired so CCW = max ADC, CW = min ADC — invert to match user expectation.
 #define readPot(pin) (1023 - analogRead(pin))
-#ifndef PIN_POT1
-#define PIN_POT1 A15  // Chaos / bifurcation  (pin 39)
+#ifndef PIN_CHAOS
+#define PIN_CHAOS A15  // CHAOS — bifurcation / chaos parameter  (pin 39)
 #endif
-#ifndef PIN_POT2
-#define PIN_POT2 A12  // Rate / frequency     (pin 26)
+#ifndef PIN_RATE
+#define PIN_RATE  A12  // RATE  — integration step / frequency   (pin 26)
 #endif
-#ifndef PIN_POT3
-#define PIN_POT3 A14  // Character / secondary (pin 38)
+#ifndef PIN_CHAR
+#define PIN_CHAR  A14  // CHAR  — character / secondary param    (pin 38)
 #endif
-#ifndef PIN_POT4
-#define PIN_POT4 A13  // Depth / mix          (pin 27)
+#ifndef PIN_DEPTH
+#define PIN_DEPTH A13  // DEPTH — depth / mix                    (pin 27)
 #endif
 
 // ---------- CV inputs ----------
-// All CV inputs are analog reads (0–3.3V after scaling).
-// External circuit must scale/protect from Eurorack levels (±5V or 0–10V)
-// to 0–3.3V. Gate/clock/reset detection uses a software threshold.
-#ifndef PIN_CV1
-#define PIN_CV1  A8   // Gate / clock / V-Oct
+// All CV inputs read via ADS1115 (Wire1, 0x48).
+// External circuit scales ±5V Eurorack to 0–3.3V.
+// Gate/clock/reset detection uses a software threshold.
+#ifndef PIN_MOD
+#define PIN_MOD  A8   // MOD  — chaos modulation (ADS1115 AIN0)
 #endif
-#ifndef PIN_CV2
-#define PIN_CV2  A9   // Reset / trigger
+#ifndef PIN_ASGN
+#define PIN_ASGN A9   // ASGN — assignable mod target (ADS1115 AIN1)
 #endif
-#ifndef PIN_CV3
-#define PIN_CV3  A10  // Chaos modulation
+#ifndef PIN_CLK
+#define PIN_CLK  A10  // CLK  — clock / V-Oct (ADS1115 AIN2)
 #endif
-#ifndef PIN_CV4
-#define PIN_CV4  A11  // Assignable
+#ifndef PIN_RST
+#define PIN_RST  A11  // RST  — reset / trigger (ADS1115 AIN3)
 #endif
 
 // Gate threshold (ADC counts, 10-bit): ~1.5V after scaling
