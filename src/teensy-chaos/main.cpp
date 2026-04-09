@@ -6,11 +6,8 @@
 #include <Adafruit_SSD1306.h>
 #include "teensy-chaos/pins.h"
 
-// ---------------------------------------------------------------------------
-// ADS1115 — Wire1 (SDA=17, SCL=16), address 0x48
-// Single-ended reads on AIN0-AIN3, ±4.096V range, single-shot mode.
-// ---------------------------------------------------------------------------
-#define ADS_ADDR 0x48
+// ─── ADS1115 (Wire1, 0x48) ────────────────────────────────────────────────────
+#define ADS_ADDR     0x48
 #define ADS_REG_CONV 0x00
 #define ADS_REG_CFG  0x01
 
@@ -35,8 +32,6 @@ static int16_t adsReadConv() {
     return (int16_t)((uint16_t(msb) << 8) | lsb);
 }
 
-// Read all 4 single-ended channels into out[0..3].
-// Mux bits for AIN0-GND..AIN3-GND are 0b100..0b111.
 static void adsReadAll(int16_t out[4]) {
     for (int ch = 0; ch < 4; ch++) {
         adsWriteCfg(0b100 + ch);
@@ -45,132 +40,283 @@ static void adsReadAll(int16_t out[4]) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Rössler oscillator as a Teensy AudioStream (stereo: x→L, y→R)
-// ---------------------------------------------------------------------------
-class AudioRossler : public AudioStream {
+// ─── ChaosBase ────────────────────────────────────────────────────────────────
+// Abstract base for all chaotic algorithms. Subclasses populate metadata fields
+// in their constructors and implement the four pure-virtual methods.
+class ChaosBase {
 public:
-    AudioRossler() : AudioStream(0, nullptr) {}
+    const char* name       = "?";
+    const char* chaosLabel = "c";   // display label for CHAOS param
+    const char* charLabel  = "a";   // display label for CHAR param
+    float chaosMin = 0.0f,   chaosMax = 1.0f;
+    float rateMin  = 0.001f, rateMax  = 0.1f;
+    float charMin  = 0.0f,   charMax  = 1.0f;
+    float modScale = 1.0f;          // chaos-param units per volt of MOD CV
+    float gainL    = 0.12f, gainR = 0.12f;  // pre-tanh amplitude scale
+    float xMin = -1.0f, xRange = 2.0f;     // plot window
+    float yMin = -1.0f, yRange = 2.0f;
+    float cvScaleX = 0.5f, cvScaleY = 0.5f; // state → ±5V CV
 
-    void setParams(float chaos, float rate, float character) {
-        c_  = chaos;
-        dt_ = rate;
-        a_  = character;
+    virtual ~ChaosBase() {}
+    virtual void  init()                                          = 0;
+    virtual void  setParams(float chaos, float rate, float charV) = 0;
+    virtual void  stepSample()                                    = 0;
+    virtual float getX() const                                    = 0;
+    virtual float getY() const                                    = 0;
+};
+
+// ─── ChaosRossler ─────────────────────────────────────────────────────────────
+// dx = -y - z,  dy = x + a*y,  dz = b + z*(x - c)
+// CHAOS = c (bifurcation, 2–8),  CHAR = a (spiral tightness, 0.1–0.4)
+class ChaosRossler : public ChaosBase {
+public:
+    ChaosRossler() {
+        name       = "ROSSLER";
+        chaosLabel = "c"; charLabel = "a";
+        chaosMin   = 2.0f;   chaosMax = 8.0f;
+        rateMin    = 0.002f; rateMax  = 0.1f;
+        charMin    = 0.1f;   charMax  = 0.4f;
+        modScale   = 1.0f;
+        gainL      = 0.12f;  gainR    = 0.12f;
+        xMin       = -11.0f; xRange   = 24.0f;
+        yMin       = -11.0f; yRange   = 22.0f;
+        cvScaleX   = 0.50f;  cvScaleY = 0.50f;
     }
-
-    void reset() {
-        x_ = 0.1f; y_ = 0.0f; z_ = 0.0f;
-        dcL_ = 0.0f; dcR_ = 0.0f;
+    void init() override { x_ = 0.1f; y_ = 0.0f; z_ = 0.0f; }
+    void setParams(float chaos, float rate, float charV) override {
+        c_ = chaos; dt_ = rate; a_ = charV;
     }
-
-    // Read last computed state for CV output (safe to call from loop())
-    float getX() const { return x_; }
-    float getY() const { return y_; }
-
-    void update() override {
-        audio_block_t *blockL = allocate();
-        if (!blockL) return;
-        audio_block_t *blockR = allocate();
-        if (!blockR) { release(blockL); return; }
-
-        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
-            float dx1 = -y_ - z_;
-            float dy1 = x_ + a_ * y_;
-            float dz1 = b_ + z_ * (x_ - c_);
-            float x2 = x_ + 0.5f * dt_ * dx1, y2 = y_ + 0.5f * dt_ * dy1, z2 = z_ + 0.5f * dt_ * dz1;
-            float dx2 = -y2 - z2, dy2 = x2 + a_ * y2, dz2 = b_ + z2 * (x2 - c_);
-            float x3 = x_ + 0.5f * dt_ * dx2, y3 = y_ + 0.5f * dt_ * dy2, z3 = z_ + 0.5f * dt_ * dz2;
-            float dx3 = -y3 - z3, dy3 = x3 + a_ * y3, dz3 = b_ + z3 * (x3 - c_);
-            float x4 = x_ + dt_ * dx3, y4 = y_ + dt_ * dy3, z4 = z_ + dt_ * dz3;
-            float dx4 = -y4 - z4, dy4 = x4 + a_ * y4, dz4 = b_ + z4 * (x4 - c_);
-            x_ += dt_ / 6.0f * (dx1 + 2*dx2 + 2*dx3 + dx4);
-            y_ += dt_ / 6.0f * (dy1 + 2*dy2 + 2*dy3 + dy4);
-            z_ += dt_ / 6.0f * (dz1 + 2*dz2 + 2*dz3 + dz4);
-            float outL = tanhf(x_ * gain_) * 32000.0f;
-            float outR = tanhf(y_ * gain_) * 32000.0f;
-            outL -= dcL_; dcL_ += outL * 0.0007f;
-            outR -= dcR_; dcR_ += outR * 0.0007f;
-            blockL->data[i] = (int16_t)outL;
-            blockR->data[i] = (int16_t)outR;
-        }
-        transmit(blockL, 0); transmit(blockR, 1);
-        release(blockL); release(blockR);
+    void stepSample() override {
+        float dx1 = -y_ - z_;
+        float dy1 = x_ + a_*y_;
+        float dz1 = b_ + z_*(x_ - c_);
+        float x2 = x_ + 0.5f*dt_*dx1, y2 = y_ + 0.5f*dt_*dy1, z2 = z_ + 0.5f*dt_*dz1;
+        float dx2 = -y2 - z2, dy2 = x2 + a_*y2, dz2 = b_ + z2*(x2 - c_);
+        float x3 = x_ + 0.5f*dt_*dx2, y3 = y_ + 0.5f*dt_*dy2, z3 = z_ + 0.5f*dt_*dz2;
+        float dx3 = -y3 - z3, dy3 = x3 + a_*y3, dz3 = b_ + z3*(x3 - c_);
+        float x4 = x_ + dt_*dx3, y4 = y_ + dt_*dy3, z4 = z_ + dt_*dz3;
+        float dx4 = -y4 - z4, dy4 = x4 + a_*y4, dz4 = b_ + z4*(x4 - c_);
+        x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
+        y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
+        z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
     }
-
+    float getX() const override { return x_; }
+    float getY() const override { return y_; }
 private:
     float x_ = 0.1f, y_ = 0.0f, z_ = 0.0f;
     float a_ = 0.2f, b_ = 0.2f, c_ = 5.7f;
-    float dt_ = 0.05f, gain_ = 0.12f;
-    float dcL_ = 0.0f, dcR_ = 0.0f;
+    float dt_ = 0.05f;
 };
 
-// ---------------------------------------------------------------------------
-// Lorenz attractor as a Teensy AudioStream (stereo: x→L, y→R)
-// dx=sigma(y-x), dy=x(rho-z)-y, dz=xy-beta*z
-// ---------------------------------------------------------------------------
-class AudioLorenz : public AudioStream {
+// ─── ChaosVanDerPol ───────────────────────────────────────────────────────────
+// dx/dt = y,   dy/dt = mu*(1 - x^2)*y - x
+// CHAOS = mu (nonlinearity, 0.1–8): low = near-sine, high = relaxation osc
+// Start on limit cycle (x=2, y=0) so amplitude is correct from first sample.
+class ChaosVanDerPol : public ChaosBase {
 public:
-    AudioLorenz() : AudioStream(0, nullptr) {}
-
-    void setParams(float chaos, float rate, float character) {
-        rho_   = chaos;      // rho:   20–32 (chaos parameter)
-        dt_    = rate;       // dt:    integration step
-        sigma_ = character;  // sigma: 8–14 (character)
+    ChaosVanDerPol() {
+        name       = "VAN DER POL";
+        chaosLabel = "u"; charLabel = "a";
+        chaosMin   = 0.1f;   chaosMax = 8.0f;
+        rateMin    = 0.002f; rateMax  = 0.15f;
+        charMin    = 0.0f;   charMax  = 1.0f;  // reserved
+        modScale   = 1.0f;
+        gainL      = 0.45f;  gainR    = 0.20f;
+        xMin       = -3.0f;  xRange   = 6.0f;
+        yMin       = -8.0f;  yRange   = 16.0f;
+        cvScaleX   = 2.00f;  cvScaleY = 0.60f;
     }
-
-    void reset() {
-        x_ = 0.1f; y_ = 0.0f; z_ = 0.0f;
-        dcL_ = 0.0f; dcR_ = 0.0f;
+    void init() override { x_ = 2.0f; y_ = 0.0f; }
+    void setParams(float chaos, float rate, float charV) override {
+        mu_ = chaos;
+        // Cap dt for numerical stability: VdP stiffness ∝ mu; RK4 diverges if dt*mu too large
+        dt_ = fminf(rate, 1.0f / (mu_ + 2.0f));
+        (void)charV;
     }
-
-    float getX() const { return x_; }
-    float getY() const { return z_; }  // z on right: smoother, always positive
-
-    void update() override {
-        audio_block_t *blockL = allocate();
-        if (!blockL) return;
-        audio_block_t *blockR = allocate();
-        if (!blockR) { release(blockL); return; }
-
-        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
-            float dx1 = sigma_ * (y_ - x_);
-            float dy1 = x_ * (rho_ - z_) - y_;
-            float dz1 = x_ * y_ - beta_ * z_;
-            float x2 = x_ + 0.5f*dt_*dx1, y2 = y_ + 0.5f*dt_*dy1, z2 = z_ + 0.5f*dt_*dz1;
-            float dx2 = sigma_*(y2-x2), dy2 = x2*(rho_-z2)-y2, dz2 = x2*y2-beta_*z2;
-            float x3 = x_ + 0.5f*dt_*dx2, y3 = y_ + 0.5f*dt_*dy2, z3 = z_ + 0.5f*dt_*dz2;
-            float dx3 = sigma_*(y3-x3), dy3 = x3*(rho_-z3)-y3, dz3 = x3*y3-beta_*z3;
-            float x4 = x_ + dt_*dx3, y4 = y_ + dt_*dy3, z4 = z_ + dt_*dz3;
-            float dx4 = sigma_*(y4-x4), dy4 = x4*(rho_-z4)-y4, dz4 = x4*y4-beta_*z4;
-            x_ += dt_/6.0f*(dx1+2*dx2+2*dx3+dx4);
-            y_ += dt_/6.0f*(dy1+2*dy2+2*dy3+dy4);
-            z_ += dt_/6.0f*(dz1+2*dz2+2*dz3+dz4);
-            float outL = tanhf(x_ * gain_) * 32000.0f;
-            // z is always positive (~0–50), centre it before output
-            float outR = tanhf((z_ - rho_) * gain_) * 32000.0f;
-            outL -= dcL_; dcL_ += outL * 0.0007f;
-            outR -= dcR_; dcR_ += outR * 0.0007f;
-            blockL->data[i] = (int16_t)outL;
-            blockR->data[i] = (int16_t)outR;
+    void stepSample() override {
+        float dx1 = y_;
+        float dy1 = mu_*(1.0f - x_*x_)*y_ - x_;
+        float x2 = x_ + 0.5f*dt_*dx1, y2 = y_ + 0.5f*dt_*dy1;
+        float dx2 = y2, dy2 = mu_*(1.0f - x2*x2)*y2 - x2;
+        float x3 = x_ + 0.5f*dt_*dx2, y3 = y_ + 0.5f*dt_*dy2;
+        float dx3 = y3, dy3 = mu_*(1.0f - x3*x3)*y3 - x3;
+        float x4 = x_ + dt_*dx3, y4 = y_ + dt_*dy3;
+        float dx4 = y4, dy4 = mu_*(1.0f - x4*x4)*y4 - x4;
+        x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
+        y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
+        // Safety net: reset if numerics diverge (edge case at extreme mu+dt)
+        if (!isfinite(x_) || !isfinite(y_) || fabsf(x_) > 20.0f) {
+            x_ = 2.0f; y_ = 0.0f;
         }
-        transmit(blockL, 0); transmit(blockR, 1);
-        release(blockL); release(blockR);
     }
+    float getX() const override { return x_; }
+    float getY() const override { return y_; }
+private:
+    float x_ = 2.0f, y_ = 0.0f;
+    float mu_ = 1.0f, dt_ = 0.05f;
+};
 
+// ─── ChaosLorenz ──────────────────────────────────────────────────────────────
+// dx = sigma*(y-x),  dy = x*(rho-z)-y,  dz = x*y - beta*z
+// CHAOS = rho (bifurcation, 24–32),  CHAR = sigma (8–14)
+// getY() returns z-rho (centred around 0) for both audio and plot.
+class ChaosLorenz : public ChaosBase {
+public:
+    ChaosLorenz() {
+        name       = "LORENZ";
+        chaosLabel = "r"; charLabel = "s";
+        chaosMin   = 24.0f;  chaosMax = 32.0f;
+        rateMin    = 0.001f; rateMax  = 0.003f;
+        charMin    = 6.0f;   charMax  = 14.0f;
+        modScale   = 2.0f;
+        gainL      = 0.05f;  gainR    = 0.05f;
+        xMin       = -20.0f; xRange   = 40.0f;
+        yMin       = -28.0f; yRange   = 55.0f;  // z-rho: ≈ -28 to +27
+        cvScaleX   = 0.25f;  cvScaleY = 0.15f;
+    }
+    void init() override { x_ = 0.1f; y_ = 0.0f; z_ = 0.0f; }
+    void setParams(float chaos, float rate, float charV) override {
+        rho_ = chaos; dt_ = rate; sigma_ = charV;
+    }
+    void stepSample() override {
+        float dx1 = sigma_*(y_ - x_);
+        float dy1 = x_*(rho_ - z_) - y_;
+        float dz1 = x_*y_ - beta_*z_;
+        float x2 = x_ + 0.5f*dt_*dx1, y2 = y_ + 0.5f*dt_*dy1, z2 = z_ + 0.5f*dt_*dz1;
+        float dx2 = sigma_*(y2-x2), dy2 = x2*(rho_-z2)-y2, dz2 = x2*y2-beta_*z2;
+        float x3 = x_ + 0.5f*dt_*dx2, y3 = y_ + 0.5f*dt_*dy2, z3 = z_ + 0.5f*dt_*dz2;
+        float dx3 = sigma_*(y3-x3), dy3 = x3*(rho_-z3)-y3, dz3 = x3*y3-beta_*z3;
+        float x4 = x_ + dt_*dx3, y4 = y_ + dt_*dy3, z4 = z_ + dt_*dz3;
+        float dx4 = sigma_*(y4-x4), dy4 = x4*(rho_-z4)-y4, dz4 = x4*y4-beta_*z4;
+        x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
+        y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
+        z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
+    }
+    float getX() const override { return x_; }
+    float getY() const override { return z_ - rho_; }  // centred: audio + plot
 private:
     float x_ = 0.1f, y_ = 0.0f, z_ = 0.0f;
     float sigma_ = 10.0f, beta_ = 2.667f, rho_ = 28.0f;
-    float dt_ = 0.002f, gain_ = 0.05f;
+    float dt_ = 0.002f;
+};
+
+// ─── AudioChaosEngine ─────────────────────────────────────────────────────────
+// Single AudioStream. setAlgo() swaps the active ChaosBase* at any time;
+// pointer reads/writes are word-sized and atomic on Cortex-M7.
+class AudioChaosEngine : public AudioStream {
+public:
+    AudioChaosEngine() : AudioStream(0, nullptr) {}
+
+    void setAlgo(ChaosBase* a) {
+        if (a == algo_) return;
+        if (a) a->init();      // initialise state before making live
+        dcL_ = dcR_ = 0.0f;   // flush DC history on switch
+        algo_ = a;             // atomic pointer store
+    }
+
+    ChaosBase* algo() const { return algo_; }
+    float getX() const { ChaosBase* a = algo_; return a ? a->getX() : 0.0f; }
+    float getY() const { ChaosBase* a = algo_; return a ? a->getY() : 0.0f; }
+
+    void update() override {
+        ChaosBase* a = algo_;   // single atomic load — consistent for this block
+        if (!a) return;
+        audio_block_t* bL = allocate();
+        if (!bL) return;
+        audio_block_t* bR = allocate();
+        if (!bR) { release(bL); return; }
+
+        float gL = a->gainL, gR = a->gainR;
+        for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+            a->stepSample();
+            float outL = tanhf(a->getX() * gL) * 32000.0f;
+            float outR = tanhf(a->getY() * gR) * 32000.0f;
+            outL -= dcL_; dcL_ += outL * 0.0007f;
+            outR -= dcR_; dcR_ += outR * 0.0007f;
+            bL->data[i] = (int16_t)outL;
+            bR->data[i] = (int16_t)outR;
+        }
+        transmit(bL, 0); transmit(bR, 1);
+        release(bL); release(bR);
+    }
+
+private:
+    ChaosBase* algo_ = nullptr;
     float dcL_ = 0.0f, dcR_ = 0.0f;
 };
 
-// ---------------------------------------------------------------------------
-// Audio objects
-// ---------------------------------------------------------------------------
-AudioRossler         rossler;
-AudioLorenz          lorenz;
-AudioMixer4          mixL;
-AudioMixer4          mixR;
+// ─── ChaosChua ────────────────────────────────────────────────────────────────
+// Chua circuit — double-scroll attractor.
+// dx = alpha*(y - x - f(x)),  dy = x - y + z,  dz = -beta*y
+// f(x): piecewise-linear Chua diode, negative slope in centre region.
+// CHAOS = alpha (8–16),  CHAR = beta (20–35)
+// Audio: x→L, z→R  (y amplitude is tiny, ~±0.5, not suitable for audio)
+class ChaosChua : public ChaosBase {
+public:
+    ChaosChua() {
+        name       = "CHUA";
+        chaosLabel = "a"; charLabel = "b";
+        chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
+        rateMin    = 0.001f; rateMax  = 0.008f;
+        charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
+        modScale   = 1.0f;
+        gainL      = 0.28f;  gainR    = 0.25f;
+        xMin       = -5.0f;  xRange   = 10.0f;
+        yMin       = -6.0f;  yRange   = 12.0f;  // z axis for phase plot
+        cvScaleX   = 1.30f;  cvScaleY = 1.00f;
+    }
+    void init() override { x_ = 0.5f; y_ = 0.0f; z_ = 0.0f; }
+    void setParams(float chaos, float rate, float charV) override {
+        alpha_ = chaos; dt_ = rate; beta_ = charV;
+    }
+    void stepSample() override {
+        float h1 = chuaF(x_);
+        float dx1 = alpha_*(y_ - x_ - h1),  dy1 = x_ - y_ + z_,  dz1 = -beta_*y_;
+        float x2 = x_+0.5f*dt_*dx1, y2 = y_+0.5f*dt_*dy1, z2 = z_+0.5f*dt_*dz1;
+        float h2 = chuaF(x2);
+        float dx2 = alpha_*(y2 - x2 - h2), dy2 = x2 - y2 + z2, dz2 = -beta_*y2;
+        float x3 = x_+0.5f*dt_*dx2, y3 = y_+0.5f*dt_*dy2, z3 = z_+0.5f*dt_*dz2;
+        float h3 = chuaF(x3);
+        float dx3 = alpha_*(y3 - x3 - h3), dy3 = x3 - y3 + z3, dz3 = -beta_*y3;
+        float x4 = x_+dt_*dx3, y4 = y_+dt_*dy3, z4 = z_+dt_*dz3;
+        float h4 = chuaF(x4);
+        float dx4 = alpha_*(y4 - x4 - h4), dy4 = x4 - y4 + z4, dz4 = -beta_*y4;
+        x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
+        y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
+        z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
+        // Guard: reset if trajectory escapes the attractor
+        if (!isfinite(x_) || !isfinite(z_) || fabsf(x_) > 8.0f) {
+            x_ = 0.5f; y_ = 0.0f; z_ = 0.0f;
+        }
+    }
+    float getX() const override { return x_; }
+    float getY() const override { return z_; }
+private:
+    inline float chuaF(float x) const {
+        if (x >  1.0f) return m1_*x + (m0_ - m1_);
+        if (x < -1.0f) return m1_*x - (m0_ - m1_);
+        return m0_*x;
+    }
+    float x_ = 0.1f, y_ = 0.0f, z_ = 0.0f;
+    float alpha_ = 9.0f, beta_ = 14.286f;
+    // Standard double-scroll slopes: m0 inner, m1 outer — BOTH must be negative.
+    // With m0=-8/7, m1=-5/7 the system has three equilibria at x=0 and x=±1.5.
+    static constexpr float m0_ = -8.0f / 7.0f;
+    static constexpr float m1_ = -5.0f / 7.0f;
+    float dt_ = 0.005f;
+};
+
+// ─── Algorithm registry ───────────────────────────────────────────────────────
+ChaosRossler    algoRossler;
+ChaosVanDerPol  algoVanDerPol;
+ChaosLorenz     algoLorenz;
+ChaosChua       algoChua;
+
+ChaosBase* algos[] = { &algoRossler, &algoVanDerPol, &algoLorenz, &algoChua };
+constexpr uint8_t N_ALGOS = 4;
+
+// ─── Audio graph (single engine, no mixer needed) ─────────────────────────────
+AudioChaosEngine     engine;
 AudioAmplifier       ampL;
 AudioAmplifier       ampR;
 AudioOutputI2S       audioOut;
@@ -178,28 +324,19 @@ AudioAnalyzePeak     peakL;
 AudioAnalyzePeak     peakR;
 AudioControlSGTL5000 codec;
 
-// Both algorithms feed mixer; active one gets gain=1, inactive gets gain=0
-AudioConnection      patchRosL(rossler, 0, mixL, 0);
-AudioConnection      patchRosR(rossler, 1, mixR, 0);
-AudioConnection      patchLorL(lorenz,  0, mixL, 1);
-AudioConnection      patchLorR(lorenz,  1, mixR, 1);
-AudioConnection      patchMixL(mixL, 0, ampL, 0);
-AudioConnection      patchMixR(mixR, 0, ampR, 0);
-AudioConnection      patchConnL(ampL, 0, audioOut, 0);
-AudioConnection      patchConnR(ampR, 0, audioOut, 1);
-AudioConnection      patchPeakL(ampL, 0, peakL, 0);
-AudioConnection      patchPeakR(ampR, 0, peakR, 0);
+AudioConnection  patchL    (engine, 0, ampL,    0);
+AudioConnection  patchR    (engine, 1, ampR,    0);
+AudioConnection  patchConnL(ampL,   0, audioOut, 0);
+AudioConnection  patchConnR(ampR,   0, audioOut, 1);
+AudioConnection  patchPeakL(ampL,   0, peakL,   0);
+AudioConnection  patchPeakR(ampR,   0, peakR,   0);
 
-// ---------------------------------------------------------------------------
-// OLED
-// ---------------------------------------------------------------------------
+// ─── OLED ─────────────────────────────────────────────────────────────────────
 Adafruit_SSD1306 display(128, 64, &SPI, OLED_DC, OLED_RST, OLED_CS);
 
-// ---------------------------------------------------------------------------
-// MCP4822 DAC
-// Calibrated: Vout = code * 0.002431 - 4.972  (both X and Y match ±10mV)
-// Range: -4.97V (code 0) to +4.98V (code 4095), 0V at code ~2044
-// ---------------------------------------------------------------------------
+// ─── MCP4822 DAC ──────────────────────────────────────────────────────────────
+// Calibrated: Vout = code * 0.002431 − 4.972 (both channels, ±10mV)
+// 0V at code ~2044, range −4.97V (code 0) to +4.98V (code 4095)
 #define DAC_SCALE  0.002431f
 #define DAC_OFFSET 4.972f
 
@@ -217,32 +354,26 @@ void dacWriteVolts(uint8_t ch, float volts) {
     dacWrite(ch, (uint16_t)constrain(code, 0, 4095));
 }
 
-// ---------------------------------------------------------------------------
+// ─── setup ────────────────────────────────────────────────────────────────────
 void setup() {
-    // Disable Audio Shield SD card CS (shared with OLED CS on pin 10)
     pinMode(10, OUTPUT);
-    digitalWriteFast(10, HIGH);
+    digitalWriteFast(10, HIGH);   // disable Audio Shield SD card CS (shared pin)
 
-    // Wire (I2C0) — Audio Shield SGTL5000 control
     Wire.setSDA(18); Wire.setSCL(19);
     Wire.begin(); Wire.setClock(400000);
 
-    // Wire1 (I2C1) — ADS1115 CV inputs
     Wire1.setSDA(17); Wire1.setSCL(16);
     Wire1.begin(); Wire1.setClock(400000);
 
-    AudioMemory(20);
+    AudioMemory(12);   // one stereo engine: 12 blocks is comfortable
 
     codec.enable();
     codec.inputSelect(AUDIO_INPUT_LINEIN);
     codec.lineInLevel(5);
     codec.volume(0.7);
     codec.lineOutLevel(29);
-    ampL.gain(1.0);
-    ampR.gain(1.0);
-    // Start with Rössler active
-    mixL.gain(0, 1.0f); mixL.gain(1, 0.0f);
-    mixR.gain(0, 1.0f); mixR.gain(1, 0.0f);
+    ampL.gain(1.0f);
+    ampR.gain(1.0f);
 
     pinMode(PIN_BTN, INPUT_PULLUP);
     pinMode(PIN_CS_DAC, OUTPUT);
@@ -251,143 +382,125 @@ void setup() {
     display.begin(SSD1306_SWITCHCAPVCC);
     display.clearDisplay();
     display.display();
+
+    engine.setAlgo(algos[0]);   // start with Rössler
 }
 
+// ─── loop ─────────────────────────────────────────────────────────────────────
 void loop() {
-    // Read controls every loop — parameters update continuously
+    // Pots
     int p1 = readPot(PIN_CHAOS);
     int p2 = readPot(PIN_RATE);
     int p3 = readPot(PIN_CHAR);
     int p4 = readPot(PIN_DEPTH);
 
+    // CV inputs (ADS1115)
     int16_t cv[4];
     adsReadAll(cv);
 
-    // Algorithm selection — button press cycles Rössler → Lorenz → ...
-    static uint8_t algo = 0;  // 0=Rossler, 1=Lorenz
-    static bool lastBtn = false;
+    // Algorithm selection — button cycles through all algorithms
+    static uint8_t  algoIdx   = 0;
+    static bool     lastBtn   = false;
     static uint32_t lastBtnMs = 0;
     bool btn = !digitalRead(PIN_BTN);
     if (btn && !lastBtn && millis() - lastBtnMs > 50) {
-        algo = (algo + 1) % 2;
-        mixL.gain(0, algo == 0 ? 1.0f : 0.0f);
-        mixL.gain(1, algo == 1 ? 1.0f : 0.0f);
-        mixR.gain(0, algo == 0 ? 1.0f : 0.0f);
-        mixR.gain(1, algo == 1 ? 1.0f : 0.0f);
+        algoIdx = (algoIdx + 1) % N_ALGOS;
+        engine.setAlgo(algos[algoIdx]);
         lastBtnMs = millis();
     }
     lastBtn = btn;
 
-    float chaos, rate, charV;
-    float depth = 0.1f + (p4 / 1023.0f) * 0.9f;
+    // CV calibration (measured 2026-04-07)
+    // Input circuit is inverting: higher Eurorack voltage → lower ADS code
+    float modVolts  = (13236.0f - cv[0]) / 2414.0f;  // MOD:  0V=13236, 2414 codes/V
+    float asgnVolts = (13240.0f - cv[1]) / 2424.0f;  // ASGN: 0V=13240, 2424 codes/V
+    float clkVolts  = (13241.0f - cv[2]) / 2421.0f;  // CLK:  0V=13241, 2421 codes/V
+    // RST: cv[3] < 10820 = above ~1V (code 10820 corresponds to +1V threshold)
 
-    // MOD CV: bipolar volts (calibrated: 0V=13236, 2414 codes/V)
-    float modVolts  = (13236.0f - cv[0]) / 2414.0f;
-    // ASGN CV: bipolar rate modulation (calibrated: 0V=13240, 2424 codes/V)
-    float asgnVolts = (13240.0f - cv[1]) / 2424.0f;
-    // CLK CV: V/Oct (calibrated: 0V=13241, 2421 codes/V)
-    float clkVolts  = (13241.0f - cv[2]) / 2421.0f;
-
-    if (algo == 0) {
-        // Rössler: c 2–8, dt 0.002–0.1, a 0.1–0.4
-        chaos = 2.0f  + (p1 / 1023.0f) * 6.0f;
-        rate  = 0.002f + (p2 / 1023.0f) * 0.098f;
-        charV = 0.1f  + (p3 / 1023.0f) * 0.3f;
-        chaos = constrain(chaos + modVolts, 2.0f, 9.0f);
-        rate  = constrain(rate * powf(2.0f, clkVolts + asgnVolts), 0.001f, 0.15f);
-        rossler.setParams(chaos, rate, charV);
-    } else {
-        // Lorenz: rho 24–32, dt 0.001–0.003, sigma 6–14
-        chaos = 24.0f  + (p1 / 1023.0f) * 8.0f;
-        rate  = 0.001f + (p2 / 1023.0f) * 0.002f;
-        charV = 6.0f   + (p3 / 1023.0f) * 8.0f;
-        chaos = constrain(chaos + modVolts * 2.0f, 20.0f, 36.0f);
-        rate  = constrain(rate * powf(2.0f, clkVolts + asgnVolts), 0.0005f, 0.004f);
-        lorenz.setParams(chaos, rate, charV);
+    // Apply controls to active algorithm — ranges read from metadata
+    ChaosBase* algo = engine.algo();
+    float chaos = 0.0f, rate = 0.0f, charV = 0.0f;
+    if (algo) {
+        chaos = algo->chaosMin + (p1 / 1023.0f) * (algo->chaosMax - algo->chaosMin);
+        rate  = algo->rateMin  + (p2 / 1023.0f) * (algo->rateMax  - algo->rateMin);
+        charV = algo->charMin  + (p3 / 1023.0f) * (algo->charMax  - algo->charMin);
+        chaos = constrain(chaos + modVolts * algo->modScale,
+                          algo->chaosMin - 2.0f, algo->chaosMax + 2.0f);
+        rate  = constrain(rate * powf(2.0f, clkVolts + asgnVolts),
+                          algo->rateMin * 0.5f, algo->rateMax * 2.0f);
+        algo->setParams(chaos, rate, charV);
     }
 
+    float depth = 0.1f + (p4 / 1023.0f) * 0.9f;
     ampL.gain(depth);
     ampR.gain(depth);
 
-    // RST: rising edge above ~1V snaps active algorithm to initial conditions
+    // RST: rising edge above ~1V resets active algorithm to initial conditions
     static int16_t lastRst = 0;
     if (cv[3] < 10820 && lastRst >= 10820) {
-        if (algo == 0) rossler.reset(); else lorenz.reset();
+        if (algo) algo->init();
     }
     lastRst = cv[3];
 
-    /* --- CALIBRATION SCREEN (retired 2026-04-07, data saved in code) -------
-    // CV input calibration: zero=13236-13242, scale=2414-2424 codes/V
-    // DAC calibration: Vout = code*0.002431 - 4.972, 0V at code ~2044
-    ----------------------------------------------------------------------- */
-
     // Phase plot ring buffer — sampled every loop iteration
-    // Rössler x: ~-11 to +13, y: ~-11 to +11  |  Lorenz x: ~-20 to +20, y: ~-25 to +25
-    #define PLOT_W   128
+    #define PLOT_W  128
     #define PLOT_H   32
     #define TRAIL    96
     static uint8_t trailX[TRAIL], trailY[TRAIL];
     static uint8_t trailHead = 0;
-    {
-        float cx, cy, xrange, yrange, xmin, ymin;
-        if (algo == 0) {
-            cx = rossler.getX(); cy = rossler.getY();
-            xmin = -11.0f; xrange = 24.0f;
-            ymin = -11.0f; yrange = 22.0f;
-        } else {
-            cx = lorenz.getX(); cy = lorenz.getY();
-            xmin = -20.0f; xrange = 40.0f;
-            ymin =   0.0f; yrange = 55.0f;  // z axis: always positive ~0–50
-        }
-        float px = (cx - xmin) * (PLOT_W - 1) / xrange;
-        float py = (cy - ymin) * (PLOT_H - 1) / yrange;
+    if (algo) {
+        float px = (engine.getX() - algo->xMin) * (PLOT_W - 1) / algo->xRange;
+        float py = (engine.getY() - algo->yMin) * (PLOT_H - 1) / algo->yRange;
         trailX[trailHead] = (uint8_t)constrain(px, 0, PLOT_W - 1);
         trailY[trailHead] = (uint8_t)constrain(PLOT_H - 1 - py, 0, PLOT_H - 1);
         trailHead = (trailHead + 1) % TRAIL;
     }
 
+    // Display update (~10 fps)
     static uint32_t lastDisp = 0;
     if (millis() - lastDisp > 100) {
         lastDisp = millis();
-
         display.clearDisplay();
 
-        // Phase space plot
+        // Phase space plot (top 32 rows)
         for (uint8_t i = 0; i < TRAIL; i++) {
             display.drawPixel(trailX[i], trailY[i], SSD1306_WHITE);
         }
 
-        // Parameter rows below plot
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
 
-        // Row 1: algorithm name + primary chaos param
-        display.setCursor(0, 34);
-        display.print(algo == 0 ? "ROSSLER" : "LORENZ ");
-        display.setCursor(64, 34);
-        display.print(algo == 0 ? "c:" : "r:"); display.print(chaos, 1);
+        if (algo) {
+            // Row 1: algorithm name + chaos param
+            display.setCursor(0, 34);
+            display.print(algo->name);
+            display.setCursor(72, 34);
+            display.print(algo->chaosLabel); display.print(':');
+            display.print(chaos, 1);
 
-        // Row 2: char param + rate
-        display.setCursor(0, 44);
-        display.print(algo == 0 ? "a:" : "s:"); display.print(charV, 2);
-        display.setCursor(64, 44);
-        display.print("dt:"); display.print(rate, algo == 0 ? 3 : 4);
+            // Row 2: char param + rate
+            display.setCursor(0, 44);
+            display.print(algo->charLabel); display.print(':');
+            display.print(charV, 2);
+            display.setCursor(72, 44);
+            display.print("dt:"); display.print(rate, 4);
 
-        // Row 3: depth + peak
-        float lv = peakL.available() ? peakL.read() : 0.0f;
-        float rv = peakR.available() ? peakR.read() : 0.0f;
-        display.setCursor(0, 54);
-        display.print("dp:"); display.print(depth, 2);
-        display.setCursor(64, 54);
-        display.print("L"); display.print((int)(lv * 9));
-        display.print(" R"); display.print((int)(rv * 9));
+            // Row 3: depth + peak levels
+            float lv = peakL.available() ? peakL.read() : 0.0f;
+            float rv = peakR.available() ? peakR.read() : 0.0f;
+            display.setCursor(0, 54);
+            display.print("dp:"); display.print(depth, 2);
+            display.setCursor(72, 54);
+            display.print("L"); display.print((int)(lv * 9));
+            display.print(" R"); display.print((int)(rv * 9));
+        }
 
         display.display();
     }
 
-    // CV outputs: active algorithm x→X, y→Y
-    float cvX = (algo == 0) ? rossler.getX() * 0.5f  : lorenz.getX() * 0.25f;
-    float cvY = (algo == 0) ? rossler.getY() * 0.5f  : (lorenz.getY() - chaos) * 0.15f;
-    dacWriteVolts(0, constrain(cvX, -4.9f, 4.9f));
-    dacWriteVolts(1, constrain(cvY, -4.9f, 4.9f));
+    // CV outputs: active algorithm state → X and Y jacks
+    if (algo) {
+        dacWriteVolts(0, constrain(engine.getX() * algo->cvScaleX, -4.9f, 4.9f));
+        dacWriteVolts(1, constrain(engine.getY() * algo->cvScaleY, -4.9f, 4.9f));
+    }
 }
