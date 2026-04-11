@@ -306,14 +306,157 @@ private:
     float dt_ = 0.005f;
 };
 
-// ─── Algorithm registry ───────────────────────────────────────────────────────
-ChaosRossler    algoRossler;
-ChaosVanDerPol  algoVanDerPol;
-ChaosLorenz     algoLorenz;
-ChaosChua       algoChua;
+// ─── ChaosDuffing ─────────────────────────────────────────────────────────────
+// Forced nonlinear oscillator — double-well potential with periodic drive.
+// Autonomous 3-variable form: track phase φ = ω·t as a state variable.
+// dx = y,   dy = -δy - αx - βx³ + γcos(φ),   dφ = ω
+// α=-1, β=1 (double-well), δ=0.3 (damping) — fixed.
+// CHAOS = γ (drive amplitude, 0.1–0.8): low = periodic, high = chaotic
+// CHAR  = ω (drive frequency, 0.8–1.4): sets the base pitch
+// Audio: x→L, y→R. Frequency ≈ ω·dt·44100 / 2π Hz.
+class ChaosDuffing : public ChaosBase {
+public:
+    ChaosDuffing() {
+        name       = "DUFFING";
+        chaosLabel = "g"; charLabel  = "w";
+        chaosMin   = 0.1f;   chaosMax = 0.8f;
+        rateMin    = 0.005f; rateMax  = 0.10f;
+        charMin    = 0.8f;   charMax  = 1.4f;
+        modScale   = 0.35f;
+        gainL      = 0.55f;  gainR    = 0.55f;
+        xMin       = -2.0f;  xRange   = 4.0f;
+        yMin       = -2.5f;  yRange   = 5.0f;
+        cvScaleX   = 3.00f;  cvScaleY = 2.50f;
+    }
+    void init() override { x_ = 1.0f; y_ = 0.0f; phi_ = 0.0f; }
+    void setParams(float chaos, float rate, float charV) override {
+        gamma_ = chaos; dt_ = rate; omega_ = charV;
+    }
+    void stepSample() override {
+        float c1 = cosf(phi_);
+        float dx1 = y_;
+        float dy1 = -delta_*y_ - alpha_*x_ - beta_*x_*x_*x_ + gamma_*c1;
+        float x2 = x_+0.5f*dt_*dx1, y2 = y_+0.5f*dt_*dy1;
+        float p2 = phi_ + 0.5f*dt_*omega_;
+        float c2 = cosf(p2);
+        float dx2 = y2;
+        float dy2 = -delta_*y2 - alpha_*x2 - beta_*x2*x2*x2 + gamma_*c2;
+        float x3 = x_+0.5f*dt_*dx2, y3 = y_+0.5f*dt_*dy2;
+        // p3 = p2 (midpoint forcing phase is the same for both RK4 k2 and k3 stages)
+        float c3 = c2;
+        float dx3 = y3;
+        float dy3 = -delta_*y3 - alpha_*x3 - beta_*x3*x3*x3 + gamma_*c3;
+        float x4 = x_+dt_*dx3, y4 = y_+dt_*dy3;
+        float p4 = phi_ + dt_*omega_;
+        float c4 = cosf(p4);
+        float dx4 = y4;
+        float dy4 = -delta_*y4 - alpha_*x4 - beta_*x4*x4*x4 + gamma_*c4;
+        x_   += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
+        y_   += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
+        phi_ += dt_*omega_;
+        if (phi_ > 6.28318f) phi_ -= 6.28318f;  // keep phi in [0, 2π)
+    }
+    float getX() const override { return x_; }
+    float getY() const override { return y_; }
+private:
+    float x_ = 1.0f, y_ = 0.0f, phi_ = 0.0f;
+    float gamma_ = 0.4f, omega_ = 1.2f, dt_ = 0.05f;
+    static constexpr float alpha_ = -1.0f;  // double-well: negative linear term
+    static constexpr float beta_  =  1.0f;  // positive cubic term
+    static constexpr float delta_ =  0.3f;  // damping
+};
 
-ChaosBase* algos[] = { &algoRossler, &algoVanDerPol, &algoLorenz, &algoChua };
-constexpr uint8_t N_ALGOS = 4;
+// ─── ChaosCoupledRossler ──────────────────────────────────────────────────────
+// Two Rössler systems with symmetric x-coupling.
+// dx1 = -y1 - z1 + k(x2-x1),   dy1 = x1 + a·y1,   dz1 = b + z1(x1-c)
+// dx2 = -y2 - z2 + k(x1-x2),   dy2 = x2 + a·y2,   dz2 = b + z2(x2-c)
+// CHAOS = c (bifurcation, 2–8, shared), CHAR = k (coupling, 0.0–0.5)
+// At low k: two detuned oscillators beating. At high k: synchronise.
+// Oscillators start at different ICs to ensure phase diversity.
+// Audio: x1→L, x2→R — true stereo output.
+class ChaosCoupledRossler : public ChaosBase {
+public:
+    ChaosCoupledRossler() {
+        name       = "CPLROSSLER";
+        chaosLabel = "c"; charLabel  = "k";
+        chaosMin   = 2.0f;   chaosMax = 8.0f;
+        rateMin    = 0.002f; rateMax  = 0.10f;
+        charMin    = 0.0f;   charMax  = 0.5f;
+        modScale   = 1.0f;
+        gainL      = 0.10f;  gainR    = 0.10f;
+        xMin       = -13.0f; xRange   = 26.0f;
+        yMin       = -11.0f; yRange   = 22.0f;
+        cvScaleX   = 0.45f;  cvScaleY = 0.45f;
+    }
+    void init() override {
+        x1_=0.1f; y1_=0.0f; z1_=0.0f;
+        x2_=0.5f; y2_=0.2f; z2_=0.0f;  // offset IC for phase diversity
+    }
+    void setParams(float chaos, float rate, float charV) override {
+        c_ = chaos; dt_ = rate; k_ = charV;
+    }
+    void stepSample() override {
+        // Derivatives — both oscillators coupled via x
+        auto deriv = [this](float x1, float y1, float z1,
+                            float x2, float y2, float z2,
+                            float& dx, float& dy, float& dz) {
+            dx = -y1 - z1 + k_*(x2 - x1);
+            dy =  x1 + a_*y1;
+            dz =  b_ + z1*(x1 - c_);
+            (void)y2; (void)z2;
+        };
+        float dx1a, dy1a, dz1a, dx2a, dy2a, dz2a;
+        deriv(x1_,y1_,z1_, x2_,y2_,z2_, dx1a,dy1a,dz1a);
+        deriv(x2_,y2_,z2_, x1_,y1_,z1_, dx2a,dy2a,dz2a);
+
+        float x1b=x1_+0.5f*dt_*dx1a, y1b=y1_+0.5f*dt_*dy1a, z1b=z1_+0.5f*dt_*dz1a;
+        float x2b=x2_+0.5f*dt_*dx2a, y2b=y2_+0.5f*dt_*dy2a, z2b=z2_+0.5f*dt_*dz2a;
+        float dx1b, dy1b, dz1b, dx2b, dy2b, dz2b;
+        deriv(x1b,y1b,z1b, x2b,y2b,z2b, dx1b,dy1b,dz1b);
+        deriv(x2b,y2b,z2b, x1b,y1b,z1b, dx2b,dy2b,dz2b);
+
+        float x1c=x1_+0.5f*dt_*dx1b, y1c=y1_+0.5f*dt_*dy1b, z1c=z1_+0.5f*dt_*dz1b;
+        float x2c=x2_+0.5f*dt_*dx2b, y2c=y2_+0.5f*dt_*dy2b, z2c=z2_+0.5f*dt_*dz2b;
+        float dx1c, dy1c, dz1c, dx2c, dy2c, dz2c;
+        deriv(x1c,y1c,z1c, x2c,y2c,z2c, dx1c,dy1c,dz1c);
+        deriv(x2c,y2c,z2c, x1c,y1c,z1c, dx2c,dy2c,dz2c);
+
+        float x1d=x1_+dt_*dx1c, y1d=y1_+dt_*dy1c, z1d=z1_+dt_*dz1c;
+        float x2d=x2_+dt_*dx2c, y2d=y2_+dt_*dy2c, z2d=z2_+dt_*dz2c;
+        float dx1d, dy1d, dz1d, dx2d, dy2d, dz2d;
+        deriv(x1d,y1d,z1d, x2d,y2d,z2d, dx1d,dy1d,dz1d);
+        deriv(x2d,y2d,z2d, x1d,y1d,z1d, dx2d,dy2d,dz2d);
+
+        x1_ += dt_/6.0f*(dx1a + 2*dx1b + 2*dx1c + dx1d);
+        y1_ += dt_/6.0f*(dy1a + 2*dy1b + 2*dy1c + dy1d);
+        z1_ += dt_/6.0f*(dz1a + 2*dz1b + 2*dz1c + dz1d);
+        x2_ += dt_/6.0f*(dx2a + 2*dx2b + 2*dx2c + dx2d);
+        y2_ += dt_/6.0f*(dy2a + 2*dy2b + 2*dy2c + dy2d);
+        z2_ += dt_/6.0f*(dz2a + 2*dz2b + 2*dz2c + dz2d);
+    }
+    float getX() const override { return x1_; }
+    float getY() const override { return x2_; }
+private:
+    float x1_=0.1f, y1_=0.0f, z1_=0.0f;
+    float x2_=0.5f, y2_=0.2f, z2_=0.0f;
+    float c_=5.7f, k_=0.05f, dt_=0.05f;
+    static constexpr float a_ = 0.2f;
+    static constexpr float b_ = 0.2f;
+};
+
+// ─── Algorithm registry ───────────────────────────────────────────────────────
+ChaosRossler         algoRossler;
+ChaosVanDerPol       algoVanDerPol;
+ChaosLorenz          algoLorenz;
+ChaosChua            algoChua;
+ChaosDuffing         algoDuffing;
+ChaosCoupledRossler  algoCoupledRossler;
+
+ChaosBase* algos[] = {
+    &algoRossler, &algoVanDerPol, &algoLorenz,
+    &algoChua, &algoDuffing, &algoCoupledRossler
+};
+constexpr uint8_t N_ALGOS = 6;
 
 // ─── Audio graph (single engine, no mixer needed) ─────────────────────────────
 AudioChaosEngine     engine;
