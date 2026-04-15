@@ -1,100 +1,93 @@
-registerLayout("MKI x ES EDU SNARE DRUM", {
+registerLayout("EDU Snare Drum", {
   "title": "MKI x ES EDU SNARE DRUM",
   "source": "docs/snare_drum_netlist.md",
-  "board": "n8synth 6HP",
-  "revision": "0.1",
-  "notes": "Auto-generated skeleton \u2014 row/column placements need to be filled in.",
+  "board": "n8synth 10HP",
+  "revision": "0.2",
+  "notes": "Snare drum layout. 3x TL072 (rotated 180), 7 transistors, two signal paths (drum + noise) merged at mixer. Power conditioning handled by n8synth board rows 37-40. BOM discrepancy: mixer uses 8th 100K (R38) not in printed BOM.",
   "stages": [
     {
       "id": 1,
-      "name": "ICs + Power",
-      "desc": "Install DA1, DA2, DA3 and decoupling caps. Wire IC power pins to rails.",
-      "test": "Verify +12V/-12V on IC power pins.",
+      "name": "ICs + Decoupling",
+      "desc": "Install DA1, DA2, DA3 (all rotated 180deg). Add 6x 100nF decoupling caps close to each IC power pin.",
+      "test": "Verify +12V on DA1/DA2/DA3 pin 8 (row 7/18/31 col e). Verify -12V on pin 4 (row 4/15/28 col f).",
       "color": "#888"
     },
     {
       "id": 2,
-      "name": "Gate-to-Trigger Converter",
-      "desc": "Converts a sustained gate into a short trigger pulse. High-pass filter\ndifferentiates the gate edge; comparator converts it to a clean \u00b112V pulse.\nIdentical topology to kick drum.",
-      "test": "",
+      "name": "Gate-to-Trigger",
+      "desc": "HP filter (C15/R16) differentiates gate edge. Comparator (DA1A) with R6/R17 threshold converts to clean trigger. VD3 clamps negative spikes. Identical to kick drum.",
+      "test": "Inject +5V gate at XS4 (TRIGGER IN). Probe COMP_OUT (row 7 right) for +12V pulse.",
       "color": "#e67e22"
     },
     {
       "id": 3,
-      "name": "Accent CV Section",
-      "desc": "Modulates trigger amplitude via external accent CV. PNP emitter follower\nsets voltage floor, NPN buffers the result.",
-      "test": "",
+      "name": "Accent + Trigger Routing",
+      "desc": "R7 feeds COMP_OUT to accent network. VT1 (PNP) sets floor from accent CV; VT3 (NPN) buffers. VD4 blocks -12V. R25/R27 divide trigger for oscillator.",
+      "test": "Probe ACC_TRIG (row 10 left). Should see shaped trigger pulse. ~1V at OSC_NONINV (row 4 left).",
       "color": "#e74c3c"
     },
     {
       "id": 4,
-      "name": "Trigger Routing to Oscillator",
-      "desc": "Routes accented trigger to oscillator input through blocking diode and\n10K/1K voltage divider. Different divider ratio from kick (10K/1K vs 100K/14K).",
-      "test": "",
+      "name": "Bridged-T Oscillator",
+      "desc": "C12/C13 (33nF pair), R3 (910K) + R28 (1K) bridges, P5 (tune pot) + R34 (470R floor). Core drum sound, 100-200Hz.",
+      "test": "With trigger working, probe OSC_OUT (row 6 left). Should hear decaying sine. P5 sets pitch.",
       "color": "#2ecc71"
     },
     {
       "id": 5,
-      "name": "Bridged-T Percussive Oscillator",
-      "desc": "Core drum sound source. Bridged-T network produces decaying sine wave when\ntriggered. Tuned for 100-200 Hz range (snare body). Same topology as kick\nbut with 33nF caps (vs 15nF) for lower starting fre",
-      "test": "",
+      "name": "Decay Feedback",
+      "desc": "DA2A inverts OSC_OUT via R13/R14. P1 (250K) sets feedback gain. R4 (470K) feeds back to CAP_MID, extending oscillation.",
+      "test": "Turn DECAY pot. Oscillation should sustain longer at higher settings.",
       "color": "#3498db"
     },
     {
       "id": 6,
-      "name": "Decay Feedback",
-      "desc": "Inverting buffer feeds oscillator output back to CAP_MID, extending decay.\nSame topology as kick but with 250K DECAY pot (vs 1M).",
-      "test": "",
+      "name": "Pitch Attack Envelope",
+      "desc": "VD5 charges C10 (470nF) from COMP_OUT (full trigger). P4+R29 set charge rate (attack). R19/R15/VT4 divider drives pitch NPN. R35 (330R) sets max frequency ceiling.",
+      "test": "Probe ENV_CAP (row 12 left). Decaying voltage on trigger. Hear pitch sweep down. P4 varies attack intensity.",
       "color": "#9b59b6"
     },
     {
       "id": 7,
-      "name": "Pitch Attack Envelope",
-      "desc": "RC envelope for pitch modulation. Charges from FULL trigger (COMP_OUT,\nnot accented trigger) for consistent attack at all accent levels.\nNPN transistor provides voltage-controlled resistance from CAP_",
-      "test": "",
+      "name": "Pitch CV Buffer",
+      "desc": "DA3A buffers attenuated pitch CV (P3 voltage divider) to isolate from envelope discharge path. R8 provides input protection.",
+      "test": "Apply CV at XS2 (TUNE CV). P3 varies pitch effect. Higher CV = higher base pitch.",
       "color": "#1abc9c"
     },
     {
       "id": 8,
-      "name": "Pitch CV Input + Buffer",
-      "desc": "External pitch CV sets the transistor's operating point, keeping it open\nto varying degrees. An op-amp buffer isolates the attenuator impedance\nfrom the envelope discharge path.",
-      "test": "",
+      "name": "Noise Generator",
+      "desc": "VT5 (BC548 reverse-biased) creates white noise via avalanche breakdown. DA2B amplifies x46 (1M/22K). C1 AC-couples.",
+      "test": "Probe NOISE_AMP_OUT (row 17 left). Should see uniform white noise signal.",
       "color": "#f39c12"
     },
     {
       "id": 9,
-      "name": "Noise Generator",
-      "desc": "White noise source using reverse-biased BC548 (avalanche breakdown).\nAC-coupled and amplified \u00d746 by non-inverting op-amp stage.",
-      "test": "",
+      "name": "Swing VCA + Noise Envelope",
+      "desc": "VT6 NPN transistor VCA modulates noise volume. C14 AC-couples input, R2 biases. VD7 charges C11 (470nF) from COMP_OUT. P2 (100K A) sets both VCA collector load and decay rate. VD6 + C17/C18 clean output.",
+      "test": "With noise + trigger, probe VCA_COLL (row 24). Should see percussive noise burst. P2 sets snare wire decay.",
       "color": "#e91e63"
     },
     {
       "id": 10,
-      "name": "Swing Type VCA",
-      "desc": "NPN transistor-based amplitude modulator (Roland 606/808 style). The\ncollector voltage is set by the envelope CV \u2014 when transistor is in cutoff,\noutput = CV level. Signal enters at base through AC cou",
-      "test": "",
-      "color": "#00bcd4"
+      "name": "Snappy CV",
+      "desc": "VT2 (PNP) provides CV-controlled discharge path for noise envelope. R22 (22K) limits discharge rate. At 0V CV = fast snappy burst.",
+      "test": "Apply CV at XS3 (SNAPPY CV). Higher CV = longer noise tail, lower = tighter snare wires.",
+      "color": "#795548"
     },
     {
       "id": 11,
-      "name": "Noise Envelope + Snappy Control",
-      "desc": "Simple RC envelope for noise burst. Charges from full trigger (fast, no\nseries resistance). The 100K A-taper pot does double duty as VCA collector\nload AND envelope discharge path. PNP transistor prov",
-      "test": "",
-      "color": "#888"
+      "name": "High Pass Filter",
+      "desc": "2nd-order Sallen-Key HPF (C19/C20 1nF, R12 100K). VT7 emitter follower with R23 to -12V for headroom. R24 (22K) feedback adds resonance. C16 AC-couples output. fc ~3.4 kHz.",
+      "test": "Probe HPF_AC (row 34). Noise should have lows removed, resonant bite around 3.4 kHz.",
+      "color": "#00bcd4"
     },
     {
       "id": 12,
-      "name": "High Pass Filter",
-      "desc": "Second-order Sallen-Key high pass filter removes low end from noise path.\nUses NPN emitter follower (instead of op-amp) as active element. Feedback\nfrom emitter to filter node introduces resonance.",
-      "test": "",
-      "color": "#e67e22"
-    },
-    {
-      "id": 13,
       "name": "Mixer + Output",
-      "desc": "Inverting summing amplifier mixes drum oscillator and filtered noise.\nIndividual input resistors set the gain for each path.",
-      "test": "",
-      "color": "#e74c3c"
+      "desc": "DA3B inverting summer: R38 (100K) drum input, R26 (10K) noise input, R18 (33K) feedback. R30 (1K) output series protection.",
+      "test": "Full signal at XS5 (OUTPUT). Both drum body and snare wire noise audible. ~10Vpp.",
+      "color": "#8bc34a"
     }
   ],
   "ics": [
@@ -106,109 +99,109 @@ registerLayout("MKI x ES EDU SNARE DRUM", {
       "rotation": 180,
       "pins": [
         {
-          "n": 1,
-          "r": null,
-          "c": "f",
-          "net": "COMP_OUT"
-        },
-        {
-          "n": 2,
-          "r": null,
-          "c": "f",
-          "net": "COMP_INV"
-        },
-        {
-          "n": 3,
-          "r": null,
-          "c": "f",
-          "net": "HP_OUT"
-        },
-        {
-          "n": 4,
-          "r": null,
-          "c": "f",
-          "net": "VEE"
-        },
-        {
           "n": 5,
-          "r": null,
+          "r": 4,
           "c": "e",
           "net": "OSC_NONINV"
         },
         {
+          "n": 4,
+          "r": 4,
+          "c": "f",
+          "net": "VEE"
+        },
+        {
           "n": 6,
-          "r": null,
+          "r": 5,
           "c": "e",
           "net": "OSC_INV"
         },
         {
+          "n": 3,
+          "r": 5,
+          "c": "f",
+          "net": "HP_OUT"
+        },
+        {
           "n": 7,
-          "r": null,
+          "r": 6,
           "c": "e",
           "net": "OSC_OUT"
         },
         {
+          "n": 2,
+          "r": 6,
+          "c": "f",
+          "net": "COMP_INV"
+        },
+        {
           "n": 8,
-          "r": null,
+          "r": 7,
           "c": "e",
           "net": "VCC"
+        },
+        {
+          "n": 1,
+          "r": 7,
+          "c": "f",
+          "net": "COMP_OUT"
         }
       ]
     },
     {
       "id": "DA2",
       "value": "TL072",
-      "label": "Decay Buffer + Noise Amplifier",
+      "label": "Decay Buffer + Noise Amp",
       "stage": 1,
       "rotation": 180,
       "pins": [
         {
-          "n": 1,
-          "r": null,
-          "c": "f",
-          "net": "DECAY_OUT"
-        },
-        {
-          "n": 2,
-          "r": null,
-          "c": "f",
-          "net": "DECAY_INV"
-        },
-        {
-          "n": 3,
-          "r": null,
-          "c": "f",
-          "net": "GND"
-        },
-        {
-          "n": 4,
-          "r": null,
-          "c": "f",
-          "net": "VEE"
-        },
-        {
           "n": 5,
-          "r": null,
+          "r": 15,
           "c": "e",
           "net": "NOISE_BIAS"
         },
         {
+          "n": 4,
+          "r": 15,
+          "c": "f",
+          "net": "VEE"
+        },
+        {
           "n": 6,
-          "r": null,
+          "r": 16,
           "c": "e",
           "net": "NOISE_AMP_INV"
         },
         {
+          "n": 3,
+          "r": 16,
+          "c": "f",
+          "net": "GND"
+        },
+        {
           "n": 7,
-          "r": null,
+          "r": 17,
           "c": "e",
           "net": "NOISE_AMP_OUT"
         },
         {
+          "n": 2,
+          "r": 17,
+          "c": "f",
+          "net": "DECAY_INV"
+        },
+        {
           "n": 8,
-          "r": null,
+          "r": 18,
           "c": "e",
           "net": "VCC"
+        },
+        {
+          "n": 1,
+          "r": 18,
+          "c": "f",
+          "net": "DECAY_OUT"
         }
       ]
     },
@@ -220,798 +213,702 @@ registerLayout("MKI x ES EDU SNARE DRUM", {
       "rotation": 180,
       "pins": [
         {
-          "n": 1,
-          "r": null,
-          "c": "f",
-          "net": "PCV_BUF_OUT"
-        },
-        {
-          "n": 3,
-          "r": null,
-          "c": "f",
-          "net": "PCV_BUF_IN"
-        },
-        {
-          "n": 4,
-          "r": null,
-          "c": "f",
-          "net": "VEE"
-        },
-        {
           "n": 5,
-          "r": null,
+          "r": 28,
           "c": "e",
           "net": "GND"
         },
         {
+          "n": 4,
+          "r": 28,
+          "c": "f",
+          "net": "VEE"
+        },
+        {
           "n": 6,
-          "r": null,
+          "r": 29,
           "c": "e",
           "net": "MIX_INV"
         },
         {
+          "n": 3,
+          "r": 29,
+          "c": "f",
+          "net": "PCV_BUF_IN"
+        },
+        {
           "n": 7,
-          "r": null,
+          "r": 30,
           "c": "e",
           "net": "MIX_OUT"
         },
         {
+          "n": 2,
+          "r": 30,
+          "c": "f",
+          "net": "PCV_BUF_OUT"
+        },
+        {
           "n": 8,
-          "r": null,
+          "r": 31,
           "c": "e",
           "net": "VCC"
+        },
+        {
+          "n": 1,
+          "r": 31,
+          "c": "f",
+          "net": "PCV_BUF_OUT"
         }
       ]
     }
   ],
   "twoPins": [
     {
-      "id": "C1",
-      "type": "C",
-      "value": "1uF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Noise AC coupling"
-    },
-    {
-      "id": "C10",
-      "type": "C",
-      "value": "470nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 7,
-      "_role": "Pitch envelope, noise envelope"
-    },
-    {
-      "id": "C11",
-      "type": "C",
-      "value": "470nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 11,
-      "_role": "Pitch envelope, noise envelope"
-    },
-    {
-      "id": "C12",
-      "type": "C",
-      "value": "33nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 5,
-      "_role": "Oscillator \u00d72, VCA input AC coupling"
-    },
-    {
-      "id": "C13",
-      "type": "C",
-      "value": "33nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 5,
-      "_role": "Oscillator \u00d72, VCA input AC coupling"
-    },
-    {
-      "id": "C14",
-      "type": "C",
-      "value": "33nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 10,
-      "_role": "Oscillator \u00d72, VCA input AC coupling"
-    },
-    {
-      "id": "C15",
-      "type": "C",
-      "value": "10nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 2,
-      "_role": "Gate HP filter, HPF AC coupling output"
-    },
-    {
-      "id": "C16",
-      "type": "C",
-      "value": "10nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "Gate HP filter, HPF AC coupling output"
-    },
-    {
-      "id": "C17",
-      "type": "C",
-      "value": "2.2nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 10,
-      "_role": "VCA output filter \u00d72"
-    },
-    {
-      "id": "C18",
-      "type": "C",
-      "value": "2.2nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 10,
-      "_role": "VCA output filter \u00d72"
-    },
-    {
-      "id": "C19",
-      "type": "C",
-      "value": "1nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "HPF filter stages \u00d72"
+      "_comment": "=== STAGE 1: IC DECOUPLING (6x 100nF) ==="
     },
     {
       "id": "C2",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
-    },
-    {
-      "id": "C20",
-      "type": "C",
-      "value": "1nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "HPF filter stages \u00d72"
-    },
-    {
-      "id": "C21",
-      "type": "C",
-      "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power bypass"
-    },
-    {
-      "id": "C22",
-      "type": "C",
-      "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power bypass"
+      "r1": 7,
+      "c1": "a",
+      "r2": 7,
+      "c2": "gndL",
+      "stage": 1
     },
     {
       "id": "C3",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
+      "r1": 4,
+      "c1": "g",
+      "r2": 4,
+      "c2": "gndR",
+      "stage": 1
     },
     {
       "id": "C4",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
+      "r1": 18,
+      "c1": "a",
+      "r2": 18,
+      "c2": "gndL",
+      "stage": 1
     },
     {
       "id": "C5",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
+      "r1": 15,
+      "c1": "g",
+      "r2": 15,
+      "c2": "gndR",
+      "stage": 1
     },
     {
       "id": "C6",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
+      "r1": 31,
+      "c1": "a",
+      "r2": 31,
+      "c2": "gndL",
+      "stage": 1
     },
     {
       "id": "C7",
       "type": "C",
       "value": "100nF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 1,
-      "_role": "IC decoupling"
+      "r1": 28,
+      "c1": "g",
+      "r2": 28,
+      "c2": "gndR",
+      "stage": 1
     },
     {
-      "id": "C8",
+      "_comment": "=== STAGE 2: GATE-TO-TRIGGER (Block 1) ==="
+    },
+    {
+      "id": "C15",
       "type": "C",
-      "value": "47uF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power supply bulk filter"
-    },
-    {
-      "id": "C9",
-      "type": "C",
-      "value": "47uF",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power supply bulk filter"
-    },
-    {
-      "id": "R1",
-      "type": "R",
-      "value": "1M",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Noise amp feedback, VCA base bias"
-    },
-    {
-      "id": "R10",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R11",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R12",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R13",
-      "type": "R",
-      "value": "47K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 6,
-      "_role": "Decay input, decay feedback, pitch env divider"
-    },
-    {
-      "id": "R14",
-      "type": "R",
-      "value": "47K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 6,
-      "_role": "Decay input, decay feedback, pitch env divider"
-    },
-    {
-      "id": "R15",
-      "type": "R",
-      "value": "47K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 7,
-      "_role": "Decay input, decay feedback, pitch env divider"
+      "value": "10nF",
+      "r1": 3,
+      "c1": "g",
+      "r2": 5,
+      "c2": "g",
+      "stage": 2,
+      "_note": "GATE_IN (row 3R via JPS) to HP_OUT (DA1A pin3, row 5f)"
     },
     {
       "id": "R16",
       "type": "R",
       "value": "39K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
+      "r1": 5,
+      "c1": "h",
+      "r2": 5,
+      "c2": "gndR",
       "stage": 2,
-      "_role": "Gate HP filter discharge"
-    },
-    {
-      "id": "R17",
-      "type": "R",
-      "value": "33K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 2,
-      "_role": "Comparator threshold, mixer feedback"
-    },
-    {
-      "id": "R18",
-      "type": "R",
-      "value": "33K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 13,
-      "_role": "Comparator threshold, mixer feedback"
-    },
-    {
-      "id": "R19",
-      "type": "R",
-      "value": "27K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 7,
-      "_role": "Pitch env divider"
-    },
-    {
-      "id": "R2",
-      "type": "R",
-      "value": "1M",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 10,
-      "_role": "Noise amp feedback, VCA base bias"
-    },
-    {
-      "id": "R20",
-      "type": "R",
-      "value": "22K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 3,
-      "_role": "Accent series, noise amp gain, HPF emitter, HPF feedback, snappy CV"
-    },
-    {
-      "id": "R21",
-      "type": "R",
-      "value": "22K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Accent series, noise amp gain, HPF emitter, HPF feedback, snappy CV"
-    },
-    {
-      "id": "R22",
-      "type": "R",
-      "value": "22K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 11,
-      "_role": "Accent series, noise amp gain, HPF emitter, HPF feedback, snappy CV"
-    },
-    {
-      "id": "R23",
-      "type": "R",
-      "value": "22K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "Accent series, noise amp gain, HPF emitter, HPF feedback, snappy CV"
-    },
-    {
-      "id": "R24",
-      "type": "R",
-      "value": "22K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 12,
-      "_role": "Accent series, noise amp gain, HPF emitter, HPF feedback, snappy CV"
-    },
-    {
-      "id": "R25",
-      "type": "R",
-      "value": "10K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 4,
-      "_role": "Trigger divider top, mixer noise input"
-    },
-    {
-      "id": "R26",
-      "type": "R",
-      "value": "10K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 13,
-      "_role": "Trigger divider top, mixer noise input"
-    },
-    {
-      "id": "R27",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 4,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R28",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 5,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R29",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 7,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R3",
-      "type": "R",
-      "value": "910K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 5,
-      "_role": "Oscillator bridge"
-    },
-    {
-      "id": "R30",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 13,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R31",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R32",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R33",
-      "type": "R",
-      "value": "1K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Bridge, trigger div bottom, attack series, output + unconfirmed"
-    },
-    {
-      "id": "R34",
-      "type": "R",
-      "value": "470R",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 5,
-      "_role": "Oscillator tuning to GND"
-    },
-    {
-      "id": "R35",
-      "type": "R",
-      "value": "330R",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 7,
-      "_role": "Pitch NPN series (min frequency floor)"
-    },
-    {
-      "id": "R36",
-      "type": "R",
-      "value": "10R",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power supply series filtering"
-    },
-    {
-      "id": "R37",
-      "type": "R",
-      "value": "10R",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power supply series filtering"
-    },
-    {
-      "id": "R38",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 13,
-      "_role": "Mixer drum input (see BOM discrepancy note)"
-    },
-    {
-      "id": "R4",
-      "type": "R",
-      "value": "470K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 6,
-      "_role": "Decay injection to CAP_MID"
-    },
-    {
-      "id": "R5",
-      "type": "R",
-      "value": "120K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 3,
-      "_role": "Accent node parallel limiter"
-    },
-    {
-      "id": "R6",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 2,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R7",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 3,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R8",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 8,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "R9",
-      "type": "R",
-      "value": "100K",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 9,
-      "_role": "Comp threshold, accent, pitch CV in, noise emitter, noise coll, noise bias, HPF"
-    },
-    {
-      "id": "VD1",
-      "type": "D",
-      "value": "1N5819",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power reverse polarity protection"
-    },
-    {
-      "id": "VD2",
-      "type": "D",
-      "value": "1N5819",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Power reverse polarity protection"
+      "_note": "HP_OUT to GND"
     },
     {
       "id": "VD3",
       "type": "D",
       "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
+      "r1": 5,
+      "c1": "gndR",
+      "r2": 5,
+      "c2": "i",
       "stage": 2,
-      "_role": "Signal diodes (see block details)"
+      "_note": "GND(anode) to HP_OUT(cathode) clamp. Anode=gndR, cathode=HP_OUT"
+    },
+    {
+      "id": "R6",
+      "type": "R",
+      "value": "100K",
+      "r1": 2,
+      "c1": "+12v",
+      "r2": 2,
+      "c2": "a",
+      "stage": 2,
+      "_note": "VCC through R6 to row 2L. Jumper JW1 bridges row 2L to COMP_INV at row 6R"
+    },
+    {
+      "id": "R17",
+      "type": "R",
+      "value": "33K",
+      "r1": 6,
+      "c1": "h",
+      "r2": 6,
+      "c2": "gndR",
+      "stage": 2,
+      "_note": "COMP_INV to GND. Threshold divider with R6"
+    },
+    {
+      "_comment": "=== STAGE 3: ACCENT + TRIGGER ROUTING (Blocks 2+3) ==="
+    },
+    {
+      "id": "R7",
+      "type": "R",
+      "value": "100K",
+      "r1": 7,
+      "c1": "g",
+      "r2": 8,
+      "c2": "g",
+      "stage": 3,
+      "_note": "COMP_OUT (row 7R) to ACC_IN (row 8R)"
+    },
+    {
+      "id": "R5",
+      "type": "R",
+      "value": "120K",
+      "r1": 8,
+      "c1": "i",
+      "r2": 8,
+      "c2": "gndR",
+      "stage": 3,
+      "_note": "ACC_IN to GND"
+    },
+    {
+      "id": "R20",
+      "type": "R",
+      "value": "22K",
+      "r1": 8,
+      "c1": "h",
+      "r2": 9,
+      "c2": "h",
+      "stage": 3,
+      "_note": "ACC_IN (row 8R) to ACC_EMIT (row 9R)"
     },
     {
       "id": "VD4",
       "type": "D",
       "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
+      "r1": 10,
+      "c1": "a",
+      "r2": 11,
+      "c2": "a",
+      "stage": 3,
+      "_note": "ACC_TRIG(anode, row 10L) to TRIG_POS(cathode, row 11L). Blocking diode"
+    },
+    {
+      "id": "R25",
+      "type": "R",
+      "value": "10K",
+      "r1": 11,
+      "c1": "b",
+      "r2": 4,
+      "c2": "b",
+      "stage": 3,
+      "_note": "TRIG_POS (row 11L) to OSC_NONINV (row 4L, DA1B pin5)"
+    },
+    {
+      "id": "R27",
+      "type": "R",
+      "value": "1K",
+      "r1": 4,
+      "c1": "a",
+      "r2": 4,
+      "c2": "gndL",
+      "stage": 3,
+      "_note": "OSC_NONINV to GND. Voltage divider bottom with R25"
+    },
+    {
+      "_comment": "=== STAGE 4: OSCILLATOR (Block 4) ==="
+    },
+    {
+      "id": "C12",
+      "type": "C",
+      "value": "33nF",
+      "r1": 6,
+      "c1": "d",
+      "r2": 8,
+      "c2": "d",
       "stage": 4,
-      "_role": "Signal diodes (see block details)"
+      "_note": "OSC_OUT (row 6L) to CAP_MID (row 8L)"
+    },
+    {
+      "id": "C13",
+      "type": "C",
+      "value": "33nF",
+      "r1": 8,
+      "c1": "c",
+      "r2": 5,
+      "c2": "c",
+      "stage": 4,
+      "_note": "CAP_MID (row 8L) to OSC_INV (row 5L, DA1B pin6)"
+    },
+    {
+      "id": "R3",
+      "type": "R",
+      "value": "910K",
+      "r1": 6,
+      "c1": "a",
+      "r2": 5,
+      "c2": "a",
+      "stage": 4,
+      "_note": "OSC_OUT to OSC_INV bridge"
+    },
+    {
+      "id": "R28",
+      "type": "R",
+      "value": "1K",
+      "r1": 6,
+      "c1": "b",
+      "r2": 5,
+      "c2": "b",
+      "stage": 4,
+      "_note": "OSC_OUT to OSC_INV bridge (1K)"
+    },
+    {
+      "id": "R34",
+      "type": "R",
+      "value": "470R",
+      "r1": 8,
+      "c1": "a",
+      "r2": 8,
+      "c2": "gndL",
+      "stage": 4,
+      "_note": "CAP_MID/TUNE bottom to GND. P5(TUNE) connects row 8L via JPS"
+    },
+    {
+      "_comment": "=== STAGE 5: DECAY FEEDBACK (Block 5) ==="
+    },
+    {
+      "id": "R13",
+      "type": "R",
+      "value": "47K",
+      "r1": 6,
+      "c1": "c",
+      "r2": 17,
+      "c2": "g",
+      "stage": 5,
+      "_note": "OSC_OUT (row 6L) to DECAY_INV (row 17R, DA2A pin2). Long span - use wire if needed"
+    },
+    {
+      "id": "R14",
+      "type": "R",
+      "value": "47K",
+      "r1": 17,
+      "c1": "h",
+      "r2": 18,
+      "c2": "g",
+      "stage": 5,
+      "_note": "DECAY_INV to DECAY_OUT (DA2A pin1, row 18R)"
+    },
+    {
+      "id": "R4",
+      "type": "R",
+      "value": "470K",
+      "r1": 18,
+      "c1": "h",
+      "r2": 8,
+      "c2": "b",
+      "stage": 5,
+      "_note": "DECAY_OUT (row 18R) to CAP_MID (row 8L). Very long span - will need wire"
+    },
+    {
+      "_comment": "=== STAGE 6: PITCH ATTACK ENVELOPE (Block 6) ==="
     },
     {
       "id": "VD5",
       "type": "D",
       "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
+      "r1": 7,
+      "c1": "h",
+      "r2": 12,
+      "c2": "h",
+      "stage": 6,
+      "_note": "COMP_OUT(anode, row 7R) to ENV_CAP area(cathode, row 12R). Goes through P4+R29 on JPS"
+    },
+    {
+      "id": "R29",
+      "type": "R",
+      "value": "1K",
+      "r1": 12,
+      "c1": "i",
+      "r2": 12,
+      "c2": "g",
+      "stage": 6,
+      "_note": "Attack series R. P4(ATTACK) wiper connects here via JPS"
+    },
+    {
+      "id": "C10",
+      "type": "C",
+      "value": "470nF",
+      "r1": 12,
+      "c1": "g",
+      "r2": 12,
+      "c2": "gndR",
+      "stage": 6,
+      "_note": "ENV_CAP to GND. Pitch envelope timing cap"
+    },
+    {
+      "id": "R19",
+      "type": "R",
+      "value": "27K",
+      "r1": 12,
+      "c1": "j",
+      "r2": 13,
+      "c2": "g",
+      "stage": 6,
+      "_note": "ENV_CAP to ENV_DIV (voltage divider)"
+    },
+    {
+      "id": "R15",
+      "type": "R",
+      "value": "47K",
+      "r1": 13,
+      "c1": "h",
+      "r2": 30,
+      "c2": "g",
+      "stage": 6,
+      "_note": "ENV_DIV to PCV_BUF_OUT (DA3A output, row 30R). Long span"
+    },
+    {
+      "id": "R35",
+      "type": "R",
+      "value": "330R",
+      "r1": 14,
+      "c1": "b",
+      "r2": 14,
+      "c2": "gndL",
+      "stage": 6,
+      "_note": "PITCH_NPN_E (VT4 emitter) to GND. Min frequency floor"
+    },
+    {
+      "_comment": "=== STAGE 7: PITCH CV BUFFER (Block 7) ==="
+    },
+    {
+      "id": "R8",
+      "type": "R",
+      "value": "100K",
+      "r1": 33,
+      "c1": "g",
+      "r2": 33,
+      "c2": "h",
       "stage": 7,
-      "_role": "Signal diodes (see block details)"
+      "_note": "PITCH_CV_IN (XS2 via JPS, row 33R) to P3 input. P3 wiper goes to PCV_BUF_IN (row 29R)"
+    },
+    {
+      "_comment": "=== STAGE 8: NOISE GENERATOR (Block 8) ==="
+    },
+    {
+      "id": "R9",
+      "type": "R",
+      "value": "100K",
+      "r1": 19,
+      "c1": "+12v",
+      "r2": 19,
+      "c2": "a",
+      "stage": 8,
+      "_note": "VCC to VT5 emitter (reversed). Noise source supply"
+    },
+    {
+      "id": "R10",
+      "type": "R",
+      "value": "100K",
+      "r1": 21,
+      "c1": "a",
+      "r2": 21,
+      "c2": "gndL",
+      "stage": 8,
+      "_note": "NOISE_COLL (VT5 collector) to GND. Collector load"
+    },
+    {
+      "id": "C1",
+      "type": "C",
+      "value": "1uF",
+      "r1": 21,
+      "c1": "b",
+      "r2": 15,
+      "c2": "b",
+      "stage": 8,
+      "_note": "NOISE_COLL (row 21L) to NOISE_BIAS (row 15L, DA2B pin5). AC coupling"
+    },
+    {
+      "id": "R11",
+      "type": "R",
+      "value": "100K",
+      "r1": 15,
+      "c1": "c",
+      "r2": 15,
+      "c2": "gndL",
+      "stage": 8,
+      "_note": "NOISE_BIAS to GND. DC bias for amp input"
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "value": "1M",
+      "r1": 17,
+      "c1": "a",
+      "r2": 16,
+      "c2": "a",
+      "stage": 8,
+      "_note": "NOISE_AMP_OUT (row 17L) to NOISE_AMP_INV (row 16L). Feedback R"
+    },
+    {
+      "id": "R21",
+      "type": "R",
+      "value": "22K",
+      "r1": 16,
+      "c1": "b",
+      "r2": 16,
+      "c2": "gndL",
+      "stage": 8,
+      "_note": "NOISE_AMP_INV to GND. Gain-setting R (gain = 1 + 1M/22K = 46)"
+    },
+    {
+      "_comment": "=== STAGE 9: VCA + NOISE ENVELOPE (Blocks 9+10) ==="
+    },
+    {
+      "id": "C14",
+      "type": "C",
+      "value": "33nF",
+      "r1": 17,
+      "c1": "b",
+      "r2": 22,
+      "c2": "b",
+      "stage": 9,
+      "_note": "NOISE_AMP_OUT (row 17L) to VCA_BASE (row 22L). AC coupling"
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "value": "1M",
+      "r1": 22,
+      "c1": "a",
+      "r2": 22,
+      "c2": "+12v",
+      "stage": 9,
+      "_note": "VCA_BASE to VCC. Bias for VT6"
     },
     {
       "id": "VD6",
       "type": "D",
       "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 10,
-      "_role": "Signal diodes (see block details)"
+      "r1": 24,
+      "c1": "gndR",
+      "r2": 24,
+      "c2": "i",
+      "stage": 9,
+      "_note": "GND(anode) to VCA_COLL(cathode). Clamp diode"
+    },
+    {
+      "id": "C17",
+      "type": "C",
+      "value": "2.2nF",
+      "r1": 24,
+      "c1": "h",
+      "r2": 24,
+      "c2": "gndR",
+      "stage": 9,
+      "_note": "VCA_COLL to GND. HF filter"
+    },
+    {
+      "id": "C18",
+      "type": "C",
+      "value": "2.2nF",
+      "r1": 25,
+      "c1": "h",
+      "r2": 25,
+      "c2": "gndR",
+      "stage": 9,
+      "_note": "VCA_COLL to GND. HF filter (2nd). CHALLENGE: might need jumper from row 24R to 25R"
     },
     {
       "id": "VD7",
       "type": "D",
       "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": 11,
-      "_role": "Signal diodes (see block details)"
+      "r1": 7,
+      "c1": "i",
+      "r2": 25,
+      "c2": "g",
+      "stage": 9,
+      "_note": "COMP_OUT(anode, row 7R) to NOISE_ENV_CAP(cathode, row 25R). Long span"
     },
     {
-      "id": "VD8",
-      "type": "D",
-      "value": "1N4148",
-      "r1": null,
-      "c1": null,
-      "r2": null,
-      "c2": null,
-      "stage": null,
-      "_role": "Signal diodes (see block details)"
+      "id": "C11",
+      "type": "C",
+      "value": "470nF",
+      "r1": 25,
+      "c1": "i",
+      "r2": 25,
+      "c2": "gndR",
+      "stage": 9,
+      "_note": "NOISE_ENV_CAP to GND. Noise envelope timing cap"
+    },
+    {
+      "_comment": "=== STAGE 10: SNAPPY CV (Block 10 continued) ==="
+    },
+    {
+      "id": "R22",
+      "type": "R",
+      "value": "22K",
+      "r1": 27,
+      "c1": "a",
+      "r2": 27,
+      "c2": "gndL",
+      "stage": 10,
+      "_note": "VT2 collector (snappy discharge) to GND"
+    },
+    {
+      "_comment": "=== STAGE 11: HIGH PASS FILTER (Block 11) ==="
+    },
+    {
+      "id": "C19",
+      "type": "C",
+      "value": "1nF",
+      "r1": 24,
+      "c1": "g",
+      "r2": 33,
+      "c2": "b",
+      "stage": 11,
+      "_note": "VCA_COLL (row 24R) to HPF_A (row 33L). 1st HPF cap"
+    },
+    {
+      "id": "C20",
+      "type": "C",
+      "value": "1nF",
+      "r1": 33,
+      "c1": "c",
+      "r2": 32,
+      "c2": "c",
+      "stage": 11,
+      "_note": "HPF_A (row 33L) to VT7 base area (row 32L)"
+    },
+    {
+      "id": "R12",
+      "type": "R",
+      "value": "100K",
+      "r1": 33,
+      "c1": "a",
+      "r2": 33,
+      "c2": "gndL",
+      "stage": 11,
+      "_note": "HPF_A to GND"
+    },
+    {
+      "id": "R23",
+      "type": "R",
+      "value": "22K",
+      "r1": 34,
+      "c1": "a",
+      "r2": 34,
+      "c2": "-12v",
+      "stage": 11,
+      "_note": "HPF_EMIT (VT7 emitter, row 34L) to VEE (-12V). Headroom bias"
+    },
+    {
+      "id": "R24",
+      "type": "R",
+      "value": "22K",
+      "r1": 34,
+      "c1": "b",
+      "r2": 33,
+      "c2": "d",
+      "stage": 11,
+      "_note": "HPF_EMIT to HPF_A. Resonance feedback"
+    },
+    {
+      "id": "C16",
+      "type": "C",
+      "value": "10nF",
+      "r1": 34,
+      "c1": "c",
+      "r2": 35,
+      "c2": "a",
+      "stage": 11,
+      "_note": "HPF_EMIT to HPF_AC (row 35L). AC coupling output"
+    },
+    {
+      "_comment": "=== STAGE 12: MIXER + OUTPUT (Block 12) ==="
+    },
+    {
+      "id": "R38",
+      "type": "R",
+      "value": "100K",
+      "r1": 29,
+      "c1": "d",
+      "r2": 29,
+      "c2": "a",
+      "stage": 12,
+      "_note": "CHALLENGE: OSC_OUT needs to reach MIX_INV (row 29L, DA3B pin6). R38 from OSC_OUT to row 29a, jumper 29a-29e? Or wire from row 6L to row 29L"
+    },
+    {
+      "id": "R26",
+      "type": "R",
+      "value": "10K",
+      "r1": 35,
+      "c1": "b",
+      "r2": 29,
+      "c2": "b",
+      "stage": 12,
+      "_note": "HPF_AC (row 35L) to MIX_INV (row 29L). Noise input to mixer"
+    },
+    {
+      "id": "R18",
+      "type": "R",
+      "value": "33K",
+      "r1": 29,
+      "c1": "c",
+      "r2": 30,
+      "c2": "c",
+      "stage": 12,
+      "_note": "MIX_INV (row 29L) to MIX_OUT (row 30L). Mixer feedback R"
+    },
+    {
+      "id": "R30",
+      "type": "R",
+      "value": "1K",
+      "r1": 30,
+      "c1": "a",
+      "r2": 36,
+      "c2": "a",
+      "stage": 12,
+      "_note": "MIX_OUT (row 30L) to OUTPUT_J (row 36L). Output series protection"
     }
   ],
   "transistors": [
@@ -1019,511 +916,608 @@ registerLayout("MKI x ES EDU SNARE DRUM", {
       "id": "VT1",
       "subtype": "PNP",
       "value": "BC558",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 3
-    },
-    {
-      "id": "VT2",
-      "subtype": "PNP",
-      "value": "BC558",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 11
+      "eR": 9,
+      "eC": "i",
+      "bR": 10,
+      "bC": "i",
+      "cR": 11,
+      "cC": "i",
+      "stage": 3,
+      "_note": "E=ACC_EMIT(9R), B=ACCENT_CV_IN(10R, from XS1 via JPS), C=GND(11R, wire to gndR). PNP accent limiter"
     },
     {
       "id": "VT3",
       "subtype": "NPN",
       "value": "BC548",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 3
+      "eR": 10,
+      "eC": "c",
+      "bR": 9,
+      "bC": "c",
+      "cR": 8,
+      "cC": "c",
+      "stage": 3,
+      "_note": "E=ACC_TRIG(10L), B=ACC_EMIT(9L via jumper from 9R), C=VCC(8L, wire to +12v). NPN accent buffer"
     },
     {
       "id": "VT4",
       "subtype": "NPN",
       "value": "BC548",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 7
+      "eR": 14,
+      "eC": "c",
+      "bR": 13,
+      "bC": "c",
+      "cR": 12,
+      "cC": "c",
+      "stage": 6,
+      "_note": "E=PITCH_NPN_E(14L, to R35/GND), B=ENV_DIV(13L via jumper from 13R), C=CAP_MID(12L via jumper to 8L). Pitch modulation NPN"
     },
     {
       "id": "VT5",
       "subtype": "NPN",
       "value": "BC548",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 9
+      "eR": 19,
+      "eC": "b",
+      "bR": 20,
+      "bC": "b",
+      "cR": 21,
+      "cC": "c",
+      "stage": 8,
+      "_note": "WIRED BACKWARDS! E=VCC(via R9, 19L), B=floating/GND(20L), C=NOISE_COLL(21L). Reverse-biased for avalanche noise"
     },
     {
       "id": "VT6",
       "subtype": "NPN",
       "value": "BC548",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
-      "stage": 10
+      "eR": 23,
+      "eC": "c",
+      "bR": 22,
+      "bC": "c",
+      "cR": 23,
+      "cC": "g",
+      "stage": 9,
+      "_note": "E=GND(23L\u2192gndL), B=VCA_BASE(22L), C=VCA_COLL(23R\u2192row 24R). Swing VCA. CHALLENGE: emitter and collector same row different sides"
+    },
+    {
+      "id": "VT2",
+      "subtype": "PNP",
+      "value": "BC558",
+      "eR": 25,
+      "eC": "j",
+      "bR": 26,
+      "bC": "j",
+      "cR": 27,
+      "cC": "j",
+      "stage": 10,
+      "_note": "E=NOISE_ENV_CAP(25R), B=SNAPPY_CV_IN(26R from XS3), C=R22(27R\u219227L via jumper). PNP snappy gate"
     },
     {
       "id": "VT7",
       "subtype": "NPN",
       "value": "BC548",
-      "eR": null,
-      "eC": null,
-      "bR": null,
-      "bC": null,
-      "cR": null,
-      "cC": null,
+      "eR": 34,
+      "eC": "d",
+      "bR": 32,
+      "bC": "d",
+      "cR": 32,
+      "cC": "+12v",
+      "stage": 11,
+      "_note": "E=HPF_EMIT(34L), B=HPF input(32L from C20), C=VCC. Emitter follower. CHALLENGE: B and C same row - may need to split across rows"
+    }
+  ],
+  "jumpers": [
+    {
+      "id": "JW1",
+      "r1": 2,
+      "c1": "b",
+      "r2": 6,
+      "c2": "g",
+      "label": "R6\u2192COMP_INV",
+      "stage": 2,
+      "_note": "Connect R6 output (row 2L) to COMP_INV (row 6R, DA1A pin2)"
+    },
+    {
+      "id": "JW2",
+      "r1": 9,
+      "c1": "d",
+      "r2": 9,
+      "c2": "g",
+      "label": "ACC_EMIT L\u2194R",
+      "stage": 3,
+      "_note": "Bridge ACC_EMIT across centre gap so VT3 base (9L) connects to VT1 emitter (9R)"
+    },
+    {
+      "id": "JW3",
+      "r1": 11,
+      "c1": "i",
+      "r2": 11,
+      "c2": "gndR",
+      "label": "VT1.C\u2192GND",
+      "stage": 3,
+      "_note": "VT1 collector (row 11R) to GND rail"
+    },
+    {
+      "id": "JW4",
+      "r1": 13,
+      "c1": "i",
+      "r2": 13,
+      "c2": "b",
+      "label": "ENV_DIV L\u2194R",
+      "stage": 6,
+      "_note": "Bridge ENV_DIV so R19 output (13R) reaches VT4 base (13L)"
+    },
+    {
+      "id": "JW5",
+      "r1": 12,
+      "c1": "b",
+      "r2": 8,
+      "c2": "b",
+      "label": "VT4.C\u2192CAP_MID",
+      "stage": 6,
+      "_note": "CHALLENGE: VT4 collector (12L via row 12c) to CAP_MID (8L). May need separate wire"
+    },
+    {
+      "id": "JW6",
+      "r1": 16,
+      "c1": "g",
+      "r2": 16,
+      "c2": "gndR",
+      "label": "DA2A.+\u2192GND",
+      "stage": 5,
+      "_note": "DA2A non-inv input (pin 3, row 16R) to GND"
+    },
+    {
+      "id": "JW7",
+      "r1": 28,
+      "c1": "a",
+      "r2": 28,
+      "c2": "gndL",
+      "label": "DA3B.+\u2192GND",
+      "stage": 12,
+      "_note": "DA3B non-inv input (pin 5, row 28L) to GND"
+    },
+    {
+      "id": "JW8",
+      "r1": 30,
+      "c1": "g",
+      "r2": 31,
+      "c2": "g",
+      "label": "PCV_BUF follower",
+      "stage": 7,
+      "_note": "Connect DA3A output (pin1, row 31R) to DA3A inv input (pin2, row 30R) for unity follower"
+    },
+    {
+      "id": "JW9",
+      "r1": 23,
+      "c1": "b",
+      "r2": 23,
+      "c2": "gndL",
+      "label": "VT6.E\u2192GND",
+      "stage": 9,
+      "_note": "VCA transistor emitter to GND"
+    },
+    {
+      "id": "JW10",
+      "r1": 23,
+      "c1": "h",
+      "r2": 24,
+      "c2": "j",
+      "label": "VT6.C\u2192VCA_COLL",
+      "stage": 9,
+      "_note": "VCA collector (row 23R) to VCA_COLL node (row 24R)"
+    },
+    {
+      "id": "JW11",
+      "r1": 27,
+      "c1": "i",
+      "r2": 27,
+      "c2": "b",
+      "label": "VT2.C L\u2194R",
+      "stage": 10,
+      "_note": "VT2 collector (27R) to R22 (27L)"
+    }
+  ],
+  "powerWires": [
+    {
+      "r1": 7,
+      "c1": "b",
+      "r2": 7,
+      "c2": "+12v",
+      "label": "DA1 VCC",
+      "stage": 1
+    },
+    {
+      "r1": 4,
+      "c1": "h",
+      "r2": 4,
+      "c2": "-12v",
+      "label": "DA1 VEE",
+      "stage": 1
+    },
+    {
+      "r1": 18,
+      "c1": "b",
+      "r2": 18,
+      "c2": "+12v",
+      "label": "DA2 VCC",
+      "stage": 1
+    },
+    {
+      "r1": 15,
+      "c1": "h",
+      "r2": 15,
+      "c2": "-12v",
+      "label": "DA2 VEE",
+      "stage": 1
+    },
+    {
+      "r1": 31,
+      "c1": "b",
+      "r2": 31,
+      "c2": "+12v",
+      "label": "DA3 VCC",
+      "stage": 1
+    },
+    {
+      "r1": 28,
+      "c1": "h",
+      "r2": 28,
+      "c2": "-12v",
+      "label": "DA3 VEE",
+      "stage": 1
+    },
+    {
+      "r1": 8,
+      "c1": "d",
+      "r2": 8,
+      "c2": "+12v",
+      "label": "VT3.C\u2192VCC",
+      "stage": 3
+    },
+    {
+      "r1": 32,
+      "c1": "d",
+      "r2": 32,
+      "c2": "+12v",
+      "label": "VT7.C\u2192VCC",
+      "stage": 11
+    }
+  ],
+  "jpsWires": [
+    {
+      "id": "XS4",
+      "label": "TRIGGER IN",
+      "row": 3,
+      "col": "h",
+      "stage": 2
+    },
+    {
+      "id": "XS1",
+      "label": "ACCENT CV",
+      "row": 10,
+      "col": "j",
+      "stage": 3
+    },
+    {
+      "id": "P5.1",
+      "label": "TUNE pin1",
+      "row": 8,
+      "col": "c",
+      "stage": 4
+    },
+    {
+      "id": "P5.w",
+      "label": "TUNE wiper+GND",
+      "row": 8,
+      "col": "d",
+      "stage": 4,
+      "_note": "CHALLENGE: P5 wiper shorted to pin3. Pin1 to CAP_MID, wiper/pin3 to R34 then GND"
+    },
+    {
+      "id": "P1.1",
+      "label": "DECAY pin1",
+      "row": 17,
+      "col": "i",
+      "stage": 5
+    },
+    {
+      "id": "P1.w",
+      "label": "DECAY wiper",
+      "row": 18,
+      "col": "i",
+      "stage": 5
+    },
+    {
+      "id": "P4.1",
+      "label": "ATTACK pin1",
+      "row": 12,
+      "col": "j",
+      "stage": 6,
+      "_note": "Between VD5 cathode and R29. Series resistance in charge path"
+    },
+    {
+      "id": "P4.w",
+      "label": "ATTACK wiper",
+      "row": 12,
+      "col": "h",
+      "stage": 6
+    },
+    {
+      "id": "XS2",
+      "label": "TUNE CV IN",
+      "row": 33,
+      "col": "i",
+      "stage": 7
+    },
+    {
+      "id": "P3.1",
+      "label": "PITCH CV pin1",
+      "row": 33,
+      "col": "j",
+      "stage": 7
+    },
+    {
+      "id": "P3.w",
+      "label": "PITCH CV wiper",
+      "row": 29,
+      "col": "g",
+      "stage": 7
+    },
+    {
+      "id": "P3.3",
+      "label": "PITCH CV gnd",
+      "row": 29,
+      "col": "gndR",
+      "stage": 7
+    },
+    {
+      "id": "P2.1",
+      "label": "SNAPPY pin1",
+      "row": 25,
+      "col": "j",
+      "stage": 9,
+      "_note": "NOISE_ENV_CAP to P2. P2 wiper/pin2 to VCA_COLL"
+    },
+    {
+      "id": "P2.w",
+      "label": "SNAPPY wiper",
+      "row": 24,
+      "col": "j",
+      "stage": 9
+    },
+    {
+      "id": "XS3",
+      "label": "SNAPPY CV IN",
+      "row": 26,
+      "col": "i",
+      "stage": 10
+    },
+    {
+      "id": "XS5",
+      "label": "AUDIO OUTPUT",
+      "row": 36,
+      "col": "b",
       "stage": 12
     }
   ],
-  "jumpers": [],
-  "powerWires": [],
-  "jpsWires": [],
-  "netLabels": [],
-  "_netConnections": {
-    "C15": [
-      "GATE_IN",
-      "HP_OUT"
-    ],
-    "R16": [
-      "HP_OUT",
-      "GND"
-    ],
-    "VD3": [
-      "GND",
-      "HP_OUT"
-    ],
-    "R6": [
-      "VCC",
-      "COMP_INV"
-    ],
-    "R17": [
-      "COMP_INV",
-      "GND"
-    ],
-    "DA1A": [
-      "HP_OUT",
-      "COMP_INV",
-      "COMP_OUT"
-    ],
-    "R7": [
-      "COMP_OUT",
-      "ACC_IN"
-    ],
-    "R5": [
-      "ACC_IN",
-      "GND"
-    ],
-    "R20": [
-      "ACC_IN",
-      "ACC_EMIT"
-    ],
-    "VT1": [
-      "ACCENT_CV_IN",
-      "GND",
-      "ACC_EMIT"
-    ],
-    "VT3": [
-      "ACC_EMIT",
-      "VCC",
-      "ACC_TRIG"
-    ],
-    "VD4": [
-      "ACC_TRIG",
-      "TRIG_POS"
-    ],
-    "R25": [
-      "TRIG_POS",
-      "OSC_NONINV"
-    ],
-    "R27": [
-      "OSC_NONINV",
-      "GND"
-    ],
-    "C12": [
-      "OSC_OUT",
-      "CAP_MID"
-    ],
-    "C13": [
-      "CAP_MID",
-      "OSC_INV"
-    ],
-    "R28": [
-      "OSC_OUT",
-      "OSC_INV"
-    ],
-    "R3": [
-      "OSC_OUT",
-      "OSC_INV"
-    ],
-    "P5": [
-      "CAP_MID",
-      "GND"
-    ],
-    "R34": [
-      "P5",
-      "GND"
-    ],
-    "DA1B": [
-      "OSC_NONINV",
-      "OSC_INV",
-      "OSC_OUT"
-    ],
-    "R13": [
-      "OSC_OUT",
-      "DECAY_INV"
-    ],
-    "R14": [
-      "DECAY_INV",
-      "DECAY_OUT"
-    ],
-    "P1": [
-      "DECAY_INV",
-      "DECAY_OUT"
-    ],
-    "R4": [
-      "DECAY_OUT",
-      "CAP_MID"
-    ],
-    "DA2A": [
-      "GND",
-      "DECAY_INV",
-      "DECAY_OUT"
-    ],
-    "VD5": [
-      "COMP_OUT",
-      "ENV_CAP"
-    ],
-    "P4": [
-      "VD5",
-      "ENV_CAP"
-    ],
-    "R29": [
-      "P4",
-      "ENV_CAP"
-    ],
-    "C10": [
-      "ENV_CAP",
-      "GND"
-    ],
-    "R19": [
-      "ENV_CAP",
-      "ENV_DIV"
-    ],
-    "R15": [
-      "ENV_DIV",
-      "PCV_BUF_OUT"
-    ],
-    "VT4": [
-      "ENV_DIV",
-      "CAP_MID",
-      "PITCH_NPN_E"
-    ],
-    "R35": [
-      "PITCH_NPN_E",
-      "GND"
-    ],
-    "R8": [
-      "PITCH_CV_IN",
-      "P3"
-    ],
-    "P3": [
-      "R8",
-      "PCV_BUF_IN",
-      "GND"
-    ],
-    "DA3A": [
-      "PCV_BUF_IN",
-      "PCV_BUF_OUT",
-      "PCV_BUF_OUT"
-    ],
-    "VT5": [
-      "reversed",
-      "VCC",
-      "NOISE_COLL"
-    ],
-    "R9": [
-      "VCC",
-      "VT5"
-    ],
-    "R10": [
-      "NOISE_COLL",
-      "GND"
-    ],
-    "C1": [
-      "NOISE_COLL",
-      "NOISE_BIAS"
-    ],
-    "R11": [
-      "NOISE_BIAS",
-      "GND"
-    ],
-    "R1": [
-      "NOISE_AMP_OUT",
-      "NOISE_AMP_INV"
-    ],
-    "R21": [
-      "NOISE_AMP_INV",
-      "GND"
-    ],
-    "DA2B": [
-      "NOISE_BIAS",
-      "NOISE_AMP_INV",
-      "NOISE_AMP_OUT"
-    ],
-    "C14": [
-      "NOISE_AMP_OUT",
-      "VCA_BASE"
-    ],
-    "R2": [
-      "VCA_BASE",
-      "VCC"
-    ],
-    "VT6": [
-      "VCA_BASE",
-      "VCA_COLL",
-      "GND"
-    ],
-    "VD6": [
-      "GND",
-      "VCA_COLL"
-    ],
-    "C17": [
-      "VCA_COLL",
-      "GND"
-    ],
-    "C18": [
-      "VCA_COLL",
-      "GND"
-    ],
-    "VD7": [
-      "COMP_OUT",
-      "NOISE_ENV_CAP"
-    ],
-    "C11": [
-      "NOISE_ENV_CAP",
-      "GND"
-    ],
-    "P2": [
-      "NOISE_ENV_CAP",
-      "VCA_COLL"
-    ],
-    "VT2": [
-      "SNAPPY_CV_IN",
-      "GND",
-      "NOISE_ENV_CAP"
-    ],
-    "R22": [
-      "VT2",
-      "GND"
-    ],
-    "C19": [
-      "VCA_COLL",
-      "HPF_A"
-    ],
-    "C20": [
-      "HPF_A",
-      "VT7"
-    ],
-    "R12": [
-      "HPF_A",
-      "GND"
-    ],
-    "VT7": [
-      "C20",
-      "VCC",
-      "HPF_EMIT"
-    ],
-    "R23": [
-      "HPF_EMIT",
-      "VEE"
-    ],
-    "R24": [
-      "HPF_EMIT",
-      "HPF_A"
-    ],
-    "C16": [
-      "HPF_EMIT",
-      "HPF_AC"
-    ],
-    "R38": [
-      "OSC_OUT",
-      "MIX_INV"
-    ],
-    "R26": [
-      "HPF_AC",
-      "MIX_INV"
-    ],
-    "R18": [
-      "MIX_INV",
-      "MIX_OUT"
-    ],
-    "DA3B": [
-      "GND",
-      "MIX_INV",
-      "MIX_OUT"
-    ],
-    "R30": [
-      "MIX_OUT",
-      "OUTPUT_J"
-    ],
-    "VD1": [
-      "VCC"
-    ],
-    "VD2": [
-      "VEE"
-    ],
-    "R36": [
-      "VCC",
-      "VCC_filt"
-    ],
-    "R37": [
-      "VEE",
-      "VEE_filt"
-    ],
-    "C8": [
-      "VCC",
-      "GND"
-    ],
-    "C9": [
-      "GND",
-      "VEE"
-    ],
-    "C6": [
-      "VCC",
-      "GND"
-    ],
-    "C7": [
-      "VEE",
-      "GND"
-    ]
-  },
-  "_blockComponentMap": {
-    "Block 1: Gate-to-Trigger Converter": [
-      "C15",
-      "R16",
-      "VD3",
-      "R6",
-      "R17",
-      "DA1A"
-    ],
-    "Block 2: Accent CV Section": [
-      "R7",
-      "R5",
-      "R20",
-      "VT1",
-      "VT3"
-    ],
-    "Block 3: Trigger Routing to Oscillator": [
-      "VD4",
-      "R25",
-      "R27"
-    ],
-    "Block 4: Bridged-T Percussive Oscillator": [
-      "C12",
-      "C13",
-      "R28",
-      "R3",
-      "P5",
-      "R34",
-      "DA1B"
-    ],
-    "Block 5: Decay Feedback": [
-      "R13",
-      "R14",
-      "P1",
-      "R4",
-      "DA2A"
-    ],
-    "Block 6: Pitch Attack Envelope": [
-      "VD5",
-      "P4",
-      "R29",
-      "C10",
-      "R19",
-      "R15",
-      "VT4",
-      "R35"
-    ],
-    "Block 7: Pitch CV Input + Buffer": [
-      "R8",
-      "P3",
-      "DA3A"
-    ],
-    "Block 8: Noise Generator": [
-      "VT5",
-      "R9",
-      "R10",
-      "C1",
-      "R11",
-      "R1",
-      "R21",
-      "DA2B"
-    ],
-    "Block 9: Swing Type VCA": [
-      "C14",
-      "R2",
-      "VT6",
-      "VD6",
-      "C17",
-      "C18"
-    ],
-    "Block 10: Noise Envelope + Snappy Control": [
-      "VD7",
-      "C11",
-      "P2",
-      "VT2",
-      "R22"
-    ],
-    "Block 11: High Pass Filter": [
-      "C19",
-      "C20",
-      "R12",
-      "VT7",
-      "R23",
-      "R24",
-      "C16"
-    ],
-    "Block 12: Mixer + Output": [
-      "R38",
-      "R26",
-      "R18",
-      "DA3B",
-      "R30"
-    ],
-    "Block 13: Power Supply": [
-      "VD1",
-      "VD2",
-      "R36",
-      "R37",
-      "C8",
-      "C9",
-      "C6",
-      "C7"
-    ]
-  }
+  "netLabels": [
+    {
+      "r": 2,
+      "side": "L",
+      "name": "VCC_R6",
+      "stage": 2
+    },
+    {
+      "r": 3,
+      "side": "R",
+      "name": "GATE_IN",
+      "stage": 2
+    },
+    {
+      "r": 4,
+      "side": "L",
+      "name": "OSC_NONINV",
+      "stage": 1
+    },
+    {
+      "r": 5,
+      "side": "L",
+      "name": "OSC_INV",
+      "stage": 1
+    },
+    {
+      "r": 5,
+      "side": "R",
+      "name": "HP_OUT",
+      "stage": 2
+    },
+    {
+      "r": 6,
+      "side": "L",
+      "name": "OSC_OUT",
+      "stage": 1
+    },
+    {
+      "r": 6,
+      "side": "R",
+      "name": "COMP_INV",
+      "stage": 2
+    },
+    {
+      "r": 7,
+      "side": "R",
+      "name": "COMP_OUT",
+      "stage": 2
+    },
+    {
+      "r": 8,
+      "side": "L",
+      "name": "CAP_MID",
+      "stage": 4
+    },
+    {
+      "r": 8,
+      "side": "R",
+      "name": "ACC_IN",
+      "stage": 3
+    },
+    {
+      "r": 9,
+      "side": "R",
+      "name": "ACC_EMIT",
+      "stage": 3
+    },
+    {
+      "r": 10,
+      "side": "L",
+      "name": "ACC_TRIG",
+      "stage": 3
+    },
+    {
+      "r": 11,
+      "side": "L",
+      "name": "TRIG_POS",
+      "stage": 3
+    },
+    {
+      "r": 12,
+      "side": "R",
+      "name": "ENV_CAP",
+      "stage": 6
+    },
+    {
+      "r": 13,
+      "side": "R",
+      "name": "ENV_DIV",
+      "stage": 6
+    },
+    {
+      "r": 14,
+      "side": "L",
+      "name": "PITCH_NPN_E",
+      "stage": 6
+    },
+    {
+      "r": 15,
+      "side": "L",
+      "name": "NOISE_BIAS",
+      "stage": 8
+    },
+    {
+      "r": 16,
+      "side": "L",
+      "name": "NOISE_AMP_INV",
+      "stage": 8
+    },
+    {
+      "r": 17,
+      "side": "L",
+      "name": "NOISE_AMP_OUT",
+      "stage": 8
+    },
+    {
+      "r": 17,
+      "side": "R",
+      "name": "DECAY_INV",
+      "stage": 5
+    },
+    {
+      "r": 18,
+      "side": "R",
+      "name": "DECAY_OUT",
+      "stage": 5
+    },
+    {
+      "r": 21,
+      "side": "L",
+      "name": "NOISE_COLL",
+      "stage": 8
+    },
+    {
+      "r": 22,
+      "side": "L",
+      "name": "VCA_BASE",
+      "stage": 9
+    },
+    {
+      "r": 24,
+      "side": "R",
+      "name": "VCA_COLL",
+      "stage": 9
+    },
+    {
+      "r": 25,
+      "side": "R",
+      "name": "NOISE_ENV_CAP",
+      "stage": 9
+    },
+    {
+      "r": 27,
+      "side": "L",
+      "name": "VT2_COLL",
+      "stage": 10
+    },
+    {
+      "r": 29,
+      "side": "L",
+      "name": "MIX_INV",
+      "stage": 12
+    },
+    {
+      "r": 29,
+      "side": "R",
+      "name": "PCV_BUF_IN",
+      "stage": 7
+    },
+    {
+      "r": 30,
+      "side": "L",
+      "name": "MIX_OUT",
+      "stage": 12
+    },
+    {
+      "r": 30,
+      "side": "R",
+      "name": "PCV_BUF_OUT",
+      "stage": 7
+    },
+    {
+      "r": 33,
+      "side": "L",
+      "name": "HPF_A",
+      "stage": 11
+    },
+    {
+      "r": 34,
+      "side": "L",
+      "name": "HPF_EMIT",
+      "stage": 11
+    },
+    {
+      "r": 35,
+      "side": "L",
+      "name": "HPF_AC",
+      "stage": 11
+    },
+    {
+      "r": 36,
+      "side": "L",
+      "name": "OUTPUT_J",
+      "stage": 12
+    }
+  ],
+  "_challenges": [
+    "R4 (470K decay feedback) spans from row 18R to row 8L \u2014 very long. Consider using a jumper wire.",
+    "R13 (47K decay input) spans from row 6L to row 17R \u2014 long. May need wire assist.",
+    "R15 (47K env divider) spans from row 13R to row 30R \u2014 very long across board.",
+    "VD5 spans from row 7R to row 12R \u2014 long for a diode. May need wire + diode nearby.",
+    "VD7 spans from row 7R to row 25R \u2014 very long. Use wire to carry COMP_OUT to noise env area.",
+    "R25 (10K trigger divider) spans from row 11L to row 4L \u2014 7 rows. Doable with leads.",
+    "C19 (1nF HPF) spans from row 24R to row 33L \u2014 across centre gap AND long distance. Wire needed.",
+    "R26 (10K noise mixer input) spans from row 35L to row 29L \u2014 6 rows. Doable.",
+    "VT6 (VCA NPN) has E and C on same row different sides \u2014 may need creative placement.",
+    "VT7 (HPF follower) has B and C listed on same row \u2014 split across rows if needed.",
+    "P5 (TUNE) connects to CAP_MID. With wiper+pin3 shorted, both pins go to row 8L area.",
+    "COMP_OUT (row 7R) feeds three destinations: accent R7, pitch env VD5, noise env VD7. All 3 share row 7 right side.",
+    "The spare board mount strip (rows 37-40 area) can be used for overflow if needed."
+  ]
 });
