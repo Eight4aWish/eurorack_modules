@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>n8synth Breadboard Visualizer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Consolas', 'Monaco', monospace; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+#sidebar { width: 280px; min-width: 280px; background: #16213e; border-right: 1px solid #333; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+#sidebar h1 { font-size: 13px; color: #a8d8ea; padding-bottom: 6px; border-bottom: 1px solid #333; }
+#file-select { width: 100%; padding: 5px; background: #1a1a2e; color: #aab; border: 1px solid #334; border-radius: 4px; font-family: inherit; font-size: 11px; cursor: pointer; }
+#file-select:hover { border-color: #4a9; }
+.stage-btn { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid #334; border-radius: 4px; background: #1a1a2e; color: #aab; cursor: pointer; font-family: inherit; font-size: 11px; line-height: 1.4; transition: all 0.15s; }
+.stage-btn:hover { border-color: #4a9; }
+.stage-btn.active { background: #1a3a2e; border-color: #4a9; color: #fff; }
+.stage-btn.completed { border-left: 3px solid #4a9; }
+.stage-btn .snum { color: #6cf; font-weight: bold; font-size: 12px; }
+.stage-btn .sname { color: #cde; }
+.stage-btn .scount { color: #778; font-size: 10px; }
+#stage-info { background: #1a2a3e; border: 1px solid #334; border-radius: 4px; padding: 8px; font-size: 11px; line-height: 1.5; }
+#stage-info h3 { color: #6cf; margin-bottom: 4px; font-size: 12px; }
+#stage-info .test-point { color: #fc6; margin-top: 4px; }
+#stage-info .parts-list { color: #9ab; margin-top: 4px; }
+#controls { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; padding-top: 6px; border-top: 1px solid #333; }
+#controls label { cursor: pointer; }
+#legend { display: flex; gap: 8px; flex-wrap: wrap; font-size: 10px; padding-top: 6px; border-top: 1px solid #333; }
+.legend-item { display: flex; align-items: center; gap: 3px; }
+.legend-swatch { width: 12px; height: 8px; border-radius: 2px; border: 1px solid #555; }
+#main { flex: 1; overflow: auto; background: #111; }
+svg { display: block; }
+#tooltip { position: fixed; pointer-events: none; background: #1e2a3a; border: 1px solid #4a9; color: #ddd; padding: 6px 10px; border-radius: 4px; font-size: 11px; line-height: 1.5; display: none; z-index: 100; max-width: 280px; }
+#tooltip .tt-id { color: #6cf; font-weight: bold; }
+#tooltip .tt-val { color: #fc6; }
+#tooltip .tt-net { color: #9d9; }
+#tooltip .tt-stage { color: #aab; font-size: 10px; }
+.comp-group { cursor: pointer; }
+.comp-group:hover .comp-body { filter: brightness(1.4); }
+.comp-group.dimmed { opacity: 0.08; pointer-events: none; }
+.comp-group.prior { opacity: 0.35; }
+.comp-group.current .comp-body { filter: brightness(1.1); }
+.comp-group.highlighted .comp-body { filter: brightness(1.5); stroke-width: 2; }
+#drop-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,50,80,0.85); z-index: 200; justify-content: center; align-items: center; font-size: 20px; color: #4a9; }
+#drop-overlay.active { display: flex; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1 id="title">n8synth Breadboard Visualizer</h1>
+  <select id="file-select"><option value="">-- Load a layout --</option></select>
+  <div id="stage-buttons"></div>
+  <div id="stage-info"></div>
+  <div id="controls">
+    <label><input type="checkbox" id="showNets" checked> Nets</label>
+    <label><input type="checkbox" id="showValues" checked> Values</label>
+    <label><input type="checkbox" id="showJPS" checked> JPS</label>
+    <label><input type="checkbox" id="showAll"> All stages</label>
+  </div>
+  <div id="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#c4956a"></div>R</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4a90d9"></div>C</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#b04050"></div>D</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#555"></div>IC</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#2d8659"></div>NPN</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#8b6914"></div>PNP</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e6c619"></div>Jump</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#ff8c00"></div>JPS</div>
+  </div>
+</div>
+
+<div id="main"><svg id="board"></svg></div>
+<div id="tooltip"></div>
+<div id="drop-overlay">Drop .json layout file here</div>
+
+<script>
+// ============================================================
+// GRID (n8synth standard — shared by all layouts)
+// ============================================================
+const P = 24;
+const COLS = { '+12v': 18, gndL: 40, a: 76, b: 100, c: 124, d: 148, e: 172, f: 222, g: 246, h: 270, i: 294, j: 318, gndR: 354, '-12v': 376 };
+const rowY = r => 56 + (r - 1) * P;
+const colX = c => COLS[c];
+const SVG_W = 440, SVG_H = rowY(40) + 36;
+const RAIL_COLS = ['+12v', 'gndL', 'gndR', '-12v'];
+const HOLE_COLS = ['a','b','c','d','e','f','g','h','i','j'];
+const RIGHT_COLS = ['f','g','h','i','j'];
+const TYPE_COLORS = { R:'#c4956a', C:'#4a90d9', D:'#b04050', IC:'#666', NPN:'#2d8659', PNP:'#8b6914', JW:'#e6c619', JPS:'#ff8c00', '+12v':'#cc2222', '-12v':'#2266cc', gndL:'#22aa44', gndR:'#22aa44' };
+
+// ============================================================
+// STATE
+// ============================================================
+let layout = null;   // loaded JSON
+let currentStage = 1;
+let selectedComp = null;
+let compGroups = [];
+const svg = document.getElementById('board');
+svg.setAttribute('width', SVG_W);
+svg.setAttribute('height', SVG_H);
+svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+
+// ============================================================
+// LAYOUT LOADING
+// ============================================================
+// Registry of built-in layouts (added via <script> tags at bottom of page)
+const BUILTIN_LAYOUTS = {};
+function registerLayout(name, data) { BUILTIN_LAYOUTS[name] = data; }
+
+function populateSelect() {
+  const sel = document.getElementById('file-select');
+  Object.keys(BUILTIN_LAYOUTS).forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name; opt.textContent = name;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener('change', () => { if (sel.value) loadBuiltinLayout(sel.value); });
+}
+
+function loadBuiltinLayout(name) {
+  layout = BUILTIN_LAYOUTS[name];
+  if (layout) onLayoutLoaded();
+}
+
+async function loadLayout(url) {
+  try {
+    const resp = await fetch(url);
+    layout = await resp.json();
+    onLayoutLoaded();
+  } catch(e) {
+    // fetch fails on file:// — try built-in layouts instead
+    const name = Object.keys(BUILTIN_LAYOUTS)[0];
+    if (name) loadBuiltinLayout(name);
+  }
+}
+
+function loadLayoutFromJSON(json) {
+  try {
+    layout = typeof json === 'string' ? JSON.parse(json) : json;
+    onLayoutLoaded();
+  } catch(e) { alert('Invalid JSON: ' + e.message); }
+}
+
+function onLayoutLoaded() {
+  document.getElementById('title').textContent = layout.title || 'Untitled Layout';
+  document.title = (layout.title || 'Layout') + ' — n8synth Visualizer';
+  currentStage = layout.stages ? layout.stages.length : 1;
+  selectedComp = null;
+  buildSidebar();
+  render();
+}
+
+// Drag and drop JSON files
+document.addEventListener('dragover', e => { e.preventDefault(); document.getElementById('drop-overlay').classList.add('active'); });
+document.addEventListener('dragleave', e => { if (e.relatedTarget === null) document.getElementById('drop-overlay').classList.remove('active'); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  document.getElementById('drop-overlay').classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (file) { const r = new FileReader(); r.onload = () => loadLayoutFromJSON(r.result); r.readAsText(file); }
+});
+
+// ============================================================
+// SVG HELPERS
+// ============================================================
+function el(tag, attrs, children) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => e.setAttribute(k, v));
+  if (typeof children === 'string') e.textContent = children;
+  else if (Array.isArray(children)) children.forEach(c => { if (c) e.appendChild(c); });
+  return e;
+}
+
+function stageClass(s) {
+  if (document.getElementById('showAll').checked) return 'current';
+  if (s > currentStage) return 'dimmed';
+  if (s === currentStage) return 'current';
+  return 'prior';
+}
+
+function pinPos(r, c) { return { x: colX(c), y: rowY(r) }; }
+
+function countPartsInStage(stageId) {
+  if (!layout) return 0;
+  let n = 0;
+  if (layout.twoPins)     n += layout.twoPins.filter(c => c.stage === stageId).length;
+  if (layout.ics)         n += layout.ics.filter(c => c.stage === stageId).length;
+  if (layout.transistors) n += layout.transistors.filter(c => c.stage === stageId).length;
+  if (layout.jumpers)     n += layout.jumpers.filter(c => c.stage === stageId).length;
+  if (layout.powerWires)  n += layout.powerWires.filter(c => c.stage === stageId).length;
+  if (layout.jpsWires)    n += layout.jpsWires.filter(c => c.stage === stageId).length;
+  return n;
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function buildSidebar() {
+  const container = document.getElementById('stage-buttons');
+  container.innerHTML = '';
+  if (!layout || !layout.stages) return;
+  layout.stages.forEach(s => {
+    const count = countPartsInStage(s.id);
+    const btn = document.createElement('button');
+    btn.className = 'stage-btn' + (s.id === currentStage ? ' active' : '') + (s.id < currentStage ? ' completed' : '');
+    btn.innerHTML = `<span class="snum">${s.id}</span> <span class="sname">${s.name}</span> <span class="scount">(${count})</span>`;
+    btn.onclick = () => { currentStage = s.id; selectedComp = null; render(); buildSidebar(); updateInfo(); };
+    container.appendChild(btn);
+  });
+  updateInfo();
+}
+
+function updateInfo() {
+  const info = document.getElementById('stage-info');
+  if (!layout || !layout.stages) { info.innerHTML = ''; return; }
+  const s = layout.stages.find(s => s.id === currentStage);
+  if (!s) { info.innerHTML = ''; return; }
+  const parts = [];
+  if (layout.twoPins) layout.twoPins.filter(c => c.stage === s.id).forEach(c => parts.push(`${c.id} (${c.value})`));
+  if (layout.ics) layout.ics.filter(c => c.stage === s.id).forEach(c => parts.push(`${c.id} (${c.value})`));
+  if (layout.transistors) layout.transistors.filter(c => c.stage === s.id).forEach(c => parts.push(`${c.id} (${c.value} ${c.subtype})`));
+  if (layout.jumpers) layout.jumpers.filter(c => c.stage === s.id).forEach(c => parts.push(`${c.id}: ${c.label}`));
+  if (layout.powerWires) layout.powerWires.filter(c => c.stage === s.id).forEach(c => parts.push(`Wire: ${c.label}`));
+  if (layout.jpsWires) layout.jpsWires.filter(c => c.stage === s.id).forEach(c => parts.push(`JPS ${c.id}: ${c.label}`));
+  info.innerHTML = `<h3>Stage ${s.id}: ${s.name}</h3><div>${s.desc||''}</div><div class="test-point">Test: ${s.test||'—'}</div><div class="parts-list"><b>Parts:</b> ${parts.join(', ')}</div>`;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+function render() {
+  svg.innerHTML = '';
+  compGroups = [];
+  if (!layout) { drawBoard(); return; }
+  drawBoard();
+  drawICs();
+  drawTransistors();
+  drawTwoPins();
+  drawJumpers();
+  drawPowerWires();
+  if (document.getElementById('showJPS').checked) drawJPSWires();
+  if (document.getElementById('showNets').checked) drawNetLabels();
+}
+
+function drawBoard() {
+  svg.appendChild(el('rect', {x:0, y:0, width:SVG_W, height:SVG_H, fill:'#1a1a2e'}));
+  const bx = colX('a')-14, by = rowY(1)-14, bw = colX('j')-colX('a')+28, bh = rowY(40)-rowY(1)+28;
+  svg.appendChild(el('rect', {x:bx, y:by, width:bw, height:bh, rx:4, fill:'#1e3322', stroke:'#2a5530', 'stroke-width':1}));
+  const py = rowY(37)-P/2;
+  svg.appendChild(el('rect', {x:bx, y:py, width:bw, height:rowY(40)-rowY(37)+P, fill:'#2a2222', opacity:0.5}));
+  svg.appendChild(el('text', {x:(colX('a')+colX('j'))/2, y:rowY(38.5), fill:'#664444', 'font-size':10, 'text-anchor':'middle', 'dominant-baseline':'middle'}, 'POWER SECTION (rows 37-40)'));
+
+  // Stage color band
+  if (layout && layout.stages && !document.getElementById('showAll').checked) {
+    const s = layout.stages.find(s => s.id === currentStage);
+    if (s) {
+      let rows = new Set();
+      const addRows = (arr, rKeys) => arr.filter(c => (c.stage||c[c.length-1]) === s.id).forEach(c => rKeys.forEach(k => { if (typeof c[k]==='number') rows.add(c[k]); }));
+      if (layout.twoPins) layout.twoPins.filter(c=>c.stage===s.id).forEach(c => { rows.add(c.r1); rows.add(c.r2); });
+      if (layout.ics) layout.ics.filter(c=>c.stage===s.id).forEach(c => c.pins.forEach(p => rows.add(p.r)));
+      if (layout.transistors) layout.transistors.filter(c=>c.stage===s.id).forEach(c => { rows.add(c.eR); rows.add(c.bR); rows.add(c.cR); });
+      if (layout.jumpers) layout.jumpers.filter(c=>c.stage===s.id).forEach(c => { rows.add(c.r1); rows.add(c.r2); });
+      const arr = [...rows].filter(r => typeof r === 'number' && r > 0 && r <= 40);
+      if (arr.length > 0) {
+        svg.appendChild(el('rect', { x:bx, y:rowY(Math.min(...arr))-P/2, width:3, height:rowY(Math.max(...arr))-rowY(Math.min(...arr))+P, fill:s.color||'#4a9', opacity:0.6, rx:1 }));
+      }
+    }
+  }
+
+  // Rails
+  const y1 = rowY(1)-10, y2 = rowY(40)+10;
+  [['+12v','#441111','#cc2222','+12V'],['gndL','#113311','#22aa44','GND'],['gndR','#113311','#22aa44','GND'],['-12v','#111144','#2266cc','-12V']].forEach(([c,f,s,t]) => {
+    svg.appendChild(el('rect', {x:colX(c)-4, y:y1, width:8, height:y2-y1, rx:2, fill:f, stroke:s, 'stroke-width':0.5}));
+    svg.appendChild(el('text', {x:colX(c), y:y1-4, fill:s, 'font-size':8, 'text-anchor':'middle'}, t));
+  });
+
+  // Half-row bars and holes
+  for (let r = 1; r <= 40; r++) {
+    const y = rowY(r);
+    svg.appendChild(el('rect', {x:colX('a')-6, y:y-5, width:colX('e')-colX('a')+12, height:10, rx:3, fill:'#1a3320', opacity:0.4}));
+    svg.appendChild(el('rect', {x:colX('f')-6, y:y-5, width:colX('j')-colX('f')+12, height:10, rx:3, fill:'#1a3320', opacity:0.4}));
+    HOLE_COLS.forEach(c => svg.appendChild(el('circle', {cx:colX(c), cy:y, r:3, fill:'none', stroke:'#3a5a3a', 'stroke-width':0.7})));
+    svg.appendChild(el('text', {x:4, y, fill:'#667766', 'font-size':8, 'dominant-baseline':'middle'}, String(r)));
+    svg.appendChild(el('text', {x:SVG_W-4, y, fill:'#667766', 'font-size':8, 'dominant-baseline':'middle', 'text-anchor':'end'}, String(r)));
+  }
+  HOLE_COLS.forEach(c => svg.appendChild(el('text', {x:colX(c), y:rowY(1)-18, fill:'#779977', 'font-size':8, 'text-anchor':'middle'}, c)));
+}
+
+function drawNetLabels() {
+  if (!layout || !layout.netLabels) return;
+  const showAll = document.getElementById('showAll').checked;
+  layout.netLabels.forEach(nl => {
+    if (!showAll && nl.stage > currentStage) return;
+    const y = rowY(nl.r), opacity = (!showAll && nl.stage < currentStage) ? 0.35 : 0.7;
+    if (nl.side === 'L') svg.appendChild(el('text', {x:colX('e')+6, y:y+1, fill:'#556655', 'font-size':6.5, 'dominant-baseline':'middle', opacity}, nl.name));
+    else svg.appendChild(el('text', {x:colX('f')-6, y:y+1, fill:'#556655', 'font-size':6.5, 'text-anchor':'end', 'dominant-baseline':'middle', opacity}, nl.name));
+  });
+}
+
+function makeCG(id, type, value, stage) {
+  const sinfo = layout.stages ? layout.stages.find(s => s.id === stage) : null;
+  const g = el('g', {class:`comp-group ${stageClass(stage)}`, 'data-id':id, 'data-type':type, 'data-value':value, 'data-stage':stage, 'data-sname':sinfo?sinfo.name:''});
+  compGroups.push(g);
+  return g;
+}
+
+function drawTwoPins() {
+  if (!layout || !layout.twoPins) return;
+  const showVal = document.getElementById('showValues').checked;
+  layout.twoPins.forEach(c => {
+    const p1 = pinPos(c.r1, c.c1), p2 = pinPos(c.r2, c.c2);
+    const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2, color = TYPE_COLORS[c.type];
+    const isLong = Math.abs(c.r2-c.r1) >= 10;
+    const g = makeCG(c.id, c.type, c.value, c.stage);
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:color, 'stroke-width':isLong?1.5:2, 'stroke-dasharray':isLong?'4,3':'none', class:'comp-body', opacity:0.8}));
+    if (c.type==='R') g.appendChild(el('rect', {x:mx-9, y:my-3.5, width:18, height:7, rx:2, fill:color, stroke:'#8a6840', 'stroke-width':0.5, class:'comp-body'}));
+    else if (c.type==='C') g.appendChild(el('rect', {x:mx-7, y:my-5, width:14, height:10, rx:1, fill:color, stroke:'#2a5a8a', 'stroke-width':0.5, class:'comp-body'}));
+    else if (c.type==='D') {
+      const dx=p2.x-p1.x, dy=p2.y-p1.y, len=Math.sqrt(dx*dx+dy*dy)||1, ux=dx/len, uy=dy/len, px=-uy, py=ux, sz=4;
+      g.appendChild(el('path', {d:`M${mx+ux*sz},${my+uy*sz} L${mx+px*sz},${my+py*sz} L${mx-px*sz},${my-py*sz} Z`, fill:color, class:'comp-body'}));
+      g.appendChild(el('line', {x1:mx+ux*sz-px*sz, y1:my+uy*sz-py*sz, x2:mx+ux*sz+px*sz, y2:my+uy*sz+py*sz, stroke:color, 'stroke-width':1.5}));
+    }
+    if (!RAIL_COLS.includes(c.c1)) g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2.5, fill:color, opacity:0.9}));
+    if (!RAIL_COLS.includes(c.c2)) g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2.5, fill:color, opacity:0.9}));
+    if (RAIL_COLS.includes(c.c1)) g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2, fill:TYPE_COLORS[c.c1]||'#888', opacity:0.9}));
+    if (RAIL_COLS.includes(c.c2)) g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2, fill:TYPE_COLORS[c.c2]||'#888', opacity:0.9}));
+    g.appendChild(el('text', {x:mx, y:my-6, fill:'#ddd', 'font-size':7.5, 'text-anchor':'middle', 'dominant-baseline':'auto', 'font-weight':'bold'}, c.id));
+    if (showVal) g.appendChild(el('text', {x:mx, y:my+10, fill:'#aaa', 'font-size':6.5, 'text-anchor':'middle', 'dominant-baseline':'auto'}, c.value));
+    svg.appendChild(g);
+  });
+}
+
+function drawICs() {
+  if (!layout || !layout.ics) return;
+  layout.ics.forEach(ic => {
+    const g = makeCG(ic.id, 'IC', ic.value, ic.stage);
+    const startY = rowY(ic.pins[0].r), endY = rowY(ic.pins[ic.pins.length-2].r);
+    const lx = colX('e'), rx = colX('f');
+    g.appendChild(el('rect', {x:lx-8, y:startY-P/2+2, width:rx-lx+16, height:endY-startY+P-4, rx:2, fill:'#444', stroke:'#888', 'stroke-width':1, class:'comp-body'}));
+    const notchY = ic.rotation === 180 ? endY+P/2-6 : startY-P/2+2;
+    g.appendChild(el('path', {d:`M${(lx+rx)/2-5},${notchY} A5,5 0 0,1 ${(lx+rx)/2+5},${notchY}`, fill:'none', stroke:'#aaa', 'stroke-width':0.8}));
+    g.appendChild(el('text', {x:(lx+rx)/2, y:(startY+endY)/2-3, fill:'#fff', 'font-size':8, 'text-anchor':'middle', 'dominant-baseline':'middle', 'font-weight':'bold'}, ic.id));
+    g.appendChild(el('text', {x:(lx+rx)/2, y:(startY+endY)/2+6, fill:'#ccc', 'font-size':7, 'text-anchor':'middle', 'dominant-baseline':'middle'}, ic.value));
+    ic.pins.forEach(pin => {
+      const x = colX(pin.c), y = rowY(pin.r), isLeft = pin.c==='e';
+      g.appendChild(el('circle', {cx:x, cy:y, r:2.5, fill:'#aaa'}));
+      g.appendChild(el('text', {x:isLeft?x-12:x+12, y:y+1, fill:'#999', 'font-size':6, 'text-anchor':'middle', 'dominant-baseline':'middle'}, String(pin.n)));
+      if (document.getElementById('showNets').checked) g.appendChild(el('text', {x:isLeft?x-22:x+22, y:y+1, fill:'#556655', 'font-size':5.5, 'text-anchor':isLeft?'end':'start', 'dominant-baseline':'middle', opacity:0.7}, pin.net));
+    });
+    svg.appendChild(g);
+  });
+}
+
+function drawTransistors() {
+  if (!layout || !layout.transistors) return;
+  layout.transistors.forEach(t => {
+    const color = TYPE_COLORS[t.subtype];
+    const g = makeCG(t.id, t.subtype, t.value, t.stage);
+    const ex=colX(t.eC), ey=rowY(t.eR), bx=colX(t.bC), by=rowY(t.bR), cx_=colX(t.cC), cy_=rowY(t.cR);
+    g.appendChild(el('circle', {cx:bx, cy:by, r:8, fill:color, stroke:'#333', 'stroke-width':0.5, class:'comp-body', opacity:0.7}));
+    g.appendChild(el('line', {x1:bx, y1:by, x2:ex, y2:ey, stroke:color, 'stroke-width':1.5}));
+    g.appendChild(el('line', {x1:bx, y1:by, x2:cx_, y2:cy_, stroke:color, 'stroke-width':1.5}));
+    g.appendChild(el('circle', {cx:ex, cy:ey, r:2.5, fill:color}));
+    g.appendChild(el('circle', {cx:bx, cy:by, r:2.5, fill:'#fff'}));
+    g.appendChild(el('circle', {cx:cx_, cy:cy_, r:2.5, fill:color}));
+    const off=8;
+    g.appendChild(el('text', {x:ex+(ex>bx?off:-off), y:ey+1, fill:'#ccc', 'font-size':6, 'text-anchor':ex>bx?'start':'end', 'dominant-baseline':'middle'}, 'E'));
+    g.appendChild(el('text', {x:bx, y:by-10, fill:'#ccc', 'font-size':6, 'text-anchor':'middle', 'dominant-baseline':'auto'}, 'B'));
+    g.appendChild(el('text', {x:cx_+(cx_>bx?off:-off), y:cy_+1, fill:'#ccc', 'font-size':6, 'text-anchor':cx_>bx?'start':'end', 'dominant-baseline':'middle'}, 'C'));
+    g.appendChild(el('text', {x:bx-12, y:by+1, fill:'#ddd', 'font-size':7, 'text-anchor':'end', 'dominant-baseline':'middle', 'font-weight':'bold'}, t.id));
+    if (document.getElementById('showValues').checked) g.appendChild(el('text', {x:bx-12, y:by+9, fill:'#aaa', 'font-size':6, 'text-anchor':'end', 'dominant-baseline':'auto'}, `${t.value} ${t.subtype}`));
+    svg.appendChild(g);
+  });
+}
+
+function drawJumpers() {
+  if (!layout || !layout.jumpers) return;
+  layout.jumpers.forEach(j => {
+    const p1=pinPos(j.r1,j.c1), p2=pinPos(j.r2,j.c2), mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
+    const g = makeCG(j.id, 'JW', j.label, j.stage);
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:TYPE_COLORS.JW, 'stroke-width':1.5, 'stroke-dasharray':'6,3', class:'comp-body', opacity:0.8}));
+    g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2.5, fill:TYPE_COLORS.JW}));
+    g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2.5, fill:TYPE_COLORS.JW}));
+    g.appendChild(el('text', {x:mx+6, y:my-4, fill:'#e6c619', 'font-size':6.5, 'dominant-baseline':'auto', opacity:0.8}, `${j.id} ${j.label}`));
+    svg.appendChild(g);
+  });
+}
+
+function drawPowerWires() {
+  if (!layout || !layout.powerWires) return;
+  layout.powerWires.forEach(w => {
+    const p1=pinPos(w.r1,w.c1), p2=pinPos(w.r2,w.c2);
+    const railCol = RAIL_COLS.includes(w.c2)?w.c2:w.c1;
+    const color = TYPE_COLORS[railCol]||'#888';
+    const g = makeCG(w.label, 'PWR', w.label, w.stage);
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:color, 'stroke-width':1.5, class:'comp-body', opacity:0.7}));
+    g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2, fill:color}));
+    g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2, fill:color}));
+    svg.appendChild(g);
+  });
+}
+
+function drawJPSWires() {
+  if (!layout || !layout.jpsWires) return;
+  layout.jpsWires.forEach(j => {
+    const x=colX(j.col), y=rowY(j.row), isRight=RIGHT_COLS.includes(j.col);
+    const g = makeCG(j.id, 'JPS', j.label, j.stage);
+    const sz=4;
+    g.appendChild(el('path', {d:`M${x},${y-sz} L${x+sz},${y} L${x},${y+sz} L${x-sz},${y} Z`, fill:TYPE_COLORS.JPS, stroke:'#cc6600', 'stroke-width':0.5, class:'comp-body', opacity:0.85}));
+    g.appendChild(el('line', {x1:isRight?x+10:x-10, y1:y, x2:x+(isRight?sz:-sz), y2:y, stroke:TYPE_COLORS.JPS, 'stroke-width':1, opacity:0.6}));
+    g.appendChild(el('text', {x:isRight?x+13:x-13, y:y+1, fill:'#ff8c00', 'font-size':6, 'text-anchor':isRight?'start':'end', 'dominant-baseline':'middle', opacity:0.8}, `${j.id} ${j.label}`));
+    svg.appendChild(g);
+  });
+}
+
+// ============================================================
+// TOOLTIP + INTERACTION
+// ============================================================
+const tooltip = document.getElementById('tooltip');
+svg.addEventListener('mousemove', e => {
+  const g = e.target.closest('.comp-group');
+  if (g) {
+    tooltip.innerHTML = `<span class="tt-id">${g.dataset.id}</span><br><span class="tt-val">${g.dataset.value}</span><br><span class="tt-net">${g.dataset.type}</span><br><span class="tt-stage">Stage ${g.dataset.stage}: ${g.dataset.sname}</span>`;
+    tooltip.style.display = 'block'; tooltip.style.left = (e.clientX+14)+'px'; tooltip.style.top = (e.clientY-10)+'px';
+  } else tooltip.style.display = 'none';
+});
+svg.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+svg.addEventListener('click', e => {
+  const g = e.target.closest('.comp-group');
+  if (g && selectedComp !== g) {
+    selectedComp = g;
+    compGroups.forEach(cg => {
+      if (cg===g) { cg.classList.add('highlighted'); cg.classList.remove('dimmed','prior','current'); }
+      else { cg.classList.add('dimmed'); cg.classList.remove('highlighted','prior','current'); }
+    });
+  } else {
+    selectedComp = null;
+    compGroups.forEach(cg => { const s=parseInt(cg.dataset.stage); cg.classList.remove('dimmed','highlighted','prior','current'); cg.classList.add(stageClass(s)); });
+  }
+});
+
+// ============================================================
+// CONTROLS
+// ============================================================
+['showNets','showValues','showJPS','showAll'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { selectedComp=null; render(); });
+});
+document.addEventListener('keydown', e => {
+  if (!layout || !layout.stages) return;
+  const max = layout.stages.length;
+  if (e.key==='ArrowRight' && currentStage<max) { currentStage++; selectedComp=null; render(); buildSidebar(); }
+  if (e.key==='ArrowLeft' && currentStage>1) { currentStage--; selectedComp=null; render(); buildSidebar(); }
+});
+
+// ============================================================
+// INIT
+// ============================================================
+populateSelect();
+drawBoard();
+
+// Auto-load first available built-in layout
+const firstBuiltin = Object.keys(BUILTIN_LAYOUTS)[0];
+if (firstBuiltin) loadBuiltinLayout(firstBuiltin);
+</script>
+
+<!--
+  Built-in layouts: each .js file calls registerLayout(name, data).
+  Add new modules here as <script> tags. The JSON files in layouts/
+  remain the canonical source — these .js wrappers are generated from them.
+-->
+<script src="layouts/kick_drum.js"></script>
+
+<!-- Re-init after built-in layouts are registered -->
+<script>
+  populateSelect();
+  const first = Object.keys(BUILTIN_LAYOUTS)[0];
+  if (first) loadBuiltinLayout(first);
+</script>
+</body>
+</html>

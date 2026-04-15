@@ -1,0 +1,208 @@
+registerLayout("EDU Kick Drum", {
+  "title": "MKI x ES EDU KICK DRUM",
+  "source": "docs/mkixes - Kick.pdf",
+  "board": "n8synth 6HP",
+  "revision": "1.0",
+  "notes": "Based on production schematic p50. BOM corrections: R12 (22K) and C9 (5.6nF) missing from printed BOM.",
+
+  "stages": [
+    { "id": 1, "name": "ICs + Power",
+      "desc": "Install both TL072s (rotated 180\u00b0) and their decoupling caps. Wire IC power pins to rails.",
+      "test": "Verify +12V on DA1/DA2 pin 8, -12V on pin 4. No signal yet.",
+      "color": "#888" },
+    { "id": 2, "name": "Gate-to-Trigger",
+      "desc": "High-pass filter (C8/R8) differentiates gate edge. Comparator (DA1A) with R16/R4 threshold converts to clean trigger pulse. VD6 clamps negative spikes.",
+      "test": "Inject gate at row 8R. Probe COMP_OUT (row 12R) for +12V trigger pulse.",
+      "color": "#e67e22" },
+    { "id": 3, "name": "Accent + Trigger Routing",
+      "desc": "R13 feeds COMP_OUT to accent network. VT1 (PNP) sets floor from accent CV; VT2 (NPN) buffers output. VD5 blocks -12V. R18/R9 divide trigger for oscillator input.",
+      "test": "Probe ACC_TRIG (row 16L) for shaped trigger. Should be ~1.4V at OSC_NONINV (row 9L).",
+      "color": "#e74c3c" },
+    { "id": 4, "name": "Bridged-T Oscillator",
+      "desc": "C10/C11 (15nF pair), R5 (1M bridge), P2 (pitch pot) + R27 (10K floor). This is the core sound source.",
+      "test": "With trigger path complete, probe OSC_OUT (row 11L). Should hear decaying sine wave. P2 sets pitch.",
+      "color": "#2ecc71" },
+    { "id": 5, "name": "Decay Feedback",
+      "desc": "DA2A inverts OSC_OUT via R25/R26. P1 (1M) sets feedback gain. R28 (470K) feeds back to CAP_MID, extending oscillation.",
+      "test": "Turn DECAY pot. Oscillation should sustain longer at higher settings without droning.",
+      "color": "#3498db" },
+    { "id": 6, "name": "Pitch Envelope",
+      "desc": "VD7 charges C6 from trigger. VT5 (PNP) discharges through P5 (tune decay). VT3 buffers envelope. C9/VD8/R23 smooth the tail. R24 drives pitch control.",
+      "test": "Probe ENV_BUF (row 19L). Should see decaying voltage on trigger. Hear pitch sweep downward.",
+      "color": "#9b59b6" },
+    { "id": 7, "name": "Pitch CV",
+      "desc": "VT4 (NPN) modulates CAP_MID resistance from smoothed envelope. P7 (tune depth) sets sweep range, R22 (2K) sets ceiling. R20/P6/R10 route external pitch CV to VT5 base.",
+      "test": "Adjust TUNE DEPTH and PITCH CV pots. External CV at XS3 should shift base pitch.",
+      "color": "#1abc9c" },
+    { "id": 8, "name": "Tone + Distortion + Output",
+      "desc": "P4/C12 low-pass filter on OSC_OUT. DA2B non-inverting amp with VD3/VD4 diode clipping, P3 gain, C7 HF soften. R21 output series resistor.",
+      "test": "Full signal at XS4 OUTPUT. TONE knob cuts click. DISTORTION adds harmonics. Done!",
+      "color": "#f39c12" }
+  ],
+
+  "ics": [
+    { "id": "DA1", "value": "TL072", "label": "Comparator + Oscillator", "stage": 1,
+      "rotation": 180,
+      "pins": [
+        { "n": 5, "r": 9, "c": "e", "net": "OSC_NONINV" },
+        { "n": 4, "r": 9, "c": "f", "net": "VEE" },
+        { "n": 6, "r": 10, "c": "e", "net": "OSC_INV" },
+        { "n": 3, "r": 10, "c": "f", "net": "HP_OUT" },
+        { "n": 7, "r": 11, "c": "e", "net": "OSC_OUT" },
+        { "n": 2, "r": 11, "c": "f", "net": "COMP_INV" },
+        { "n": 8, "r": 12, "c": "e", "net": "VCC" },
+        { "n": 1, "r": 12, "c": "f", "net": "COMP_OUT" }
+      ]
+    },
+    { "id": "DA2", "value": "TL072", "label": "Decay Buffer + Distortion", "stage": 1,
+      "rotation": 180,
+      "pins": [
+        { "n": 5, "r": 27, "c": "e", "net": "TONE_OUT" },
+        { "n": 4, "r": 27, "c": "f", "net": "VEE" },
+        { "n": 6, "r": 28, "c": "e", "net": "DIST_INV" },
+        { "n": 3, "r": 28, "c": "f", "net": "GND" },
+        { "n": 7, "r": 29, "c": "e", "net": "DIST_OUT" },
+        { "n": 2, "r": 29, "c": "f", "net": "DECAY_INV" },
+        { "n": 8, "r": 30, "c": "e", "net": "VCC" },
+        { "n": 1, "r": 30, "c": "f", "net": "DECAY_OUT" }
+      ]
+    }
+  ],
+
+  "twoPins": [
+    { "id": "C13", "type": "C", "value": "100nF", "r1": 12, "c1": "a", "r2": 12, "c2": "gndL", "stage": 1 },
+    { "id": "C14", "type": "C", "value": "100nF", "r1": 9, "c1": "g", "r2": 9, "c2": "gndR", "stage": 1 },
+    { "id": "C5",  "type": "C", "value": "100nF", "r1": 27, "c1": "g", "r2": 27, "c2": "gndR", "stage": 1 },
+    { "id": "C15", "type": "C", "value": "100nF", "r1": 30, "c1": "a", "r2": 30, "c2": "gndL", "stage": 1 },
+
+    { "id": "C8",  "type": "C", "value": "10nF",  "r1": 8,  "c1": "g", "r2": 10, "c2": "g", "stage": 2 },
+    { "id": "R8",  "type": "R", "value": "39K",   "r1": 10, "c1": "h", "r2": 10, "c2": "gndR", "stage": 2 },
+    { "id": "VD6", "type": "D", "value": "1N4148", "r1": 10, "c1": "gndR", "r2": 10, "c2": "i", "stage": 2 },
+    { "id": "R16", "type": "R", "value": "100K",  "r1": 5,  "c1": "+12v", "r2": 5, "c2": "a", "stage": 2 },
+    { "id": "R4",  "type": "R", "value": "33K",   "r1": 5,  "c1": "b", "r2": 5, "c2": "gndL", "stage": 2 },
+
+    { "id": "R13", "type": "R", "value": "100K",  "r1": 12, "c1": "g", "r2": 13, "c2": "g", "stage": 3 },
+    { "id": "R3",  "type": "R", "value": "120K",  "r1": 13, "c1": "i", "r2": 13, "c2": "gndR", "stage": 3 },
+    { "id": "R12", "type": "R", "value": "22K",   "r1": 13, "c1": "h", "r2": 15, "c2": "i", "stage": 3 },
+    { "id": "VD5", "type": "D", "value": "1N4148", "r1": 3,  "c1": "b", "r2": 4, "c2": "a", "stage": 3 },
+    { "id": "R18", "type": "R", "value": "100K",  "r1": 4,  "c1": "b", "r2": 9, "c2": "c", "stage": 3 },
+    { "id": "R9",  "type": "R", "value": "14K",   "r1": 9,  "c1": "d", "r2": 9, "c2": "gndL", "stage": 3 },
+
+    { "id": "C10", "type": "C", "value": "15nF",  "r1": 8,  "c1": "b", "r2": 11, "c2": "d", "stage": 4 },
+    { "id": "C11", "type": "C", "value": "15nF",  "r1": 8,  "c1": "a", "r2": 10, "c2": "d", "stage": 4 },
+    { "id": "R5",  "type": "R", "value": "1M",    "r1": 10, "c1": "a", "r2": 11, "c2": "a", "stage": 4 },
+    { "id": "R27", "type": "R", "value": "10K",   "r1": 6,  "c1": "a", "r2": 6, "c2": "gndL", "stage": 4 },
+
+    { "id": "R25", "type": "R", "value": "47K",   "r1": 11, "c1": "c", "r2": 29, "c2": "g", "stage": 5 },
+    { "id": "R26", "type": "R", "value": "47K",   "r1": 29, "c1": "h", "r2": 30, "c2": "g", "stage": 5 },
+    { "id": "R28", "type": "R", "value": "470K",  "r1": 30, "c1": "h", "r2": 7, "c2": "b", "stage": 5 },
+
+    { "id": "C6",  "type": "C", "value": "220nF", "r1": 18, "c1": "b", "r2": 18, "c2": "gndL", "stage": 6 },
+    { "id": "C9",  "type": "C", "value": "5.6nF", "r1": 19, "c1": "a", "r2": 21, "c2": "a", "stage": 6 },
+    { "id": "VD7", "type": "D", "value": "1N4148", "r1": 16, "c1": "a", "r2": 18, "c2": "a", "stage": 6 },
+    { "id": "VD8", "type": "D", "value": "1N4148", "r1": 21, "c1": "b", "r2": 21, "c2": "gndL", "stage": 6 },
+    { "id": "R23", "type": "R", "value": "1M",    "r1": 21, "c1": "c", "r2": 7, "c2": "a", "stage": 6 },
+    { "id": "R24", "type": "R", "value": "100K",  "r1": 21, "c1": "d", "r2": 23, "c2": "a", "stage": 6 },
+
+    { "id": "R10", "type": "R", "value": "10K",   "r1": 22, "c1": "g", "r2": 19, "c2": "g", "stage": 7 },
+    { "id": "R20", "type": "R", "value": "100K",  "r1": 23, "c1": "g", "r2": 22, "c2": "h", "stage": 7 },
+    { "id": "R22", "type": "R", "value": "2K",    "r1": 25, "c1": "a", "r2": 25, "c2": "gndL", "stage": 7 },
+
+    { "id": "C12", "type": "C", "value": "15nF",  "r1": 27, "c1": "c", "r2": 27, "c2": "gndL", "stage": 8 },
+    { "id": "R1",  "type": "R", "value": "33K",   "r1": 28, "c1": "d", "r2": 28, "c2": "gndL", "stage": 8 },
+    { "id": "VD3", "type": "D", "value": "1N4148", "r1": 28, "c1": "c", "r2": 29, "c2": "d", "stage": 8 },
+    { "id": "VD4", "type": "D", "value": "1N4148", "r1": 29, "c1": "c", "r2": 28, "c2": "b", "stage": 8 },
+    { "id": "C7",  "type": "C", "value": "3.3nF", "r1": 28, "c1": "a", "r2": 29, "c2": "b", "stage": 8 },
+    { "id": "R21", "type": "R", "value": "1K",    "r1": 31, "c1": "a", "r2": 32, "c2": "a", "stage": 8 }
+  ],
+
+  "transistors": [
+    { "id": "VT2", "subtype": "NPN", "value": "BC548", "eR": 16, "eC": "c", "bR": 15, "bC": "c", "cR": 14, "cC": "c", "stage": 3 },
+    { "id": "VT1", "subtype": "PNP", "value": "BC558", "eR": 15, "eC": "h", "bR": 16, "bC": "h", "cR": 17, "cC": "h", "stage": 3 },
+    { "id": "VT3", "subtype": "NPN", "value": "BC548", "eR": 19, "eC": "d", "bR": 18, "bC": "d", "cR": 17, "cC": "d", "stage": 6 },
+    { "id": "VT5", "subtype": "PNP", "value": "BC558", "eR": 18, "eC": "h", "bR": 19, "bC": "h", "cR": 20, "cC": "h", "stage": 6 },
+    { "id": "VT4", "subtype": "NPN", "value": "BC548", "eR": 24, "eC": "b", "bR": 23, "bC": "b", "cR": 22, "cC": "b", "stage": 7 }
+  ],
+
+  "jumpers": [
+    { "id": "JW3", "r1": 5,  "c1": "c", "r2": 11, "c2": "g", "label": "COMP_INV", "stage": 2 },
+    { "id": "JW1", "r1": 15, "c1": "a", "r2": 15, "c2": "j", "label": "ACC_EMIT", "stage": 3 },
+    { "id": "JW5", "r1": 16, "c1": "b", "r2": 3,  "c2": "a", "label": "ACC_TRIG", "stage": 3 },
+    { "id": "JW4", "r1": 7,  "c1": "d", "r2": 8,  "c2": "d", "label": "CAP_MID", "stage": 4 },
+    { "id": "JW2", "r1": 18, "c1": "c", "r2": 18, "c2": "g", "label": "ENV_CAP", "stage": 6 },
+    { "id": "JW6", "r1": 22, "c1": "a", "r2": 7,  "c2": "c", "label": "VT4\u2192CAP_MID", "stage": 7 },
+    { "id": "JW7", "r1": 29, "c1": "a", "r2": 31, "c2": "b", "label": "DIST_OUT", "stage": 8 }
+  ],
+
+  "powerWires": [
+    { "r1": 12, "c1": "b", "r2": 12, "c2": "+12v", "label": "DA1 VCC", "stage": 1 },
+    { "r1": 9,  "c1": "h", "r2": 9,  "c2": "-12v", "label": "DA1 VEE", "stage": 1 },
+    { "r1": 30, "c1": "b", "r2": 30, "c2": "+12v", "label": "DA2 VCC", "stage": 1 },
+    { "r1": 27, "c1": "h", "r2": 27, "c2": "-12v", "label": "DA2 VEE", "stage": 1 },
+    { "r1": 14, "c1": "c", "r2": 14, "c2": "+12v", "label": "VT2.C\u2192VCC", "stage": 3 },
+    { "r1": 17, "c1": "h", "r2": 17, "c2": "gndR", "label": "VT1.C\u2192GND", "stage": 3 },
+    { "r1": 28, "c1": "g", "r2": 28, "c2": "gndR", "label": "DA2.3\u2192GND", "stage": 5 },
+    { "r1": 17, "c1": "d", "r2": 17, "c2": "+12v", "label": "VT3.C\u2192VCC", "stage": 6 }
+  ],
+
+  "jpsWires": [
+    { "id": "XS1",  "label": "TRIGGER IN",    "row": 8,  "col": "h", "stage": 2 },
+    { "id": "XS2",  "label": "ACCENT CV",     "row": 16, "col": "i", "stage": 3 },
+    { "id": "P2.1", "label": "PITCH pin1",    "row": 8,  "col": "c", "stage": 4 },
+    { "id": "P2.w", "label": "PITCH wiper",   "row": 6,  "col": "c", "stage": 4 },
+    { "id": "P1.1", "label": "DECAY pin1",    "row": 29, "col": "i", "stage": 5 },
+    { "id": "P1.w", "label": "DECAY wiper",   "row": 30, "col": "i", "stage": 5 },
+    { "id": "P5",   "label": "TUNE DECAY",    "row": 20, "col": "g", "stage": 6 },
+    { "id": "XS3",  "label": "PITCH CV",      "row": 23, "col": "h", "stage": 7 },
+    { "id": "P6.w", "label": "PITCH CV att",  "row": 22, "col": "i", "stage": 7 },
+    { "id": "P7.1", "label": "DEPTH pin1",    "row": 24, "col": "a", "stage": 7 },
+    { "id": "P7.w", "label": "DEPTH wiper",   "row": 25, "col": "b", "stage": 7 },
+    { "id": "P4.1", "label": "TONE osc\u2192",    "row": 11, "col": "b", "stage": 8 },
+    { "id": "P4.w", "label": "TONE \u2192filter",  "row": 27, "col": "b", "stage": 8 },
+    { "id": "P3",   "label": "DISTORTION",    "row": 31, "col": "c", "stage": 8 },
+    { "id": "XS4",  "label": "OUTPUT",        "row": 32, "col": "b", "stage": 8 }
+  ],
+
+  "netLabels": [
+    { "r": 3,  "side": "L", "name": "ACC_TRIG",      "stage": 3 },
+    { "r": 4,  "side": "L", "name": "TRIG_POS",       "stage": 3 },
+    { "r": 5,  "side": "L", "name": "COMP_INV",       "stage": 2 },
+    { "r": 6,  "side": "L", "name": "PITCH_BOT",      "stage": 4 },
+    { "r": 7,  "side": "L", "name": "CAP_MID",        "stage": 4 },
+    { "r": 8,  "side": "L", "name": "CAP_MID",        "stage": 4 },
+    { "r": 8,  "side": "R", "name": "GATE_IN",        "stage": 2 },
+    { "r": 9,  "side": "L", "name": "OSC_NONINV",     "stage": 1 },
+    { "r": 10, "side": "L", "name": "OSC_INV",        "stage": 1 },
+    { "r": 10, "side": "R", "name": "HP_OUT",         "stage": 2 },
+    { "r": 11, "side": "L", "name": "OSC_OUT",        "stage": 1 },
+    { "r": 11, "side": "R", "name": "COMP_INV",       "stage": 2 },
+    { "r": 12, "side": "L", "name": "VCC",            "stage": 1 },
+    { "r": 12, "side": "R", "name": "COMP_OUT",       "stage": 2 },
+    { "r": 13, "side": "R", "name": "ACC_IN",         "stage": 3 },
+    { "r": 15, "side": "L", "name": "ACC_EMIT",       "stage": 3 },
+    { "r": 15, "side": "R", "name": "ACC_EMIT",       "stage": 3 },
+    { "r": 16, "side": "L", "name": "ACC_TRIG",       "stage": 3 },
+    { "r": 16, "side": "R", "name": "ACCENT_CV_IN",   "stage": 3 },
+    { "r": 18, "side": "L", "name": "ENV_CAP",        "stage": 6 },
+    { "r": 18, "side": "R", "name": "ENV_CAP",        "stage": 6 },
+    { "r": 19, "side": "L", "name": "ENV_BUF",        "stage": 6 },
+    { "r": 19, "side": "R", "name": "VT5_BASE",       "stage": 7 },
+    { "r": 20, "side": "R", "name": "VT5_C",          "stage": 6 },
+    { "r": 21, "side": "L", "name": "SMOOTH",         "stage": 6 },
+    { "r": 22, "side": "R", "name": "PCV_ATT",        "stage": 7 },
+    { "r": 23, "side": "L", "name": "PCV_BASE",       "stage": 7 },
+    { "r": 23, "side": "R", "name": "PITCH_CV_IN",    "stage": 7 },
+    { "r": 24, "side": "L", "name": "VT4_E",          "stage": 7 },
+    { "r": 25, "side": "L", "name": "DEPTH_MID",      "stage": 7 },
+    { "r": 27, "side": "L", "name": "TONE_OUT",       "stage": 1 },
+    { "r": 28, "side": "L", "name": "DIST_INV",       "stage": 1 },
+    { "r": 28, "side": "R", "name": "GND",            "stage": 1 },
+    { "r": 29, "side": "L", "name": "DIST_OUT",       "stage": 1 },
+    { "r": 29, "side": "R", "name": "DECAY_INV",      "stage": 1 },
+    { "r": 30, "side": "L", "name": "VCC",            "stage": 1 },
+    { "r": 30, "side": "R", "name": "DECAY_OUT",      "stage": 1 },
+    { "r": 31, "side": "L", "name": "DIST_OUT ext",   "stage": 8 },
+    { "r": 32, "side": "L", "name": "OUTPUT_J",       "stage": 8 }
+  ]
+}
+);

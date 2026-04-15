@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EDU Kick Drum — n8synth Breadboard Visualizer</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Consolas', 'Monaco', monospace; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+#sidebar { width: 280px; min-width: 280px; background: #16213e; border-right: 1px solid #333; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+#sidebar h1 { font-size: 13px; color: #a8d8ea; padding-bottom: 6px; border-bottom: 1px solid #333; }
+.stage-btn { display: block; width: 100%; text-align: left; padding: 7px 10px; border: 1px solid #334; border-radius: 4px; background: #1a1a2e; color: #aab; cursor: pointer; font-family: inherit; font-size: 11px; line-height: 1.4; transition: all 0.15s; }
+.stage-btn:hover { border-color: #4a9; }
+.stage-btn.active { background: #1a3a2e; border-color: #4a9; color: #fff; }
+.stage-btn.completed { border-left: 3px solid #4a9; }
+.stage-btn .snum { color: #6cf; font-weight: bold; font-size: 12px; }
+.stage-btn .sname { color: #cde; }
+.stage-btn .scount { color: #778; font-size: 10px; }
+#stage-info { background: #1a2a3e; border: 1px solid #334; border-radius: 4px; padding: 8px; font-size: 11px; line-height: 1.5; }
+#stage-info h3 { color: #6cf; margin-bottom: 4px; font-size: 12px; }
+#stage-info .test-point { color: #fc6; margin-top: 4px; }
+#stage-info .parts-list { color: #9ab; margin-top: 4px; }
+#controls { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; padding-top: 6px; border-top: 1px solid #333; }
+#controls label { cursor: pointer; }
+#legend { display: flex; gap: 8px; flex-wrap: wrap; font-size: 10px; padding-top: 6px; border-top: 1px solid #333; }
+.legend-item { display: flex; align-items: center; gap: 3px; }
+.legend-swatch { width: 12px; height: 8px; border-radius: 2px; border: 1px solid #555; }
+#main { flex: 1; overflow: auto; background: #111; }
+svg { display: block; }
+#tooltip { position: fixed; pointer-events: none; background: #1e2a3a; border: 1px solid #4a9; color: #ddd; padding: 6px 10px; border-radius: 4px; font-size: 11px; line-height: 1.5; display: none; z-index: 100; max-width: 280px; }
+#tooltip .tt-id { color: #6cf; font-weight: bold; }
+#tooltip .tt-val { color: #fc6; }
+#tooltip .tt-net { color: #9d9; }
+#tooltip .tt-stage { color: #aab; font-size: 10px; }
+.comp-group { cursor: pointer; }
+.comp-group:hover .comp-body { filter: brightness(1.4); }
+.comp-group.dimmed { opacity: 0.08; pointer-events: none; }
+.comp-group.prior { opacity: 0.35; }
+.comp-group.current .comp-body { filter: brightness(1.1); }
+.comp-group.highlighted .comp-body { filter: brightness(1.5); stroke-width: 2; }
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <h1>EDU KICK DRUM — Build Stages</h1>
+  <div id="stage-buttons"></div>
+  <div id="stage-info"></div>
+  <div id="controls">
+    <label><input type="checkbox" id="showNets" checked> Nets</label>
+    <label><input type="checkbox" id="showValues" checked> Values</label>
+    <label><input type="checkbox" id="showJPS" checked> JPS</label>
+    <label><input type="checkbox" id="showAll"> All stages</label>
+  </div>
+  <div id="legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#c4956a"></div>R</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#4a90d9"></div>C</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#b04050"></div>D</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#555"></div>IC</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#2d8659"></div>NPN</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#8b6914"></div>PNP</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e6c619"></div>Jump</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#ff8c00"></div>JPS</div>
+  </div>
+</div>
+
+<div id="main"><svg id="board"></svg></div>
+<div id="tooltip"></div>
+
+<script>
+// ============================================================
+// BUILD STAGES
+// ============================================================
+const STAGES = [
+  { id: 1, name: 'ICs + Power',
+    desc: 'Install both TL072s (rotated 180) and their decoupling caps. Wire IC power pins to rails.',
+    test: 'Verify +12V on DA1/DA2 pin 8, -12V on pin 4. No signal yet.',
+    color: '#888' },
+  { id: 2, name: 'Gate-to-Trigger',
+    desc: 'High-pass filter (C8/R8) differentiates gate edge. Comparator (DA1A) with R16/R4 threshold converts to clean trigger pulse. VD6 clamps negative spikes.',
+    test: 'Inject gate at row 8R. Probe COMP_OUT (row 12R) for +12V trigger pulse.',
+    color: '#e67e22' },
+  { id: 3, name: 'Accent + Trigger Routing',
+    desc: 'R13 feeds COMP_OUT to accent network. VT1 (PNP) sets floor from accent CV; VT2 (NPN) buffers output. VD5 blocks -12V. R18/R9 divide trigger for oscillator input.',
+    test: 'Probe ACC_TRIG (row 16L) for shaped trigger. Should be ~1.4V at OSC_NONINV (row 9L).',
+    color: '#e74c3c' },
+  { id: 4, name: 'Bridged-T Oscillator',
+    desc: 'C10/C11 (15nF pair), R5 (1M bridge), P2 (pitch pot) + R27 (10K floor). This is the core sound source.',
+    test: 'With trigger path complete, probe OSC_OUT (row 11L). Should hear decaying sine wave. P2 sets pitch.',
+    color: '#2ecc71' },
+  { id: 5, name: 'Decay Feedback',
+    desc: 'DA2A inverts OSC_OUT via R25/R26. P1 (1M) sets feedback gain. R28 (470K) feeds back to CAP_MID, extending oscillation.',
+    test: 'Turn DECAY pot. Oscillation should sustain longer at higher settings without droning.',
+    color: '#3498db' },
+  { id: 6, name: 'Pitch Envelope',
+    desc: 'VD7 charges C6 from trigger. VT5 (PNP) discharges through P5 (tune decay). VT3 buffers envelope. C9/VD8/R23 smooth the tail. R24 drives pitch control.',
+    test: 'Probe ENV_BUF (row 19L). Should see decaying voltage on trigger. Hear pitch sweep downward.',
+    color: '#9b59b6' },
+  { id: 7, name: 'Pitch CV',
+    desc: 'VT4 (NPN) modulates CAP_MID resistance from smoothed envelope. P7 (tune depth) sets sweep range, R22 (2K) sets ceiling. R20/P6/R10 route external pitch CV to VT5 base.',
+    test: 'Adjust TUNE DEPTH and PITCH CV pots. External CV at XS3 should shift base pitch.',
+    color: '#1abc9c' },
+  { id: 8, name: 'Tone + Distortion + Output',
+    desc: 'P4/C12 low-pass filter on OSC_OUT. DA2B non-inverting amp with VD3/VD4 diode clipping, P3 gain, C7 HF soften. R21 output series resistor.',
+    test: 'Full signal at XS4 OUTPUT. TONE knob cuts click. DISTORTION adds harmonics. Done!',
+    color: '#f39c12' },
+];
+
+// ============================================================
+// GRID CONFIGURATION
+// ============================================================
+const P = 24;
+const COLS = {
+  '+12v': 18, gndL: 40,
+  a: 76, b: 100, c: 124, d: 148, e: 172,
+  f: 222, g: 246, h: 270, i: 294, j: 318,
+  gndR: 354, '-12v': 376
+};
+const rowY = r => 56 + (r - 1) * P;
+const colX = c => COLS[c];
+const SVG_W = 440;
+const SVG_H = rowY(40) + 36;
+const RAIL_COLS = ['+12v', 'gndL', 'gndR', '-12v'];
+const HOLE_COLS = ['a','b','c','d','e','f','g','h','i','j'];
+const LEFT_COLS = ['a','b','c','d','e'];
+const RIGHT_COLS = ['f','g','h','i','j'];
+
+// ============================================================
+// COMPONENT DATA — each entry has a stage number
+// ============================================================
+
+// Two-pin: [id, type, value, r1, c1, r2, c2, stage]
+const twoPins = [
+  // Stage 1: Decoupling caps
+  ['C13','C','100nF',12,'a',12,'gndL', 1],
+  ['C14','C','100nF',9,'g',9,'gndR', 1],
+  ['C5','C','100nF',27,'g',27,'gndR', 1],
+  ['C15','C','100nF',30,'a',30,'gndL', 1],
+  // Stage 2: Gate-to-trigger
+  ['C8','C','10nF',8,'g',10,'g', 2],
+  ['R8','R','39K',10,'h',10,'gndR', 2],
+  ['VD6','D','1N4148',10,'gndR',10,'i', 2],
+  ['R16','R','100K',5,'+12v',5,'a', 2],
+  ['R4','R','33K',5,'b',5,'gndL', 2],
+  // Stage 3: Accent + trigger routing
+  ['R13','R','100K',12,'g',13,'g', 3],
+  ['R3','R','120K',13,'i',13,'gndR', 3],
+  ['R12','R','22K',13,'h',15,'i', 3],
+  ['VD5','D','1N4148',3,'b',4,'a', 3],
+  ['R18','R','100K',4,'b',9,'c', 3],
+  ['R9','R','14K',9,'d',9,'gndL', 3],
+  // Stage 4: Oscillator
+  ['C10','C','15nF',8,'b',11,'d', 4],
+  ['C11','C','15nF',8,'a',10,'d', 4],
+  ['R5','R','1M',10,'a',11,'a', 4],
+  ['R27','R','10K',6,'a',6,'gndL', 4],
+  // Stage 5: Decay feedback
+  ['R25','R','47K',11,'c',29,'g', 5],
+  ['R26','R','47K',29,'h',30,'g', 5],
+  ['R28','R','470K',30,'h',7,'b', 5],
+  // Stage 6: Pitch envelope + smoothing
+  ['C6','C','220nF',18,'b',18,'gndL', 6],
+  ['C9','C','5.6nF',19,'a',21,'a', 6],
+  ['VD7','D','1N4148',16,'a',18,'a', 6],
+  ['VD8','D','1N4148',21,'b',21,'gndL', 6],
+  ['R23','R','1M',21,'c',7,'a', 6],
+  ['R24','R','100K',21,'d',23,'a', 6],
+  // Stage 7: Pitch CV
+  ['R10','R','10K',22,'g',19,'g', 7],
+  ['R20','R','100K',23,'g',22,'h', 7],
+  ['R22','R','2K',25,'a',25,'gndL', 7],
+  // Stage 8: Tone + distortion + output
+  ['C12','C','15nF',27,'c',27,'gndL', 8],
+  ['R1','R','33K',28,'d',28,'gndL', 8],
+  ['VD3','D','1N4148',28,'c',29,'d', 8],
+  ['VD4','D','1N4148',29,'c',28,'b', 8],
+  ['C7','C','3.3nF',28,'a',29,'b', 8],
+  ['R21','R','1K',31,'a',32,'a', 8],
+];
+
+// ICs: [id, value, label, pins[], stage]
+const ics = [
+  { id:'DA1', value:'TL072', label:'Comparator + Oscillator', stage:1,
+    pins: [
+      {n:5, r:9, c:'e', net:'OSC_NONINV'}, {n:4, r:9, c:'f', net:'VEE'},
+      {n:6, r:10, c:'e', net:'OSC_INV'},   {n:3, r:10, c:'f', net:'HP_OUT'},
+      {n:7, r:11, c:'e', net:'OSC_OUT'},    {n:2, r:11, c:'f', net:'COMP_INV'},
+      {n:8, r:12, c:'e', net:'VCC'},        {n:1, r:12, c:'f', net:'COMP_OUT'},
+    ]},
+  { id:'DA2', value:'TL072', label:'Decay Buffer + Distortion', stage:1,
+    pins: [
+      {n:5, r:27, c:'e', net:'TONE_OUT'},    {n:4, r:27, c:'f', net:'VEE'},
+      {n:6, r:28, c:'e', net:'DIST_INV'},     {n:3, r:28, c:'f', net:'GND'},
+      {n:7, r:29, c:'e', net:'DIST_OUT'},     {n:2, r:29, c:'f', net:'DECAY_INV'},
+      {n:8, r:30, c:'e', net:'VCC'},          {n:1, r:30, c:'f', net:'DECAY_OUT'},
+    ]},
+];
+
+// Transistors: [id, subtype, value, Er, Ec, Br, Bc, Cr, Cc, stage]
+const transistors = [
+  ['VT2','NPN','BC548', 16,'c', 15,'c', 14,'c', 3],
+  ['VT1','PNP','BC558', 15,'h', 16,'h', 17,'h', 3],
+  ['VT3','NPN','BC548', 19,'d', 18,'d', 17,'d', 6],
+  ['VT5','PNP','BC558', 18,'h', 19,'h', 20,'h', 6],
+  ['VT4','NPN','BC548', 24,'b', 23,'b', 22,'b', 7],
+];
+
+// Jumpers: [id, r1, c1, r2, c2, label, stage]
+const jumpers = [
+  ['JW3', 5,'c', 11,'g', 'COMP_INV', 2],
+  ['JW1', 15,'a', 15,'j', 'ACC_EMIT', 3],
+  ['JW5', 16,'b', 3,'a', 'ACC_TRIG', 3],
+  ['JW4', 7,'d', 8,'d', 'CAP_MID', 4],
+  ['JW2', 18,'c', 18,'g', 'ENV_CAP', 6],
+  ['JW6', 22,'a', 7,'c', 'VT4\u2192CAP_MID', 7],
+  ['JW7', 29,'a', 31,'b', 'DIST_OUT', 8],
+];
+
+// Power wires: [r1, c1, r2, c2, label, stage]
+const powerWires = [
+  [12,'b', 12,'+12v', 'DA1 VCC', 1],
+  [9,'h', 9,'-12v', 'DA1 VEE', 1],
+  [30,'b', 30,'+12v', 'DA2 VCC', 1],
+  [27,'h', 27,'-12v', 'DA2 VEE', 1],
+  [14,'c', 14,'+12v', 'VT2.C\u2192VCC', 3],
+  [17,'h', 17,'gndR', 'VT1.C\u2192GND', 3],
+  [28,'g', 28,'gndR', 'DA2.3\u2192GND', 5],
+  [17,'d', 17,'+12v', 'VT3.C\u2192VCC', 6],
+];
+
+// JPS wires: [id, label, row, col, stage]
+const jpsWires = [
+  ['XS1','TRIGGER IN', 8,'h', 2],
+  ['XS2','ACCENT CV', 16,'i', 3],
+  ['P2.1','PITCH pin1', 8,'c', 4],
+  ['P2.w','PITCH wiper', 6,'c', 4],
+  ['P1.1','DECAY pin1', 29,'i', 5],
+  ['P1.w','DECAY wiper', 30,'i', 5],
+  ['P5','TUNE DECAY', 20,'g', 6],
+  ['XS3','PITCH CV', 23,'h', 7],
+  ['P6.w','PITCH CV att', 22,'i', 7],
+  ['P7.1','DEPTH pin1', 24,'a', 7],
+  ['P7.w','DEPTH wiper', 25,'b', 7],
+  ['P4.1','TONE osc\u2192', 11,'b', 8],
+  ['P4.w','TONE \u2192filter', 27,'b', 8],
+  ['P3','DISTORTION', 31,'c', 8],
+  ['XS4','OUTPUT', 32,'b', 8],
+];
+
+// Net labels: [row, side, name, stage]
+const netLabels = [
+  [3,'L','ACC_TRIG',3], [4,'L','TRIG_POS',3], [5,'L','COMP_INV',2],
+  [6,'L','PITCH_BOT',4], [7,'L','CAP_MID',4], [8,'L','CAP_MID',4],
+  [8,'R','GATE_IN',2], [9,'L','OSC_NONINV',1], [10,'L','OSC_INV',1],
+  [10,'R','HP_OUT',2], [11,'L','OSC_OUT',1], [11,'R','COMP_INV',2],
+  [12,'L','VCC',1], [12,'R','COMP_OUT',2], [13,'R','ACC_IN',3],
+  [15,'L','ACC_EMIT',3], [15,'R','ACC_EMIT',3], [16,'L','ACC_TRIG',3],
+  [16,'R','ACCENT_CV_IN',3], [18,'L','ENV_CAP',6], [18,'R','ENV_CAP',6],
+  [19,'L','ENV_BUF',6], [19,'R','VT5_BASE',7], [20,'R','VT5_C',6],
+  [21,'L','SMOOTH',6], [22,'R','PCV_ATT',7], [23,'L','PCV_BASE',7],
+  [23,'R','PITCH_CV_IN',7], [24,'L','VT4_E',7], [25,'L','DEPTH_MID',7],
+  [27,'L','TONE_OUT',1], [28,'L','DIST_INV',1], [28,'R','GND',1],
+  [29,'L','DIST_OUT',1], [29,'R','DECAY_INV',1], [30,'L','VCC',1],
+  [30,'R','DECAY_OUT',1], [31,'L','DIST_OUT ext',8], [32,'L','OUTPUT_J',8],
+];
+
+// ============================================================
+// COLORS
+// ============================================================
+const TYPE_COLORS = {
+  R: '#c4956a', C: '#4a90d9', D: '#b04050',
+  IC: '#666', NPN: '#2d8659', PNP: '#8b6914',
+  JW: '#e6c619', JPS: '#ff8c00',
+  '+12v': '#cc2222', '-12v': '#2266cc', gndL: '#22aa44', gndR: '#22aa44',
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let currentStage = 8; // default: show all
+let selectedComp = null;
+let compGroups = [];
+
+// ============================================================
+// SVG HELPERS
+// ============================================================
+function el(tag, attrs, children) {
+  const e = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) Object.entries(attrs).forEach(([k,v]) => e.setAttribute(k, v));
+  if (typeof children === 'string') e.textContent = children;
+  else if (Array.isArray(children)) children.forEach(c => { if (c) e.appendChild(c); });
+  return e;
+}
+
+function stageClass(compStage) {
+  const showAll = document.getElementById('showAll').checked;
+  if (showAll) return 'current';
+  if (compStage > currentStage) return 'dimmed';
+  if (compStage === currentStage) return 'current';
+  return 'prior';
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function buildSidebar() {
+  const container = document.getElementById('stage-buttons');
+  container.innerHTML = '';
+  STAGES.forEach(s => {
+    // Count components in this stage
+    let count = twoPins.filter(c => c[7] === s.id).length
+              + ics.filter(c => c.stage === s.id).length
+              + transistors.filter(c => c[9] === s.id).length
+              + jumpers.filter(c => c[6] === s.id).length
+              + powerWires.filter(c => c[5] === s.id).length
+              + jpsWires.filter(c => c[4] === s.id).length;
+    const btn = document.createElement('button');
+    btn.className = 'stage-btn' + (s.id === currentStage ? ' active' : '') + (s.id < currentStage ? ' completed' : '');
+    btn.innerHTML = `<span class="snum">${s.id}</span> <span class="sname">${s.name}</span> <span class="scount">(${count} parts)</span>`;
+    btn.onclick = () => { currentStage = s.id; selectedComp = null; render(); buildSidebar(); updateInfo(); };
+    container.appendChild(btn);
+  });
+  updateInfo();
+}
+
+function updateInfo() {
+  const s = STAGES.find(s => s.id === currentStage);
+  const info = document.getElementById('stage-info');
+  if (!s) { info.innerHTML = ''; return; }
+
+  // List parts for this stage
+  const parts = [];
+  twoPins.filter(c => c[7] === s.id).forEach(c => parts.push(`${c[0]} (${c[2]})`));
+  ics.filter(c => c.stage === s.id).forEach(c => parts.push(`${c.id} (${c.value})`));
+  transistors.filter(c => c[9] === s.id).forEach(c => parts.push(`${c[0]} (${c[2]} ${c[1]})`));
+  jumpers.filter(c => c[6] === s.id).forEach(c => parts.push(`${c[0]}: ${c[5]}`));
+  powerWires.filter(c => c[5] === s.id).forEach(c => parts.push(`Wire: ${c[4]}`));
+  jpsWires.filter(c => c[4] === s.id).forEach(c => parts.push(`JPS ${c[0]}: ${c[1]}`));
+
+  info.innerHTML = `<h3>Stage ${s.id}: ${s.name}</h3>`
+    + `<div>${s.desc}</div>`
+    + `<div class="test-point">Test: ${s.test}</div>`
+    + `<div class="parts-list"><b>Parts:</b> ${parts.join(', ')}</div>`;
+}
+
+// ============================================================
+// RENDERING
+// ============================================================
+const svg = document.getElementById('board');
+svg.setAttribute('width', SVG_W);
+svg.setAttribute('height', SVG_H);
+svg.setAttribute('viewBox', `0 0 ${SVG_W} ${SVG_H}`);
+
+function render() {
+  svg.innerHTML = '';
+  compGroups = [];
+  drawBackground();
+  drawRails();
+  drawHalfRowBars();
+  drawHoles();
+  drawRowLabels();
+  drawICs();
+  drawTransistors();
+  drawTwoPins();
+  drawJumpers();
+  drawPowerWires();
+  if (document.getElementById('showJPS').checked) drawJPSWires();
+  if (document.getElementById('showNets').checked) drawNetLabels();
+}
+
+function drawBackground() {
+  svg.appendChild(el('rect', {x:0, y:0, width:SVG_W, height:SVG_H, fill:'#1a1a2e'}));
+  const bx = colX('a') - 14, by = rowY(1) - 14;
+  const bw = colX('j') - colX('a') + 28, bh = rowY(40) - rowY(1) + 28;
+  svg.appendChild(el('rect', {x:bx, y:by, width:bw, height:bh, rx:4, fill:'#1e3322', stroke:'#2a5530', 'stroke-width':1}));
+  const py = rowY(37) - P/2;
+  svg.appendChild(el('rect', {x:bx, y:py, width:bw, height:rowY(40)-rowY(37)+P, rx:0, fill:'#2a2222', opacity:0.5}));
+  svg.appendChild(el('text', {x:(colX('a')+colX('j'))/2, y:rowY(38.5), fill:'#664444', 'font-size':10, 'text-anchor':'middle', 'dominant-baseline':'middle'}, 'POWER SECTION (rows 37-40)'));
+
+  // Stage color band on left margin for current stage rows
+  if (!document.getElementById('showAll').checked) {
+    const s = STAGES.find(s => s.id === currentStage);
+    if (s) {
+      // Find min/max rows used by this stage
+      let rows = new Set();
+      twoPins.filter(c => c[7] === s.id).forEach(c => { rows.add(c[3]); rows.add(c[5]); });
+      ics.filter(c => c.stage === s.id).forEach(c => c.pins.forEach(p => rows.add(p.r)));
+      transistors.filter(c => c[9] === s.id).forEach(c => { rows.add(c[3]); rows.add(c[5]); rows.add(c[7]); });
+      jumpers.filter(c => c[6] === s.id).forEach(c => { rows.add(c[1]); rows.add(c[3]); });
+      if (rows.size > 0) {
+        const arr = [...rows].filter(r => typeof r === 'number');
+        if (arr.length > 0) {
+          const minR = Math.min(...arr), maxR = Math.max(...arr);
+          svg.appendChild(el('rect', {
+            x: bx, y: rowY(minR) - P/2, width: 3, height: rowY(maxR) - rowY(minR) + P,
+            fill: s.color, opacity: 0.6, rx: 1
+          }));
+        }
+      }
+    }
+  }
+}
+
+function drawRails() {
+  const y1 = rowY(1) - 10, y2 = rowY(40) + 10;
+  svg.appendChild(el('rect', {x:colX('+12v')-4, y:y1, width:8, height:y2-y1, rx:2, fill:'#441111', stroke:'#cc2222', 'stroke-width':0.5}));
+  svg.appendChild(el('text', {x:colX('+12v'), y:y1-4, fill:'#cc4444', 'font-size':8, 'text-anchor':'middle'}, '+12V'));
+  svg.appendChild(el('rect', {x:colX('gndL')-4, y:y1, width:8, height:y2-y1, rx:2, fill:'#113311', stroke:'#22aa44', 'stroke-width':0.5}));
+  svg.appendChild(el('text', {x:colX('gndL'), y:y1-4, fill:'#44aa44', 'font-size':8, 'text-anchor':'middle'}, 'GND'));
+  svg.appendChild(el('rect', {x:colX('gndR')-4, y:y1, width:8, height:y2-y1, rx:2, fill:'#113311', stroke:'#22aa44', 'stroke-width':0.5}));
+  svg.appendChild(el('text', {x:colX('gndR'), y:y1-4, fill:'#44aa44', 'font-size':8, 'text-anchor':'middle'}, 'GND'));
+  svg.appendChild(el('rect', {x:colX('-12v')-4, y:y1, width:8, height:y2-y1, rx:2, fill:'#111144', stroke:'#2266cc', 'stroke-width':0.5}));
+  svg.appendChild(el('text', {x:colX('-12v'), y:y1-4, fill:'#4466cc', 'font-size':8, 'text-anchor':'middle'}, '-12V'));
+}
+
+function drawHalfRowBars() {
+  for (let r = 1; r <= 40; r++) {
+    const y = rowY(r);
+    svg.appendChild(el('rect', { x: colX('a')-6, y: y-5, width: colX('e')-colX('a')+12, height: 10, rx: 3, fill: '#1a3320', opacity: 0.4 }));
+    svg.appendChild(el('rect', { x: colX('f')-6, y: y-5, width: colX('j')-colX('f')+12, height: 10, rx: 3, fill: '#1a3320', opacity: 0.4 }));
+  }
+}
+
+function drawHoles() {
+  for (let r = 1; r <= 40; r++) {
+    const y = rowY(r);
+    HOLE_COLS.forEach(c => {
+      svg.appendChild(el('circle', {cx:colX(c), cy:y, r:3, fill:'none', stroke:'#3a5a3a', 'stroke-width':0.7}));
+    });
+  }
+}
+
+function drawRowLabels() {
+  for (let r = 1; r <= 40; r++) {
+    const y = rowY(r);
+    svg.appendChild(el('text', {x:4, y:y, fill:'#667766', 'font-size':8, 'dominant-baseline':'middle'}, String(r)));
+    svg.appendChild(el('text', {x:SVG_W-4, y:y, fill:'#667766', 'font-size':8, 'dominant-baseline':'middle', 'text-anchor':'end'}, String(r)));
+  }
+  HOLE_COLS.forEach(c => {
+    svg.appendChild(el('text', {x:colX(c), y:rowY(1)-18, fill:'#779977', 'font-size':8, 'text-anchor':'middle'}, c));
+  });
+}
+
+function drawNetLabels() {
+  const showAll = document.getElementById('showAll').checked;
+  netLabels.forEach(([r, side, name, stage]) => {
+    if (!showAll && stage > currentStage) return;
+    const y = rowY(r);
+    const opacity = (!showAll && stage < currentStage) ? 0.35 : 0.7;
+    if (side === 'L') {
+      svg.appendChild(el('text', {x:colX('e')+6, y:y+1, fill:'#556655', 'font-size':6.5, 'dominant-baseline':'middle', opacity}, name));
+    } else {
+      svg.appendChild(el('text', {x:colX('f')-6, y:y+1, fill:'#556655', 'font-size':6.5, 'text-anchor':'end', 'dominant-baseline':'middle', opacity}, name));
+    }
+  });
+}
+
+function pinPos(r, c) { return { x: colX(c), y: rowY(r) }; }
+
+function drawTwoPins() {
+  const showVal = document.getElementById('showValues').checked;
+  twoPins.forEach(([id, type, value, r1, c1, r2, c2, stage]) => {
+    const sc = stageClass(stage);
+    const p1 = pinPos(r1, c1), p2 = pinPos(r2, c2);
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const color = TYPE_COLORS[type];
+    const isLong = Math.abs(r2 - r1) >= 10;
+    const stageInfo = STAGES.find(s => s.id === stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':id, 'data-type':type, 'data-value':value, 'data-stage':stage, 'data-sname':stageInfo?stageInfo.name:''});
+
+    const dash = isLong ? '4,3' : 'none';
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:color, 'stroke-width': isLong ? 1.5 : 2, 'stroke-dasharray':dash, class:'comp-body', opacity:0.8}));
+
+    if (type === 'R') {
+      g.appendChild(el('rect', {x:mx-9, y:my-3.5, width:18, height:7, rx:2, fill:color, stroke:'#8a6840', 'stroke-width':0.5, class:'comp-body'}));
+    } else if (type === 'C') {
+      g.appendChild(el('rect', {x:mx-7, y:my-5, width:14, height:10, rx:1, fill:color, stroke:'#2a5a8a', 'stroke-width':0.5, class:'comp-body'}));
+    } else if (type === 'D') {
+      const dx = p2.x - p1.x, dy = p2.y - p1.y;
+      const len = Math.sqrt(dx*dx+dy*dy) || 1;
+      const ux = dx/len, uy = dy/len, px = -uy, py = ux, sz = 4;
+      g.appendChild(el('path', {d:`M${mx+ux*sz},${my+uy*sz} L${mx+px*sz},${my+py*sz} L${mx-px*sz},${my-py*sz} Z`, fill:color, class:'comp-body'}));
+      g.appendChild(el('line', {x1:mx+ux*sz-px*sz, y1:my+uy*sz-py*sz, x2:mx+ux*sz+px*sz, y2:my+uy*sz+py*sz, stroke:color, 'stroke-width':1.5}));
+    }
+
+    if (!RAIL_COLS.includes(c1)) g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2.5, fill:color, opacity:0.9}));
+    if (!RAIL_COLS.includes(c2)) g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2.5, fill:color, opacity:0.9}));
+    if (RAIL_COLS.includes(c1)) g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2, fill:TYPE_COLORS[c1]||'#888', opacity:0.9}));
+    if (RAIL_COLS.includes(c2)) g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2, fill:TYPE_COLORS[c2]||'#888', opacity:0.9}));
+
+    g.appendChild(el('text', {x:mx, y:my-6, fill:'#ddd', 'font-size':7.5, 'text-anchor':'middle', 'dominant-baseline':'auto', 'font-weight':'bold'}, id));
+    if (showVal) {
+      g.appendChild(el('text', {x:mx, y:my+10, fill:'#aaa', 'font-size':6.5, 'text-anchor':'middle', 'dominant-baseline':'auto'}, value));
+    }
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+function drawICs() {
+  ics.forEach(ic => {
+    const sc = stageClass(ic.stage);
+    const stageInfo = STAGES.find(s => s.id === ic.stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':ic.id, 'data-type':'IC', 'data-value':ic.value, 'data-stage':ic.stage, 'data-sname':stageInfo?stageInfo.name:''});
+    const startY = rowY(ic.pins[0].r), endY = rowY(ic.pins[ic.pins.length-2].r);
+    const lx = colX('e'), rx = colX('f');
+
+    g.appendChild(el('rect', { x: lx-8, y: startY-P/2+2, width: rx-lx+16, height: endY-startY+P-4, rx: 2, fill: '#444', stroke: '#888', 'stroke-width': 1, class: 'comp-body' }));
+    const notchY = endY + P/2 - 6;
+    g.appendChild(el('path', { d: `M${(lx+rx)/2-5},${notchY} A5,5 0 0,1 ${(lx+rx)/2+5},${notchY}`, fill: 'none', stroke: '#aaa', 'stroke-width': 0.8 }));
+    g.appendChild(el('text', {x:(lx+rx)/2, y:(startY+endY)/2-3, fill:'#fff', 'font-size':8, 'text-anchor':'middle', 'dominant-baseline':'middle', 'font-weight':'bold'}, ic.id));
+    g.appendChild(el('text', {x:(lx+rx)/2, y:(startY+endY)/2+6, fill:'#ccc', 'font-size':7, 'text-anchor':'middle', 'dominant-baseline':'middle'}, ic.value));
+
+    ic.pins.forEach(pin => {
+      const x = colX(pin.c), y = rowY(pin.r), isLeft = pin.c === 'e';
+      g.appendChild(el('circle', {cx:x, cy:y, r:2.5, fill:'#aaa'}));
+      g.appendChild(el('text', {x:isLeft?x-12:x+12, y:y+1, fill:'#999', 'font-size':6, 'text-anchor':'middle', 'dominant-baseline':'middle'}, String(pin.n)));
+      if (document.getElementById('showNets').checked) {
+        g.appendChild(el('text', {x:isLeft?x-22:x+22, y:y+1, fill:'#556655', 'font-size':5.5, 'text-anchor':isLeft?'end':'start', 'dominant-baseline':'middle', opacity:0.7}, pin.net));
+      }
+    });
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+function drawTransistors() {
+  transistors.forEach(([id, subtype, value, eR, eC, bR, bC, cR, cC, stage]) => {
+    const sc = stageClass(stage);
+    const color = TYPE_COLORS[subtype];
+    const stageInfo = STAGES.find(s => s.id === stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':id, 'data-type':subtype, 'data-value':value, 'data-stage':stage, 'data-sname':stageInfo?stageInfo.name:''});
+    const ex = colX(eC), ey = rowY(eR), bx = colX(bC), by = rowY(bR), cx_ = colX(cC), cy_ = rowY(cR);
+    const mx = (ex+bx+cx_)/3, my = (ey+by+cy_)/3;
+
+    g.appendChild(el('circle', {cx:bx, cy:by, r:8, fill:color, stroke:'#333', 'stroke-width':0.5, class:'comp-body', opacity:0.7}));
+    g.appendChild(el('line', {x1:bx, y1:by, x2:ex, y2:ey, stroke:color, 'stroke-width':1.5}));
+    g.appendChild(el('line', {x1:bx, y1:by, x2:cx_, y2:cy_, stroke:color, 'stroke-width':1.5}));
+    g.appendChild(el('circle', {cx:ex, cy:ey, r:2.5, fill:color}));
+    g.appendChild(el('circle', {cx:bx, cy:by, r:2.5, fill:'#fff'}));
+    g.appendChild(el('circle', {cx:cx_, cy:cy_, r:2.5, fill:color}));
+
+    const off = 8;
+    g.appendChild(el('text', {x:ex+(ex>bx?off:-off), y:ey+1, fill:'#ccc', 'font-size':6, 'text-anchor':ex>bx?'start':'end', 'dominant-baseline':'middle'}, 'E'));
+    g.appendChild(el('text', {x:bx, y:by-10, fill:'#ccc', 'font-size':6, 'text-anchor':'middle', 'dominant-baseline':'auto'}, 'B'));
+    g.appendChild(el('text', {x:cx_+(cx_>bx?off:-off), y:cy_+1, fill:'#ccc', 'font-size':6, 'text-anchor':cx_>bx?'start':'end', 'dominant-baseline':'middle'}, 'C'));
+
+    g.appendChild(el('text', {x:bx-12, y:by+1, fill:'#ddd', 'font-size':7, 'text-anchor':'end', 'dominant-baseline':'middle', 'font-weight':'bold'}, id));
+    if (document.getElementById('showValues').checked) {
+      g.appendChild(el('text', {x:bx-12, y:by+9, fill:'#aaa', 'font-size':6, 'text-anchor':'end', 'dominant-baseline':'auto'}, `${value} ${subtype}`));
+    }
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+function drawJumpers() {
+  jumpers.forEach(([id, r1, c1, r2, c2, label, stage]) => {
+    const sc = stageClass(stage);
+    const p1 = pinPos(r1, c1), p2 = pinPos(r2, c2);
+    const mx = (p1.x+p2.x)/2, my = (p1.y+p2.y)/2;
+    const stageInfo = STAGES.find(s => s.id === stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':id, 'data-type':'JW', 'data-value':label, 'data-stage':stage, 'data-sname':stageInfo?stageInfo.name:''});
+
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:TYPE_COLORS.JW, 'stroke-width':1.5, 'stroke-dasharray':'6,3', class:'comp-body', opacity:0.8}));
+    g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2.5, fill:TYPE_COLORS.JW}));
+    g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2.5, fill:TYPE_COLORS.JW}));
+    g.appendChild(el('text', {x:mx+6, y:my-4, fill:'#e6c619', 'font-size':6.5, 'dominant-baseline':'auto', opacity:0.8}, `${id} ${label}`));
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+function drawPowerWires() {
+  powerWires.forEach(([r1, c1, r2, c2, label, stage]) => {
+    const sc = stageClass(stage);
+    const p1 = pinPos(r1, c1), p2 = pinPos(r2, c2);
+    const railCol = RAIL_COLS.includes(c2) ? c2 : c1;
+    const color = TYPE_COLORS[railCol] || '#888';
+    const stageInfo = STAGES.find(s => s.id === stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':label, 'data-type':'PWR', 'data-value':label, 'data-stage':stage, 'data-sname':stageInfo?stageInfo.name:''});
+
+    g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:color, 'stroke-width':1.5, class:'comp-body', opacity:0.7}));
+    g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2, fill:color}));
+    g.appendChild(el('circle', {cx:p2.x, cy:p2.y, r:2, fill:color}));
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+function drawJPSWires() {
+  jpsWires.forEach(([id, label, row, col, stage]) => {
+    const sc = stageClass(stage);
+    const x = colX(col), y = rowY(row);
+    const isRight = RIGHT_COLS.includes(col);
+    const stageInfo = STAGES.find(s => s.id === stage);
+    const g = el('g', {class:`comp-group ${sc}`, 'data-id':id, 'data-type':'JPS', 'data-value':label, 'data-stage':stage, 'data-sname':stageInfo?stageInfo.name:''});
+
+    const sz = 4;
+    g.appendChild(el('path', { d: `M${x},${y-sz} L${x+sz},${y} L${x},${y+sz} L${x-sz},${y} Z`, fill: TYPE_COLORS.JPS, stroke: '#cc6600', 'stroke-width': 0.5, class: 'comp-body', opacity: 0.85 }));
+    const ax = isRight ? x + 10 : x - 10;
+    g.appendChild(el('line', {x1:ax, y1:y, x2:x+(isRight?sz:-sz), y2:y, stroke:TYPE_COLORS.JPS, 'stroke-width':1, opacity:0.6}));
+    const tx = isRight ? x + 13 : x - 13;
+    g.appendChild(el('text', {x:tx, y:y+1, fill:'#ff8c00', 'font-size':6, 'text-anchor':isRight?'start':'end', 'dominant-baseline':'middle', opacity:0.8}, `${id} ${label}`));
+
+    svg.appendChild(g);
+    compGroups.push(g);
+  });
+}
+
+// ============================================================
+// TOOLTIP
+// ============================================================
+const tooltip = document.getElementById('tooltip');
+svg.addEventListener('mousemove', e => {
+  const g = e.target.closest('.comp-group');
+  if (g) {
+    tooltip.innerHTML = `<span class="tt-id">${g.dataset.id}</span><br>`
+      + `<span class="tt-val">${g.dataset.value}</span><br>`
+      + `<span class="tt-net">${g.dataset.type}</span><br>`
+      + `<span class="tt-stage">Stage ${g.dataset.stage}: ${g.dataset.sname}</span>`;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX + 14) + 'px';
+    tooltip.style.top = (e.clientY - 10) + 'px';
+  } else {
+    tooltip.style.display = 'none';
+  }
+});
+svg.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+
+// Click to highlight/isolate
+svg.addEventListener('click', e => {
+  const g = e.target.closest('.comp-group');
+  if (g && selectedComp !== g) {
+    selectedComp = g;
+    compGroups.forEach(cg => {
+      if (cg === g) { cg.classList.add('highlighted'); cg.classList.remove('dimmed','prior','current'); }
+      else { cg.classList.add('dimmed'); cg.classList.remove('highlighted','prior','current'); }
+    });
+  } else {
+    selectedComp = null;
+    // Restore stage-based classes
+    compGroups.forEach(cg => {
+      const s = parseInt(cg.dataset.stage);
+      cg.classList.remove('dimmed','highlighted','prior','current');
+      cg.classList.add(stageClass(s));
+    });
+  }
+});
+
+// ============================================================
+// CONTROLS
+// ============================================================
+['showNets','showValues','showJPS','showAll'].forEach(id => {
+  document.getElementById(id).addEventListener('change', () => { selectedComp = null; render(); });
+});
+
+// Keyboard: left/right arrow to cycle stages
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' && currentStage < 8) { currentStage++; selectedComp = null; render(); buildSidebar(); }
+  if (e.key === 'ArrowLeft' && currentStage > 1) { currentStage--; selectedComp = null; render(); buildSidebar(); }
+});
+
+// ============================================================
+// INIT
+// ============================================================
+buildSidebar();
+render();
+</script>
+</body>
+</html>
