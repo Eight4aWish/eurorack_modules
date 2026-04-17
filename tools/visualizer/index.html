@@ -77,14 +77,27 @@ svg { display: block; }
 // GRID (n8synth standard — shared by all layouts)
 // ============================================================
 const P = 24;
-const COLS = { '+12v': 18, gndL: 40, a: 76, b: 100, c: 124, d: 148, e: 172, f: 222, g: 246, h: 270, i: 294, j: 318, gndR: 354, '-12v': 376 };
+const COLS = { pwrL: 30, a: 76, b: 100, c: 124, d: 148, e: 172, f: 222, g: 246, h: 270, i: 294, j: 318, pwrR: 364 };
+// Legacy aliases for old layouts that still use +12v/gndL/gndR/-12v column names
+COLS['+12v'] = COLS.pwrL; COLS['gndL'] = COLS.pwrL; COLS['gndR'] = COLS.pwrR; COLS['-12v'] = COLS.pwrR;
 const rowY = r => 56 + (r - 1) * P;
 const colX = c => COLS[c];
-const SVG_W = 440, SVG_H = rowY(40) + 36;
-const RAIL_COLS = ['+12v', 'gndL', 'gndR', '-12v'];
+const SVG_W = 420, SVG_H = rowY(40) + 36;
+const RAIL_COLS = ['pwrL', 'pwrR'];
 const HOLE_COLS = ['a','b','c','d','e','f','g','h','i','j'];
 const RIGHT_COLS = ['f','g','h','i','j'];
-const TYPE_COLORS = { R:'#c4956a', C:'#4a90d9', D:'#b04050', IC:'#666', NPN:'#2d8659', PNP:'#8b6914', JW:'#e6c619', JPS:'#ff8c00', '+12v':'#cc2222', '-12v':'#2266cc', gndL:'#22aa44', gndR:'#22aa44' };
+// n8synth rail convention: even rows = power (+12V left, -12V right), odd rows = GND
+function railColor(col, row) {
+  if (col === 'pwrL' || col === '+12v' || col === 'gndL') return (row % 2 === 0) ? '#cc2222' : '#22aa44';
+  if (col === 'pwrR' || col === '-12v' || col === 'gndR') return (row % 2 === 0) ? '#2266cc' : '#22aa44';
+  return '#888';
+}
+function railLabel(col, row) {
+  if (col === 'pwrL' || col === '+12v' || col === 'gndL') return (row % 2 === 0) ? '+12V' : 'GND';
+  if (col === 'pwrR' || col === '-12v' || col === 'gndR') return (row % 2 === 0) ? '-12V' : 'GND';
+  return '';
+}
+const TYPE_COLORS = { R:'#c4956a', C:'#4a90d9', D:'#b04050', IC:'#666', NPN:'#2d8659', PNP:'#8b6914', JW:'#e6c619', JPS:'#ff8c00', '+12v':'#cc2222', '-12v':'#2266cc', gndL:'#22aa44', gndR:'#22aa44', pwrL:'#cc2222', pwrR:'#2266cc' };
 
 // ============================================================
 // STATE
@@ -265,11 +278,19 @@ function drawBoard() {
     }
   }
 
-  // Rails
+  // Rails — n8synth alternating pattern: even rows = power, odd rows = GND
   const y1 = rowY(1)-10, y2 = rowY(40)+10;
-  [['+12v','#441111','#cc2222','+12V'],['gndL','#113311','#22aa44','GND'],['gndR','#113311','#22aa44','GND'],['-12v','#111144','#2266cc','-12V']].forEach(([c,f,s,t]) => {
-    svg.appendChild(el('rect', {x:colX(c)-4, y:y1, width:8, height:y2-y1, rx:2, fill:f, stroke:s, 'stroke-width':0.5}));
-    svg.appendChild(el('text', {x:colX(c), y:y1-4, fill:s, 'font-size':8, 'text-anchor':'middle'}, t));
+  ['pwrL','pwrR'].forEach(c => {
+    // Draw thin background strip
+    svg.appendChild(el('rect', {x:colX(c)-4, y:y1, width:8, height:y2-y1, rx:2, fill:'#111', stroke:'#333', 'stroke-width':0.3}));
+    // Draw alternating colored dots per row
+    for (let r = 1; r <= 40; r++) {
+      const color = railColor(c, r);
+      svg.appendChild(el('circle', {cx:colX(c), cy:rowY(r), r:3, fill:color, opacity:0.85}));
+    }
+    // Column header labels
+    const topLabel = c === 'pwrL' ? '+12V / GND' : '-12V / GND';
+    svg.appendChild(el('text', {x:colX(c), y:y1-4, fill:'#999', 'font-size':6, 'text-anchor':'middle'}, topLabel));
   });
 
   // Half-row bars and holes
@@ -388,8 +409,12 @@ function drawPowerWires() {
   if (!layout || !layout.powerWires) return;
   layout.powerWires.forEach(w => {
     const p1=pinPos(w.r1,w.c1), p2=pinPos(w.r2,w.c2);
-    const railCol = RAIL_COLS.includes(w.c2)?w.c2:w.c1;
-    const color = TYPE_COLORS[railCol]||'#888';
+    // Determine which end is the rail end, derive color from row parity
+    const isC1Rail = ['pwrL','pwrR','+12v','gndL','gndR','-12v'].includes(w.c1);
+    const isC2Rail = ['pwrL','pwrR','+12v','gndL','gndR','-12v'].includes(w.c2);
+    const railEnd = isC2Rail ? w.c2 : w.c1;
+    const railRow = isC2Rail ? w.r2 : w.r1;
+    const color = railColor(railEnd, railRow);
     const g = makeCG(w.label, 'PWR', w.label, w.stage);
     g.appendChild(el('line', {x1:p1.x, y1:p1.y, x2:p2.x, y2:p2.y, stroke:color, 'stroke-width':1.5, class:'comp-body', opacity:0.7}));
     g.appendChild(el('circle', {cx:p1.x, cy:p1.y, r:2, fill:color}));
@@ -469,6 +494,8 @@ if (firstBuiltin) loadBuiltinLayout(firstBuiltin);
 -->
 <script src="layouts/kick_drum.js"></script>
 <script src="layouts/snare_drum.js"></script>
+<script src="layouts/fm_drum_board1.js"></script>
+<script src="layouts/fm_drum_board2.js"></script>
 
 <!-- Re-init after built-in layouts are registered -->
 <script>

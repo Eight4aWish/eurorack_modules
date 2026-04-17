@@ -1,0 +1,139 @@
+{
+  "title": "EDU FM Drum — Board 1 (VCOs + Waveshaper)",
+  "source": "docs/fm_drum_netlist.md",
+  "board": "n8synth 10HP",
+  "revision": "0.1",
+  "notes": "Board 1: DA1 (TL074) with both VCOs, carrier CV mixer, waveshaper, impact distortion, pitch envelope. Inter-board: ACC_TRIG, UNACC_TRIG, SINE_OUT, CAR_SCH_OUT, MOD_SCH_OUT, MOD_INT_OUT arrive/depart via jumper pads at board edges.",
+  "_challenges": [
+    "DA1 is 14-pin DIP spanning 7 rows (4-10). Carrier on left pins, modulator on right.",
+    "R15 (68K) spans rows 4→9 left (carrier integrator out to schmitt in) — long span.",
+    "Q1/Q3 (VCO oscillation NPNs) need collector wires back to integrator(-) pins — 5+ row spans.",
+    "VCO resets (Q2/Q4) need base connections from trigger bus (inter-board) plus bridges across integrator caps.",
+    "Pitch envelope connects to carrier CV mixer — needs clear routing from lower rows to mixer area.",
+    "Carrier CV mixer (rows 15-17) aggregates tune pot, pitch env, and modulator — high fanout node."
+  ],
+  "stages": [
+    {"id": 1, "name": "ICs + Power", "desc": "Install DA1 (TL074 normal orientation) and decoupling caps.", "test": "Verify +12V on DA1 pin 4, -12V on pin 11.", "color": "#888"},
+    {"id": 2, "name": "Carrier VCO", "desc": "Integrator (DA1-A) + schmitt trigger (DA1-B) with NPN current switch.", "test": "Apply CV to row 1L. Triangle on pin 1, square on pin 7.", "color": "#e67e22"},
+    {"id": 3, "name": "Carrier VCO Reset", "desc": "NPN bridges integrator cap on trigger for consistent attack.", "test": "Trigger should reset carrier waveform phase.", "color": "#d35400"},
+    {"id": 4, "name": "Modulator VCO", "desc": "Clone of carrier with 2.2nF cap (lower freq) and 100K hysteresis (wider thresholds).", "test": "Apply CV to row 1R. Triangle on pin 8, square on pin 14.", "color": "#3498db"},
+    {"id": 5, "name": "Modulator VCO Reset", "desc": "NPN bridges modulator integrator cap.", "test": "Trigger resets modulator phase.", "color": "#2980b9"},
+    {"id": 6, "name": "Carrier CV Mixer", "desc": "Passive mixer: tune pot + pitch env + modulator → CARRIER_CV.", "test": "Tune pot changes carrier frequency.", "color": "#2ecc71"},
+    {"id": 7, "name": "Waveshaper", "desc": "Anti-parallel diodes shape carrier triangle into approx sine.", "test": "Sine-ish wave at SINE_OUT.", "color": "#9b59b6"},
+    {"id": 8, "name": "Impact Distortion", "desc": "NPN bridges waveshaper 10K on accented hits for sharp attack.", "test": "Accented hits have sharper transient.", "color": "#8e44ad"},
+    {"id": 9, "name": "Added Click", "desc": "Trigger injection via diode + 39K adds initial click.", "test": "Click at start of each hit.", "color": "#e74c3c"},
+    {"id": 10, "name": "Pitch Envelope", "desc": "470Ω/470nF pitch envelope with tune decay pot control.", "test": "Pitch drops on each trigger.", "color": "#f39c12"}
+  ],
+  "ics": [
+    {
+      "id": "DA1", "type": "TL074", "topRow": 4, "leftCol": "d", "rightCol": "g",
+      "pins": 14, "rotated": false, "stage": 1,
+      "_note": "Normal orientation. Pin 4 (VCC) row 7 left, pin 11 (VEE) row 7 right. Carrier VCO on left pins (A: 1-3, B: 5-7), Modulator on right pins (C: 8-10, D: 12-14)."
+    }
+  ],
+  "twoPins": [
+    {"id":"C9","type":"C","value":"100nF","r1":7,"c1":"b","r2":8,"c2":"b","stage":1,"_note":"DA1 VCC decoupling, pin 4 row 7L → row 8 (even=+12V via pwrL)"},
+    {"id":"C10","type":"C","value":"100nF","r1":7,"c1":"i","r2":8,"c2":"i","stage":1,"_note":"DA1 VEE decoupling, pin 11 row 7R → row 8 (even=-12V via pwrR)"},
+    {"id":"C13","type":"C","value":"47uF","r1":2,"c1":"b","r2":2,"c2":"c","stage":1,"_note":"Bulk +12V bypass. Electrolytic, +leg to row 2 col b (connect to pwrL even row)"},
+
+    {"id":"C2","type":"C","value":"330pF","r1":4,"c1":"c","r2":5,"c2":"c","stage":2,"_note":"Carrier integrator feedback cap. Pin 1 (out, row 4) ↔ pin 2 (inv, row 5)"},
+    {"id":"R13","type":"R","value":"100K","r1":1,"c1":"a","r2":5,"c2":"a","stage":2,"_note":"CARRIER_CV (row 1L) → integrator inv (pin 2, row 5L)"},
+    {"id":"R14","type":"R","value":"100K","r1":1,"c1":"b","r2":6,"c2":"b","stage":2,"_note":"CARRIER_CV (row 1L) → integrator non-inv (pin 3, row 6L)"},
+    {"id":"R12","type":"R","value":"51K","r1":6,"c1":"a","r2":3,"c2":"a","stage":2,"_note":"Integrator non-inv (pin 3, row 6L) → GND bus (row 3L)"},
+    {"id":"R15","type":"R","value":"68K","r1":4,"c1":"b","r2":9,"c2":"b","stage":2,"_note":"CAR_INT_OUT (pin 1, row 4L) → CAR_SCH_INV (pin 6, row 9L). 5-row span."},
+    {"id":"R16","type":"R","value":"100K","r1":10,"c1":"a","r2":8,"c2":"a","stage":2,"_note":"CAR_SCH_OUT (pin 7, row 10L) → CAR_SCH_NINV (pin 5, row 8L). Schmitt + feedback."},
+    {"id":"R17","type":"R","value":"100K","r1":10,"c1":"b","r2":12,"c2":"b","stage":2,"_note":"CAR_SCH_OUT (row 10L) → Q1 base (row 12L). NPN base resistor."},
+
+    {"id":"C6","type":"C","value":"2.2nF","r1":9,"c1":"h","r2":10,"c2":"h","stage":4,"_note":"Modulator integrator cap. Pin 9 (inv, row 9R) ↔ pin 8 (out, row 10R)"},
+    {"id":"R22","type":"R","value":"100K","r1":1,"c1":"j","r2":9,"c2":"j","stage":4,"_note":"MOD_CV (row 1R) → mod integrator inv (pin 9, row 9R). Long span."},
+    {"id":"R23","type":"R","value":"100K","r1":1,"c1":"i","r2":8,"c2":"i","stage":4,"_note":"MOD_CV (row 1R) → mod integrator non-inv (pin 10, row 8R)"},
+    {"id":"R24","type":"R","value":"51K","r1":8,"c1":"j","r2":3,"c2":"j","stage":4,"_note":"Mod integrator non-inv (row 8R) → GND bus (row 3R)"},
+    {"id":"R25","type":"R","value":"100K","r1":10,"c1":"i","r2":5,"c2":"i","stage":4,"_note":"MOD_INT_OUT (pin 8, row 10R) → mod schmitt inv (pin 13, row 5R). 5-row span, 100K (wider thresholds)."},
+    {"id":"R26","type":"R","value":"100K","r1":4,"c1":"j","r2":6,"c2":"j","stage":4,"_note":"MOD_SCH_OUT (pin 14, row 4R) → mod schmitt non-inv (pin 12, row 6R). Feedback."},
+    {"id":"R27","type":"R","value":"100K","r1":4,"c1":"h","r2":13,"c2":"h","stage":4,"_note":"MOD_SCH_OUT (row 4R) → Q3 base (row 13R). NPN base resistor."},
+
+    {"id":"R20","type":"R","value":"1M","r1":2,"c1":"e","r2":12,"c2":"e","stage":3,"_note":"Trigger bus → Q2 base. VCO reset bias. TRIG from inter-board."},
+    {"id":"R21","type":"R","value":"10K","r1":14,"c1":"a","r2":14,"c2":"c","stage":3,"_note":"Bridge resistor across C2 via Q2. Q2 C/E at row 14."},
+
+    {"id":"R29","type":"R","value":"1M","r1":2,"c1":"f","r2":13,"c2":"f","stage":5,"_note":"Trigger bus → Q4 base. Modulator VCO reset bias."},
+    {"id":"R30","type":"R","value":"10K","r1":15,"c1":"h","r2":15,"c2":"j","stage":5,"_note":"Bridge resistor across C6 via Q4. Q4 C/E at row 15."},
+
+    {"id":"R31","type":"R","value":"33K","r1":16,"c1":"a","r2":16,"c2":"c","stage":6,"_note":"VCC → tune carrier pot top. Limits max tune voltage to ~9V. Row 16L pwrL=+12V(even)."},
+    {"id":"R33","type":"R","value":"33K","r1":17,"c1":"a","r2":1,"c2":"c","stage":6,"_note":"Tune pot wiper (row 17, JPS) → CARRIER_CV (row 1L). Long span."},
+    {"id":"R32","type":"R","value":"100K","r1":18,"c1":"a","r2":1,"c2":"e","stage":6,"_note":"FM_SW_COM (row 18L, inter-board) → CARRIER_CV (row 1). FM modulator coupling."},
+    {"id":"D4","type":"D","value":"1N4148","r1":1,"c1":"d","r2":3,"c2":"d","stage":6,"_note":"GND (row 3, anode) → CARRIER_CV (row 1, cathode). Clamp prevents negative CV."},
+
+    {"id":"R34","type":"R","value":"10K","r1":4,"c1":"e","r2":20,"c2":"a","stage":7,"_note":"CAR_INT_OUT (row 4L) → waveshaper node (row 20L). Input scaling."},
+    {"id":"D5","type":"D","value":"1N4148","r1":20,"c1":"b","r2":21,"c2":"b","stage":7,"_note":"Anti-parallel diode pair at waveshaper node."},
+    {"id":"D6","type":"D","value":"1N4148","r1":21,"c1":"c","r2":20,"c2":"c","stage":7,"_note":"Reverse of D5 (anti-parallel)."},
+    {"id":"R38","type":"R","value":"2K","r1":20,"c1":"d","r2":21,"c2":"d","stage":7,"_note":"Waveshaper node → GND (row 21 odd=GND). Diode bias."},
+
+    {"id":"D7","type":"D","value":"1N4148","r1":22,"c1":"a","r2":23,"c2":"a","stage":8,"_note":"ACC_TRIG (row 22, inter-board) → C5 (row 23). Impact trigger."},
+    {"id":"C5","type":"C","value":"5.6nF","r1":23,"c1":"b","r2":24,"c2":"b","stage":8,"_note":"Impact distortion envelope cap."},
+    {"id":"R51","type":"R","value":"2K","r1":24,"c1":"a","r2":25,"c2":"a","stage":8,"_note":"Impact envelope node → GND (row 25 odd=GND). Discharge."},
+    {"id":"R36","type":"R","value":"470K","r1":26,"c1":"a","r2":24,"c2":"c","stage":8,"_note":"VCC (row 26 even=+12V via pwrL) → Q6 collector. NPN pull-up."},
+
+    {"id":"D8","type":"D","value":"1N4148","r1":27,"c1":"a","r2":28,"c2":"a","stage":9,"_note":"UNACC_TRIG (row 27, inter-board, anode) → click node (row 28, cathode)."},
+    {"id":"R35","type":"R","value":"39K","r1":28,"c1":"b","r2":20,"c2":"e","stage":9,"_note":"Click node → SINE_OUT (waveshaper node row 20). 8-row span."},
+
+    {"id":"R8","type":"R","value":"470","r1":29,"c1":"a","r2":30,"c2":"a","stage":10,"_note":"UNACC_TRIG bus (row 29) → D2 anode. Pitch charge series."},
+    {"id":"D2","type":"D","value":"1N4148","r1":30,"c1":"b","r2":31,"c2":"b","stage":10,"_note":"Charge diode → PITCH_CAP node (row 31)."},
+    {"id":"C4","type":"C","value":"470nF","r1":31,"c1":"a","r2":31,"c2":"c","stage":10,"_note":"PITCH_CAP (row 31) to GND. Film cap."},
+    {"id":"R9","type":"R","value":"1K","r1":31,"c1":"d","r2":33,"c2":"d","stage":10,"_note":"PITCH_CAP → GND via tune decay pot. Min discharge."},
+    {"id":"D3","type":"D","value":"1N4148","r1":31,"c1":"e","r2":32,"c2":"e","stage":10,"_note":"PITCH_CAP (anode) → PITCH_OUT (row 32, cathode). Output isolation."},
+    {"id":"R10","type":"R","value":"47K","r1":32,"c1":"a","r2":34,"c2":"a","stage":10,"_note":"PITCH_OUT → tune depth pot path (row 34). Mixer resistor."}
+  ],
+  "transistors": [
+    {"id":"Q1","type":"NPN","subtype":"BC548","eR":12,"eC":"a","bR":12,"bC":"b","cR":12,"cC":"c","stage":2,"_note":"Carrier VCO oscillation NPN. E→GND, B←R17 from schmitt out (row 10L), C→CAR_INT_INV (row 5L, needs jumper)."},
+    {"id":"Q2","type":"NPN","subtype":"BC548","eR":14,"eC":"d","bR":14,"bC":"e","cR":14,"cC":"c","stage":3,"_note":"Carrier VCO reset. E→row 5L (INT_INV side of C2), C→row 4L (INT_OUT side of C2), B←R20 (1M from trigger)."},
+    {"id":"Q3","type":"NPN","subtype":"BC548","eR":13,"eC":"h","bR":13,"bC":"i","cR":13,"cC":"j","stage":4,"_note":"Modulator VCO oscillation NPN. E→GND, B←R27 from mod schmitt (row 4R), C→MOD_INT_INV (row 9R, needs jumper)."},
+    {"id":"Q4","type":"NPN","subtype":"BC548","eR":15,"eC":"g","bR":15,"bC":"f","cR":15,"cC":"i","stage":5,"_note":"Modulator VCO reset. Bridges C6 on trigger."},
+    {"id":"Q6","type":"NPN","subtype":"BC548","eR":24,"eC":"d","bR":24,"bC":"e","cR":20,"cC":"e","stage":8,"_note":"Impact distortion. B←impact env (row 24), C→waveshaper 10K input side, E→INT_OUT side. Bridges R34."}
+  ],
+  "jumpers": [
+    {"id":"JW1","r1":12,"c1":"c","r2":5,"c2":"e","stage":2,"label":"Q1.C → INT_INV","_note":"Q1 collector to carrier integrator inverting input (pin 2, row 5L)"},
+    {"id":"JW2","r1":14,"c1":"c","r2":4,"c2":"a","stage":3,"label":"Q2.C → INT_OUT","_note":"Q2 collector to carrier INT_OUT side of C2 (row 4L)"},
+    {"id":"JW3","r1":14,"c1":"d","r2":5,"c2":"c","stage":3,"label":"Q2.E → INT_INV","_note":"Q2 emitter to INT_INV side of C2 (row 5L)"},
+    {"id":"JW4","r1":13,"c1":"j","r2":9,"c2":"f","stage":4,"label":"Q3.C → MOD_INT_INV","_note":"Q3 collector to mod integrator inv (pin 9, row 9R)"},
+    {"id":"JW5","r1":15,"c1":"i","r2":10,"c2":"f","stage":5,"label":"Q4.C → MOD_INT_OUT","_note":"Q4 collector to MOD_INT_OUT side of C6 (row 10R)"},
+    {"id":"JW6","r1":15,"c1":"g","r2":9,"c2":"g","stage":5,"label":"Q4.E → MOD_INT_INV","_note":"Q4 emitter to MOD_INT_INV side of C6 (row 9R)"},
+    {"id":"JW7","r1":22,"c1":"e","r2":36,"c2":"e","stage":8,"label":"ACC_TRIG bus","_note":"Inter-board: accented trigger arrives here"},
+    {"id":"JW8","r1":27,"c1":"e","r2":29,"c2":"e","stage":9,"label":"UNACC_TRIG bus","_note":"Inter-board: unaccented trigger arrives here"},
+    {"id":"JW9","r1":20,"c1":"e","r2":36,"c2":"a","stage":7,"label":"SINE_OUT","_note":"Sine wave output to board 2 VCA"},
+    {"id":"JW10","r1":10,"c1":"e","r2":36,"c2":"b","stage":2,"label":"CAR_SQ out","_note":"Carrier square wave to board 2 XOR gate"},
+    {"id":"JW11","r1":4,"c1":"f","r2":36,"c2":"c","stage":4,"label":"MOD_SQ out","_note":"Modulator square wave to board 2 XOR gate"},
+    {"id":"JW12","r1":10,"c1":"f","r2":18,"c2":"e","stage":4,"label":"MOD_TRI → FM","_note":"Modulator triangle to FM switch path (row 18)"}
+  ],
+  "powerWires": [
+    {"r1":7,"c1":"a","r2":8,"c2":"pwrL","label":"DA1 VCC","stage":1,"_note":"Pin 4 (VCC, row 7L) → pwrL row 8 (even=+12V)"},
+    {"r1":7,"c1":"j","r2":8,"c2":"pwrR","label":"DA1 VEE","stage":1,"_note":"Pin 11 (VEE, row 7R) → pwrR row 8 (even=-12V)"},
+    {"r1":3,"c1":"a","r2":3,"c2":"pwrL","label":"GND bus L","stage":1,"_note":"Row 3 GND bus left → pwrL row 3 (odd=GND)"},
+    {"r1":3,"c1":"j","r2":3,"c2":"pwrR","label":"GND bus R","stage":1,"_note":"Row 3 GND bus right → pwrR row 3 (odd=GND)"},
+    {"r1":12,"c1":"a","r2":11,"c2":"pwrL","label":"Q1.E GND","stage":2,"_note":"Q1 emitter → GND (pwrL row 11, odd=GND)"},
+    {"r1":13,"c1":"h","r2":13,"c2":"pwrR","label":"Q3.E GND","stage":4,"_note":"Q3 emitter → GND (pwrR row 13, odd=GND)"},
+    {"r1":21,"c1":"d","r2":21,"c2":"pwrL","label":"WS GND","stage":7,"_note":"Waveshaper R38 GND end → pwrL row 21 (odd=GND)"},
+    {"r1":25,"c1":"a","r2":25,"c2":"pwrL","label":"Impact GND","stage":8,"_note":"R51 discharge to GND"},
+    {"r1":26,"c1":"a","r2":26,"c2":"pwrL","label":"Impact VCC","stage":8,"_note":"R36 to +12V (row 26, even=+12V)"},
+    {"r1":31,"c1":"c","r2":31,"c2":"pwrL","label":"PitchCap GND","stage":10,"_note":"C4 to GND (row 31, odd=GND)"},
+    {"r1":33,"c1":"d","r2":33,"c2":"pwrL","label":"PitchDis GND","stage":10,"_note":"R9 discharge path to GND"},
+    {"r1":16,"c1":"a","r2":16,"c2":"pwrL","label":"TuneLim VCC","stage":6,"_note":"R31 33K to +12V (row 16, even=+12V)"}
+  ],
+  "jpsWires": [
+    {"id":"JPS1","col":"e","row":17,"label":"TUNE_CARRIER pot","stage":6},
+    {"id":"JPS2","col":"e","row":33,"label":"TUNE_DECAY pot","stage":10},
+    {"id":"JPS3","col":"e","row":34,"label":"TUNE_DEPTH pot (1M)","stage":10}
+  ],
+  "netLabels": [
+    {"r":1,"side":"L","name":"CARRIER_CV","stage":2},
+    {"r":1,"side":"R","name":"MOD_CV","stage":4},
+    {"r":4,"side":"L","name":"CAR_TRI (pin1)","stage":2},
+    {"r":10,"side":"L","name":"CAR_SQ (pin7)","stage":2},
+    {"r":10,"side":"R","name":"MOD_TRI (pin8)","stage":4},
+    {"r":4,"side":"R","name":"MOD_SQ (pin14)","stage":4},
+    {"r":20,"side":"L","name":"SINE_OUT","stage":7},
+    {"r":22,"side":"L","name":"ACC_TRIG in","stage":8},
+    {"r":27,"side":"L","name":"UNACC_TRIG in","stage":9},
+    {"r":31,"side":"L","name":"PITCH_CAP","stage":10},
+    {"r":36,"side":"L","name":"→ Board 2","stage":1}
+  ]
+}
