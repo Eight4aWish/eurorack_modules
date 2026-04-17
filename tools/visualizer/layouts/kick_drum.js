@@ -70,46 +70,46 @@ registerLayout("EDU Kick Drum", {
   ],
 
   "twoPins": [
-    { "id": "C13", "type": "C", "value": "100nF", "r1": 12, "c1": "a", "r2": 12, "c2": "gndL", "stage": 1 },
-    { "id": "C14", "type": "C", "value": "100nF", "r1": 9, "c1": "g", "r2": 9, "c2": "gndR", "stage": 1 },
-    { "id": "C5",  "type": "C", "value": "100nF", "r1": 27, "c1": "g", "r2": 27, "c2": "gndR", "stage": 1 },
-    { "id": "C15", "type": "C", "value": "100nF", "r1": 30, "c1": "a", "r2": 30, "c2": "gndL", "stage": 1 },
+    { "id": "C13", "type": "C", "value": "100nF", "r1": 12, "c1": "a", "r2": 13, "c2": "pwrL", "stage": 1 },
+    { "id": "C14", "type": "C", "value": "100nF", "r1": 9, "c1": "g", "r2": 9, "c2": "pwrR", "stage": 1 },
+    { "id": "C5",  "type": "C", "value": "100nF", "r1": 27, "c1": "g", "r2": 27, "c2": "pwrR", "stage": 1 },
+    { "id": "C15", "type": "C", "value": "100nF", "r1": 30, "c1": "a", "r2": 31, "c2": "pwrL", "stage": 1 },
 
     { "id": "C8",  "type": "C", "value": "10nF",  "r1": 8,  "c1": "g", "r2": 10, "c2": "g", "stage": 2 },
-    { "id": "R8",  "type": "R", "value": "39K",   "r1": 10, "c1": "h", "r2": 10, "c2": "gndR", "stage": 2 },
-    { "id": "VD6", "type": "D", "value": "1N4148", "r1": 10, "c1": "gndR", "r2": 10, "c2": "i", "stage": 2 },
-    { "id": "R16", "type": "R", "value": "100K",  "r1": 5,  "c1": "+12v", "r2": 5, "c2": "a", "stage": 2 },
-    { "id": "R4",  "type": "R", "value": "33K",   "r1": 5,  "c1": "b", "r2": 5, "c2": "gndL", "stage": 2 },
+    { "id": "R8",  "type": "R", "value": "39K",   "r1": 10, "c1": "h", "r2": 11, "c2": "pwrR", "stage": 2 },
+    { "id": "VD6", "type": "D", "value": "1N4148", "r1": 11, "c1": "pwrR", "r2": 10, "c2": "i", "stage": 2 },
+    { "id": "R16", "type": "R", "value": "100K",  "r1": 4,  "c1": "pwrL", "r2": 5, "c2": "a", "stage": 2 },
+    { "id": "R4",  "type": "R", "value": "33K",   "r1": 5,  "c1": "b", "r2": 5, "c2": "pwrL", "stage": 2 },
 
     { "id": "R13", "type": "R", "value": "100K",  "r1": 12, "c1": "g", "r2": 13, "c2": "g", "stage": 3 },
-    { "id": "R3",  "type": "R", "value": "120K",  "r1": 13, "c1": "i", "r2": 13, "c2": "gndR", "stage": 3 },
+    { "id": "R3",  "type": "R", "value": "120K",  "r1": 13, "c1": "i", "r2": 13, "c2": "pwrR", "stage": 3 },
     { "id": "R12", "type": "R", "value": "22K",   "r1": 13, "c1": "h", "r2": 15, "c2": "i", "stage": 3 },
     { "id": "VD5", "type": "D", "value": "1N4148", "r1": 3,  "c1": "b", "r2": 4, "c2": "a", "stage": 3 },
     { "id": "R18", "type": "R", "value": "100K",  "r1": 4,  "c1": "b", "r2": 9, "c2": "c", "stage": 3 },
-    { "id": "R9",  "type": "R", "value": "14K",   "r1": 9,  "c1": "d", "r2": 9, "c2": "gndL", "stage": 3 },
+    { "id": "R9",  "type": "R", "value": "14K",   "r1": 9,  "c1": "d", "r2": 9, "c2": "pwrL", "stage": 3 },
 
     { "id": "C10", "type": "C", "value": "15nF",  "r1": 8,  "c1": "b", "r2": 11, "c2": "d", "stage": 4 },
     { "id": "C11", "type": "C", "value": "15nF",  "r1": 8,  "c1": "a", "r2": 10, "c2": "d", "stage": 4 },
     { "id": "R5",  "type": "R", "value": "1M",    "r1": 10, "c1": "a", "r2": 11, "c2": "a", "stage": 4 },
-    { "id": "R27", "type": "R", "value": "10K",   "r1": 6,  "c1": "a", "r2": 6, "c2": "gndL", "stage": 4 },
+    { "id": "R27", "type": "R", "value": "10K",   "r1": 6,  "c1": "a", "r2": 7, "c2": "pwrL", "stage": 4 },
 
     { "id": "R25", "type": "R", "value": "47K",   "r1": 11, "c1": "c", "r2": 29, "c2": "g", "stage": 5 },
     { "id": "R26", "type": "R", "value": "47K",   "r1": 29, "c1": "h", "r2": 30, "c2": "g", "stage": 5 },
     { "id": "R28", "type": "R", "value": "470K",  "r1": 30, "c1": "h", "r2": 7, "c2": "b", "stage": 5 },
 
-    { "id": "C6",  "type": "C", "value": "220nF", "r1": 18, "c1": "b", "r2": 18, "c2": "gndL", "stage": 6 },
+    { "id": "C6",  "type": "C", "value": "220nF", "r1": 18, "c1": "b", "r2": 19, "c2": "pwrL", "stage": 6 },
     { "id": "C9",  "type": "C", "value": "5.6nF", "r1": 19, "c1": "a", "r2": 21, "c2": "a", "stage": 6 },
     { "id": "VD7", "type": "D", "value": "1N4148", "r1": 16, "c1": "a", "r2": 18, "c2": "a", "stage": 6 },
-    { "id": "VD8", "type": "D", "value": "1N4148", "r1": 21, "c1": "b", "r2": 21, "c2": "gndL", "stage": 6 },
+    { "id": "VD8", "type": "D", "value": "1N4148", "r1": 21, "c1": "b", "r2": 21, "c2": "pwrL", "stage": 6 },
     { "id": "R23", "type": "R", "value": "1M",    "r1": 21, "c1": "c", "r2": 7, "c2": "a", "stage": 6 },
     { "id": "R24", "type": "R", "value": "100K",  "r1": 21, "c1": "d", "r2": 23, "c2": "a", "stage": 6 },
 
     { "id": "R10", "type": "R", "value": "10K",   "r1": 22, "c1": "g", "r2": 19, "c2": "g", "stage": 7 },
     { "id": "R20", "type": "R", "value": "100K",  "r1": 23, "c1": "g", "r2": 22, "c2": "h", "stage": 7 },
-    { "id": "R22", "type": "R", "value": "2K",    "r1": 25, "c1": "a", "r2": 25, "c2": "gndL", "stage": 7 },
+    { "id": "R22", "type": "R", "value": "2K",    "r1": 25, "c1": "a", "r2": 25, "c2": "pwrL", "stage": 7 },
 
-    { "id": "C12", "type": "C", "value": "15nF",  "r1": 27, "c1": "c", "r2": 27, "c2": "gndL", "stage": 8 },
-    { "id": "R1",  "type": "R", "value": "33K",   "r1": 28, "c1": "d", "r2": 28, "c2": "gndL", "stage": 8 },
+    { "id": "C12", "type": "C", "value": "15nF",  "r1": 27, "c1": "c", "r2": 27, "c2": "pwrL", "stage": 8 },
+    { "id": "R1",  "type": "R", "value": "33K",   "r1": 28, "c1": "d", "r2": 29, "c2": "pwrL", "stage": 8 },
     { "id": "VD3", "type": "D", "value": "1N4148", "r1": 28, "c1": "c", "r2": 29, "c2": "d", "stage": 8 },
     { "id": "VD4", "type": "D", "value": "1N4148", "r1": 29, "c1": "c", "r2": 28, "c2": "b", "stage": 8 },
     { "id": "C7",  "type": "C", "value": "3.3nF", "r1": 28, "c1": "a", "r2": 29, "c2": "b", "stage": 8 },
@@ -135,14 +135,14 @@ registerLayout("EDU Kick Drum", {
   ],
 
   "powerWires": [
-    { "r1": 12, "c1": "b", "r2": 12, "c2": "+12v", "label": "DA1 VCC", "stage": 1 },
-    { "r1": 9,  "c1": "h", "r2": 9,  "c2": "-12v", "label": "DA1 VEE", "stage": 1 },
-    { "r1": 30, "c1": "b", "r2": 30, "c2": "+12v", "label": "DA2 VCC", "stage": 1 },
-    { "r1": 27, "c1": "h", "r2": 27, "c2": "-12v", "label": "DA2 VEE", "stage": 1 },
-    { "r1": 14, "c1": "c", "r2": 14, "c2": "+12v", "label": "VT2.C\u2192VCC", "stage": 3 },
-    { "r1": 17, "c1": "h", "r2": 17, "c2": "gndR", "label": "VT1.C\u2192GND", "stage": 3 },
-    { "r1": 28, "c1": "g", "r2": 28, "c2": "gndR", "label": "DA2.3\u2192GND", "stage": 5 },
-    { "r1": 17, "c1": "d", "r2": 17, "c2": "+12v", "label": "VT3.C\u2192VCC", "stage": 6 }
+    { "r1": 12, "c1": "b", "r2": 12, "c2": "pwrL", "label": "DA1 VCC", "stage": 1 },
+    { "r1": 9,  "c1": "h", "r2": 10, "c2": "pwrR", "label": "DA1 VEE", "stage": 1 },
+    { "r1": 30, "c1": "b", "r2": 30, "c2": "pwrL", "label": "DA2 VCC", "stage": 1 },
+    { "r1": 27, "c1": "h", "r2": 28, "c2": "pwrR", "label": "DA2 VEE", "stage": 1 },
+    { "r1": 14, "c1": "c", "r2": 14, "c2": "pwrL", "label": "VT2.C\u2192VCC", "stage": 3 },
+    { "r1": 17, "c1": "h", "r2": 17, "c2": "pwrR", "label": "VT1.C\u2192GND", "stage": 3 },
+    { "r1": 28, "c1": "g", "r2": 27, "c2": "pwrR", "label": "DA2.3\u2192GND", "stage": 5 },
+    { "r1": 17, "c1": "d", "r2": 18, "c2": "pwrL", "label": "VT3.C\u2192VCC", "stage": 6 }
   ],
 
   "jpsWires": [
