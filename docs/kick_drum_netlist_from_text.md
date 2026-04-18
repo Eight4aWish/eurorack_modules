@@ -30,7 +30,7 @@ production schematic.
 | 1 | 14K | R9 | Trigger voltage divider bottom |
 | 2 | 10K | R10, R27 | Pitch CV to PNP base, pitch baseline |
 | 1 | 2K | R22 | Pitch depth ceiling |
-| 3 | 1K | R21, R2, R7 | Output series + 2 unconfirmed (see notes) |
+| 3 | 1K | R21, R2, R7 | Output series, accent CV protection, 1 unconfirmed |
 | 2 | 10R | R14, R15 | Power supply series filtering |
 
 ### Capacitors (15 total)
@@ -88,7 +88,7 @@ production schematic.
 | ACC_IN | Accent node (after 100K from comparator) |
 | ACC_EMIT | PNP emitter / NPN base node |
 | ACC_TRIG | Accented trigger output (NPN emitter) |
-| TRIG_POS | Trigger after blocking diode |
+| ~~TRIG_POS~~ | ~~Removed — no blocking diode in trigger path (see Block 3 note)~~ |
 | OSC_NONINV | Oscillator op-amp non-inverting input |
 | OSC_INV | Oscillator op-amp inverting input |
 | OSC_OUT | Oscillator op-amp output |
@@ -152,35 +152,41 @@ ensures a usable trigger even at 0V CV, while limiting the maximum amplitude.
 | R13 | 100K | COMP_OUT | ACC_IN | — |
 | R3 | 120K | ACC_IN | GND | — |
 | R12 | 22K | ACC_IN | ACC_EMIT | — |
-| VT1 (BC558 PNP) | — | ACCENT_CV_IN (B) | GND (C) | ACC_EMIT (E) |
+| R2 | 1K | ACCENT_CV_IN (XS2 tip) | ACC_PROT | Series protection for PNP base |
+| VD9 (1N4148) | — | GND (anode) | ACC_PROT (cathode) | Clamps negative CV input |
+| VT1 (BC558 PNP) | — | ACC_PROT (B) | GND (C) | ACC_EMIT (E) |
 | VT2 (BC548 NPN) | — | ACC_EMIT (B) | VCC (C) | ACC_TRIG (E) |
 
 **Notes:**
 - R12 (22K) is **missing from the printed BOM** but described on p29 and
   visible on the production schematic
+- R2 (1K) is series base protection for VT1; VD9 clamps negative CV to -0.6V.
+  Both confirmed from production schematic p2.
 - At 0V accent CV: ~2V trigger spike at output (p29)
 - At max CV: kick volume does not exceed the no-CV maximum (p29)
 - 120K acts as maximum resistance for the divider, capping trigger amplitude
 - VT2 (NPN buffer) provides low-impedance output for driving both
   the oscillator trigger and envelope charge paths
-- XS2 jack tip connects directly to VT1 base (ACCENT_CV_IN)
+- XS2 jack tip → R2 (1K) → ACC_PROT node → VD9 clamp to GND → VT1 base
 
 ---
 
 ### BLOCK 3: Trigger Routing
-**Source: p13 (tutorial), p50 (schematic)**
+**Source: p13 (tutorial), p2 (production schematic)**
 
-Routes the accented trigger to the oscillator input through a blocking diode
-and voltage divider. The diode prevents the comparator's -12V low state from
-reaching the oscillator. The 100K/14K divider scales 12V down to ~1.4V.
+Routes the accented trigger to the oscillator input through a voltage divider.
+The 100K/14K divider scales 12V down to ~1.4V.
 
 | Component | Value | Pin 1 | Pin 2 |
 |-----------|-------|-------|-------|
-| VD5 (1N4148) | — | ACC_TRIG (anode) | TRIG_POS (cathode) |
-| R18 | 100K | TRIG_POS | OSC_NONINV |
+| R18 | 100K | ACC_TRIG | OSC_NONINV |
 | R9 | 14K | OSC_NONINV | GND |
 
 **Verification:** 12V × 14K/(100K+14K) = 1.47V ≈ "around 1.4V" (p13) ✓
+
+**Note:** Earlier netlist versions included VD5 (1N4148) as a blocking diode
+here. Production schematic confirms this diode is actually in the pitch
+envelope charge path (Block 6, designated VD7/VD4 — see that block).
 
 ---
 
@@ -429,17 +435,14 @@ exact placement is not described in the tutorial text.
 
 | Component | Value | Likely Role |
 |-----------|-------|-------------|
-| R2 | 1K | Input protection (likely on XS1 or XS2) |
-| R7 | 1K | Input protection or pull-down |
-| VD9 (1N4148) | — | 7th signal diode — likely CV input protection on XS3 |
+| ~~R2~~ | ~~1K~~ | **RESOLVED:** Accent CV input series protection (Block 2) |
+| R7 | 1K | Input protection or pull-down (likely on XS1 or XS3) |
+| ~~VD9 (1N4148)~~ | — | **RESOLVED:** Accent CV input negative clamp (Block 2) |
 
 **Notes:**
-- The BOM lists 1K x3. Only R21 (output series) is confidently placed.
-- The BOM lists 1N4148 x7. Only 6 are confidently placed (VD3-VD8).
-- These likely appear on the production PCB as input protection or
-  jack normalling. For the breadboard design, these can be omitted
-  initially and added once their exact placement is confirmed from
-  the physical PCB.
+- The BOM lists 1K x3. R21 (output series) and R2 (accent CV protection) are placed.
+  R7 remains unconfirmed.
+- The BOM lists 1N4148 x7. All 7 now placed: VD3-VD8 + VD9 (accent CV clamp).
 
 ---
 
@@ -450,7 +453,7 @@ NET GND (0V):
   R8.2, R4.2, R9.2, R27.2, R22.2(via DEPTH_MID), R1.2, R3.2,
   C6.2, C12.2,
   P5.wiper+pin3(TUNE DECAY), P6.pin3(PITCH CV), P4.wiper+pin3(TONE),
-  VD6.anode, VD8.cathode,
+  VD6.anode, VD8.cathode, VD9.anode,
   VT1.C(collector), DA2A.+(noninv),
   Power: C2.-, C3.+, C1/C4/C5/C13/C14/C15 (decoupling)
 
@@ -483,10 +486,7 @@ NET ACC_EMIT:
   R12.2, VT1.E(emitter), VT2.B(base)
 
 NET ACC_TRIG:
-  VT2.E(emitter), VD5.anode, VD7.anode
-
-NET TRIG_POS:
-  VD5.cathode, R18.1
+  VT2.E(emitter), R18.1, VD7.anode
 
 NET OSC_NONINV:
   R18.2, R9.1, DA1B.+(noninv)
@@ -544,7 +544,10 @@ NET VT5_BASE:
   R10.2, VT5.B(base)
 
 NET ACCENT_CV_IN:
-  XS2.tip, VT1.B(base)
+  XS2.tip, R2.1
+
+NET ACC_PROT:
+  R2.2, VD9.cathode, VT1.B(base)
 
 NET TONE_OUT:
   P4.wiper+pin3, C12.1, DA2B.+(noninv)

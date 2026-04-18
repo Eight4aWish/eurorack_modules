@@ -9,7 +9,7 @@ registerLayout("EDU Snare Drum", {
       "id": 1,
       "name": "ICs + Decoupling",
       "desc": "Install DA1, DA2, DA3 (all rotated 180deg). Add 6x 100nF decoupling caps close to each IC power pin.",
-      "test": "Verify +12V on DA1/DA2/DA3 pin 8 (row 7/18/31 col e). Verify -12V on pin 4 (row 4/15/28 col f).",
+      "test": "Verify +12V on DA1/DA2/DA3 pin 8 (row 7/18/31 col e) via pwrL even rows. Verify -12V on pin 4 (row 4/15/28 col f) via pwrR even rows.",
       "color": "#888"
     },
     {
@@ -274,7 +274,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 7,
       "c1": "a",
       "r2": 7,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 1
     },
     {
@@ -283,8 +283,8 @@ registerLayout("EDU Snare Drum", {
       "value": "100nF",
       "r1": 4,
       "c1": "g",
-      "r2": 4,
-      "c2": "gndR",
+      "r2": 3,
+      "c2": "pwrR",
       "stage": 1
     },
     {
@@ -293,8 +293,8 @@ registerLayout("EDU Snare Drum", {
       "value": "100nF",
       "r1": 18,
       "c1": "a",
-      "r2": 18,
-      "c2": "gndL",
+      "r2": 19,
+      "c2": "pwrL",
       "stage": 1
     },
     {
@@ -304,7 +304,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 15,
       "c1": "g",
       "r2": 15,
-      "c2": "gndR",
+      "c2": "pwrR",
       "stage": 1
     },
     {
@@ -314,7 +314,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 31,
       "c1": "a",
       "r2": 31,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 1
     },
     {
@@ -323,8 +323,8 @@ registerLayout("EDU Snare Drum", {
       "value": "100nF",
       "r1": 28,
       "c1": "g",
-      "r2": 28,
-      "c2": "gndR",
+      "r2": 27,
+      "c2": "pwrR",
       "stage": 1
     },
     {
@@ -348,7 +348,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 5,
       "c1": "h",
       "r2": 5,
-      "c2": "gndR",
+      "c2": "pwrR",
       "stage": 2,
       "_note": "HP_OUT to GND"
     },
@@ -356,19 +356,19 @@ registerLayout("EDU Snare Drum", {
       "id": "VD3",
       "type": "D",
       "value": "1N4148",
-      "r1": 5,
-      "c1": "gndR",
+      "r1": 1,
+      "c1": "pwrR",
       "r2": 5,
       "c2": "i",
       "stage": 2,
-      "_note": "GND(anode) to HP_OUT(cathode) clamp. Anode=gndR, cathode=HP_OUT"
+      "_note": "GND(anode, pwrR row 1) to HP_OUT(cathode, row 5R). 4-row span"
     },
     {
       "id": "R6",
       "type": "R",
       "value": "100K",
       "r1": 2,
-      "c1": "+12v",
+      "c1": "pwrL",
       "r2": 2,
       "c2": "a",
       "stage": 2,
@@ -380,8 +380,8 @@ registerLayout("EDU Snare Drum", {
       "value": "33K",
       "r1": 6,
       "c1": "h",
-      "r2": 6,
-      "c2": "gndR",
+      "r2": 7,
+      "c2": "pwrR",
       "stage": 2,
       "_note": "COMP_INV to GND. Threshold divider with R6"
     },
@@ -405,8 +405,8 @@ registerLayout("EDU Snare Drum", {
       "value": "120K",
       "r1": 8,
       "c1": "i",
-      "r2": 8,
-      "c2": "gndR",
+      "r2": 9,
+      "c2": "pwrR",
       "stage": 3,
       "_note": "ACC_IN to GND"
     },
@@ -449,8 +449,8 @@ registerLayout("EDU Snare Drum", {
       "value": "1K",
       "r1": 4,
       "c1": "a",
-      "r2": 4,
-      "c2": "gndL",
+      "r2": 5,
+      "c2": "pwrL",
       "stage": 3,
       "_note": "OSC_NONINV to GND. Voltage divider bottom with R25"
     },
@@ -507,8 +507,8 @@ registerLayout("EDU Snare Drum", {
       "value": "470R",
       "r1": 8,
       "c1": "a",
-      "r2": 8,
-      "c2": "gndL",
+      "r2": 9,
+      "c2": "pwrL",
       "stage": 4,
       "_note": "CAP_MID/TUNE bottom to GND. P5(TUNE) connects row 8L via JPS"
     },
@@ -555,12 +555,12 @@ registerLayout("EDU Snare Drum", {
       "id": "VD5",
       "type": "D",
       "value": "1N4148",
-      "r1": 7,
+      "r1": 20,
       "c1": "h",
-      "r2": 12,
+      "r2": 21,
       "c2": "h",
       "stage": 6,
-      "_note": "COMP_OUT(anode, row 7R) to ENV_CAP area(cathode, row 12R). Goes through P4+R29 on JPS"
+      "_note": "COMP_OUT(anode, row 20R via JW_COMPOUT from 7R) to DIODE_OUT(cathode, row 21R). P4.1 also on 21R"
     },
     {
       "id": "R29",
@@ -568,32 +568,32 @@ registerLayout("EDU Snare Drum", {
       "value": "1K",
       "r1": 12,
       "c1": "i",
-      "r2": 12,
+      "r2": 14,
       "c2": "g",
       "stage": 6,
-      "_note": "Attack series R. P4(ATTACK) wiper connects here via JPS"
+      "_note": "WIPER_OUT (row 12R, P4.w) to ENV_CAP (row 14R). Attack series R"
     },
     {
       "id": "C10",
       "type": "C",
       "value": "470nF",
-      "r1": 12,
-      "c1": "g",
-      "r2": 12,
-      "c2": "gndR",
+      "r1": 14,
+      "c1": "h",
+      "r2": 13,
+      "c2": "pwrR",
       "stage": 6,
-      "_note": "ENV_CAP to GND. Pitch envelope timing cap"
+      "_note": "ENV_CAP (row 14R) to GND. Pitch envelope timing cap"
     },
     {
       "id": "R19",
       "type": "R",
       "value": "27K",
-      "r1": 12,
-      "c1": "j",
+      "r1": 14,
+      "c1": "i",
       "r2": 13,
       "c2": "g",
       "stage": 6,
-      "_note": "ENV_CAP to ENV_DIV (voltage divider)"
+      "_note": "ENV_CAP (row 14R) to ENV_DIV (row 13R)"
     },
     {
       "id": "R15",
@@ -612,8 +612,8 @@ registerLayout("EDU Snare Drum", {
       "value": "330R",
       "r1": 14,
       "c1": "b",
-      "r2": 14,
-      "c2": "gndL",
+      "r2": 13,
+      "c2": "pwrL",
       "stage": 6,
       "_note": "PITCH_NPN_E (VT4 emitter) to GND. Min frequency floor"
     },
@@ -624,12 +624,12 @@ registerLayout("EDU Snare Drum", {
       "id": "R8",
       "type": "R",
       "value": "100K",
-      "r1": 33,
+      "r1": 34,
       "c1": "g",
       "r2": 33,
-      "c2": "h",
+      "c2": "g",
       "stage": 7,
-      "_note": "PITCH_CV_IN (XS2 via JPS, row 33R) to P3 input. P3 wiper goes to PCV_BUF_IN (row 29R)"
+      "_note": "PITCH_CV_IN (XS2 via JPS, row 34R) through R8 to P3 input (row 33R). Series protection"
     },
     {
       "_comment": "=== STAGE 8: NOISE GENERATOR (Block 8) ==="
@@ -638,8 +638,8 @@ registerLayout("EDU Snare Drum", {
       "id": "R9",
       "type": "R",
       "value": "100K",
-      "r1": 19,
-      "c1": "+12v",
+      "r1": 20,
+      "c1": "pwrL",
       "r2": 19,
       "c2": "a",
       "stage": 8,
@@ -652,7 +652,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 21,
       "c1": "a",
       "r2": 21,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 8,
       "_note": "NOISE_COLL (VT5 collector) to GND. Collector load"
     },
@@ -674,7 +674,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 15,
       "c1": "c",
       "r2": 15,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 8,
       "_note": "NOISE_BIAS to GND. DC bias for amp input"
     },
@@ -695,8 +695,8 @@ registerLayout("EDU Snare Drum", {
       "value": "22K",
       "r1": 16,
       "c1": "b",
-      "r2": 16,
-      "c2": "gndL",
+      "r2": 17,
+      "c2": "pwrL",
       "stage": 8,
       "_note": "NOISE_AMP_INV to GND. Gain-setting R (gain = 1 + 1M/22K = 46)"
     },
@@ -721,7 +721,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 22,
       "c1": "a",
       "r2": 22,
-      "c2": "+12v",
+      "c2": "pwrL",
       "stage": 9,
       "_note": "VCA_BASE to VCC. Bias for VT6"
     },
@@ -729,12 +729,12 @@ registerLayout("EDU Snare Drum", {
       "id": "VD6",
       "type": "D",
       "value": "1N4148",
-      "r1": 24,
-      "c1": "gndR",
+      "r1": 19,
+      "c1": "pwrR",
       "r2": 24,
       "c2": "i",
       "stage": 9,
-      "_note": "GND(anode) to VCA_COLL(cathode). Clamp diode"
+      "_note": "GND(anode, pwrR row 19) to VCA_COLL(cathode, row 24R). 5-row span"
     },
     {
       "id": "C17",
@@ -742,8 +742,8 @@ registerLayout("EDU Snare Drum", {
       "value": "2.2nF",
       "r1": 24,
       "c1": "h",
-      "r2": 24,
-      "c2": "gndR",
+      "r2": 23,
+      "c2": "pwrR",
       "stage": 9,
       "_note": "VCA_COLL to GND. HF filter"
     },
@@ -751,12 +751,12 @@ registerLayout("EDU Snare Drum", {
       "id": "C18",
       "type": "C",
       "value": "2.2nF",
-      "r1": 25,
-      "c1": "h",
-      "r2": 25,
-      "c2": "gndR",
+      "r1": 23,
+      "c1": "i",
+      "r2": 21,
+      "c2": "pwrR",
       "stage": 9,
-      "_note": "VCA_COLL to GND. HF filter (2nd). CHALLENGE: might need jumper from row 24R to 25R"
+      "_note": "VCA_COLL (row 23R via JW10 bridge) to GND. HF filter (2nd)"
     },
     {
       "id": "VD7",
@@ -776,7 +776,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 25,
       "c1": "i",
       "r2": 25,
-      "c2": "gndR",
+      "c2": "pwrR",
       "stage": 9,
       "_note": "NOISE_ENV_CAP to GND. Noise envelope timing cap"
     },
@@ -790,7 +790,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 27,
       "c1": "a",
       "r2": 27,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 10,
       "_note": "VT2 collector (snappy discharge) to GND"
     },
@@ -826,7 +826,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 33,
       "c1": "a",
       "r2": 33,
-      "c2": "gndL",
+      "c2": "pwrL",
       "stage": 11,
       "_note": "HPF_A to GND"
     },
@@ -837,7 +837,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 34,
       "c1": "a",
       "r2": 34,
-      "c2": "-12v",
+      "c2": "pwrR",
       "stage": 11,
       "_note": "HPF_EMIT (VT7 emitter, row 34L) to VEE (-12V). Headroom bias"
     },
@@ -870,12 +870,12 @@ registerLayout("EDU Snare Drum", {
       "id": "R38",
       "type": "R",
       "value": "100K",
-      "r1": 29,
-      "c1": "d",
+      "r1": 26,
+      "c1": "b",
       "r2": 29,
-      "c2": "a",
+      "c2": "d",
       "stage": 12,
-      "_note": "CHALLENGE: OSC_OUT needs to reach MIX_INV (row 29L, DA3B pin6). R38 from OSC_OUT to row 29a, jumper 29a-29e? Or wire from row 6L to row 29L"
+      "_note": "OSC_OUT (row 26L via JW_OSCMIX from row 6) to MIX_INV (row 29L). Drum body input to mixer"
     },
     {
       "id": "R26",
@@ -999,7 +999,7 @@ registerLayout("EDU Snare Drum", {
       "bR": 32,
       "bC": "d",
       "cR": 32,
-      "cC": "+12v",
+      "cC": "pwrL",
       "stage": 11,
       "_note": "E=HPF_EMIT(34L), B=HPF input(32L from C20), C=VCC. Emitter follower. CHALLENGE: B and C same row - may need to split across rows"
     }
@@ -1030,7 +1030,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 11,
       "c1": "i",
       "r2": 11,
-      "c2": "gndR",
+      "c2": "pwrR",
       "label": "VT1.C\u2192GND",
       "stage": 3,
       "_note": "VT1 collector (row 11R) to GND rail"
@@ -1059,8 +1059,8 @@ registerLayout("EDU Snare Drum", {
       "id": "JW6",
       "r1": 16,
       "c1": "g",
-      "r2": 16,
-      "c2": "gndR",
+      "r2": 17,
+      "c2": "pwrR",
       "label": "DA2A.+\u2192GND",
       "stage": 5,
       "_note": "DA2A non-inv input (pin 3, row 16R) to GND"
@@ -1069,8 +1069,8 @@ registerLayout("EDU Snare Drum", {
       "id": "JW7",
       "r1": 28,
       "c1": "a",
-      "r2": 28,
-      "c2": "gndL",
+      "r2": 29,
+      "c2": "pwrL",
       "label": "DA3B.+\u2192GND",
       "stage": 12,
       "_note": "DA3B non-inv input (pin 5, row 28L) to GND"
@@ -1090,7 +1090,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 23,
       "c1": "b",
       "r2": 23,
-      "c2": "gndL",
+      "c2": "pwrL",
       "label": "VT6.E\u2192GND",
       "stage": 9,
       "_note": "VCA transistor emitter to GND"
@@ -1114,14 +1114,34 @@ registerLayout("EDU Snare Drum", {
       "label": "VT2.C L\u2194R",
       "stage": 10,
       "_note": "VT2 collector (27R) to R22 (27L)"
+    },
+    {
+      "id": "JW_COMPOUT",
+      "r1": 7,
+      "c1": "j",
+      "r2": 20,
+      "c2": "g",
+      "label": "COMP_OUT\u2192VD5",
+      "stage": 6,
+      "_note": "Carry COMP_OUT (row 7R) to VD5 anode area (row 20R). Long wire"
+    },
+    {
+      "id": "JW_OSCMIX",
+      "r1": 6,
+      "c1": "d",
+      "r2": 26,
+      "c2": "a",
+      "label": "OSC_OUT\u2192mixer",
+      "stage": 12,
+      "_note": "Carry OSC_OUT (row 6L) to R38 area (row 26L). Long wire for drum body to mixer"
     }
   ],
   "powerWires": [
     {
       "r1": 7,
       "c1": "b",
-      "r2": 7,
-      "c2": "+12v",
+      "r2": 6,
+      "c2": "pwrL",
       "label": "DA1 VCC",
       "stage": 1
     },
@@ -1129,7 +1149,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 4,
       "c1": "h",
       "r2": 4,
-      "c2": "-12v",
+      "c2": "pwrR",
       "label": "DA1 VEE",
       "stage": 1
     },
@@ -1137,23 +1157,23 @@ registerLayout("EDU Snare Drum", {
       "r1": 18,
       "c1": "b",
       "r2": 18,
-      "c2": "+12v",
+      "c2": "pwrL",
       "label": "DA2 VCC",
       "stage": 1
     },
     {
       "r1": 15,
       "c1": "h",
-      "r2": 15,
-      "c2": "-12v",
+      "r2": 16,
+      "c2": "pwrR",
       "label": "DA2 VEE",
       "stage": 1
     },
     {
       "r1": 31,
       "c1": "b",
-      "r2": 31,
-      "c2": "+12v",
+      "r2": 30,
+      "c2": "pwrL",
       "label": "DA3 VCC",
       "stage": 1
     },
@@ -1161,7 +1181,7 @@ registerLayout("EDU Snare Drum", {
       "r1": 28,
       "c1": "h",
       "r2": 28,
-      "c2": "-12v",
+      "c2": "pwrR",
       "label": "DA3 VEE",
       "stage": 1
     },
@@ -1169,17 +1189,12 @@ registerLayout("EDU Snare Drum", {
       "r1": 8,
       "c1": "d",
       "r2": 8,
-      "c2": "+12v",
+      "c2": "pwrL",
       "label": "VT3.C\u2192VCC",
       "stage": 3
     },
     {
-      "r1": 32,
-      "c1": "d",
-      "r2": 32,
-      "c2": "+12v",
-      "label": "VT7.C\u2192VCC",
-      "stage": 11
+      "_removed": "VT7.C→VCC power wire removed — VT7 collector connects directly to pwrL row 32 via cC pin. Any wire from row 32L would short VT7 base to VCC."
     }
   ],
   "jpsWires": [
@@ -1229,29 +1244,30 @@ registerLayout("EDU Snare Drum", {
     {
       "id": "P4.1",
       "label": "ATTACK pin1",
-      "row": 12,
+      "row": 21,
       "col": "j",
       "stage": 6,
-      "_note": "Between VD5 cathode and R29. Series resistance in charge path"
+      "_note": "DIODE_OUT (row 21R). VD5 cathode also on 21R. Pot resistance leads to P4.w"
     },
     {
       "id": "P4.w",
       "label": "ATTACK wiper",
       "row": 12,
       "col": "h",
-      "stage": 6
+      "stage": 6,
+      "_note": "WIPER_OUT (row 12R). R29 bridges from here to ENV_CAP on row 14R"
     },
     {
       "id": "XS2",
       "label": "TUNE CV IN",
-      "row": 33,
+      "row": 34,
       "col": "i",
       "stage": 7
     },
     {
       "id": "P3.1",
       "label": "PITCH CV pin1",
-      "row": 33,
+      "row": 34,
       "col": "j",
       "stage": 7
     },
@@ -1266,7 +1282,7 @@ registerLayout("EDU Snare Drum", {
       "id": "P3.3",
       "label": "PITCH CV gnd",
       "row": 29,
-      "col": "gndR",
+      "col": "pwrR",
       "stage": 7
     },
     {
@@ -1381,8 +1397,26 @@ registerLayout("EDU Snare Drum", {
     {
       "r": 12,
       "side": "R",
+      "name": "WIPER_OUT",
+      "stage": 6
+    },
+    {
+      "r": 14,
+      "side": "R",
       "name": "ENV_CAP",
       "stage": 6
+    },
+    {
+      "r": 21,
+      "side": "R",
+      "name": "DIODE_OUT",
+      "stage": 6
+    },
+    {
+      "r": 26,
+      "side": "L",
+      "name": "OSC_MIX",
+      "stage": 12
     },
     {
       "r": 13,
@@ -1509,15 +1543,17 @@ registerLayout("EDU Snare Drum", {
     "R4 (470K decay feedback) spans from row 18R to row 8L \u2014 very long. Consider using a jumper wire.",
     "R13 (47K decay input) spans from row 6L to row 17R \u2014 long. May need wire assist.",
     "R15 (47K env divider) spans from row 13R to row 30R \u2014 very long across board.",
-    "VD5 spans from row 7R to row 12R \u2014 long for a diode. May need wire + diode nearby.",
+    "JW_COMPOUT spans row 7R to row 20R (13 rows) \u2014 long wire carrying COMP_OUT to VD5 anode.",
     "VD7 spans from row 7R to row 25R \u2014 very long. Use wire to carry COMP_OUT to noise env area.",
     "R25 (10K trigger divider) spans from row 11L to row 4L \u2014 7 rows. Doable with leads.",
     "C19 (1nF HPF) spans from row 24R to row 33L \u2014 across centre gap AND long distance. Wire needed.",
-    "R26 (10K noise mixer input) spans from row 35L to row 29L \u2014 6 rows. Doable.",
+    "JW_OSCMIX spans row 6L to row 26L (20 rows) \u2014 long wire carrying OSC_OUT to mixer R38.",
     "VT6 (VCA NPN) has E and C on same row different sides \u2014 may need creative placement.",
     "VT7 (HPF follower) has B and C listed on same row \u2014 split across rows if needed.",
     "P5 (TUNE) connects to CAP_MID. With wiper+pin3 shorted, both pins go to row 8L area.",
-    "COMP_OUT (row 7R) feeds three destinations: accent R7, pitch env VD5, noise env VD7. All 3 share row 7 right side.",
+    "COMP_OUT (row 7R) feeds three destinations: accent R7, pitch env JW_COMPOUT, noise env VD7. All 3 share row 7 right side.",
+    "VD3 clamp diode spans 4 rows (pwrR row 1 to 5,i). VD6 clamp diode spans 5 rows (pwrR row 19 to 24,i). Both doable with 1N4148 leads.",
+    "C18 (2.2nF) signal leg on row 23R (VCA_COLL via JW10), GND on pwrR row 21. 2-row span.",
     "The spare board mount strip (rows 37-40 area) can be used for overflow if needed."
   ]
 });

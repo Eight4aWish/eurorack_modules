@@ -76,7 +76,7 @@ registerLayout("EDU Kick Drum", {
     { "id": "C15", "type": "C", "value": "100nF", "r1": 30, "c1": "a", "r2": 31, "c2": "pwrL", "stage": 1 },
 
     { "id": "C8",  "type": "C", "value": "10nF",  "r1": 8,  "c1": "g", "r2": 10, "c2": "g", "stage": 2 },
-    { "id": "R8",  "type": "R", "value": "39K",   "r1": 10, "c1": "h", "r2": 11, "c2": "pwrR", "stage": 2 },
+    { "id": "R8",  "type": "R", "value": "39K",   "r1": 10, "c1": "h", "r2": 7, "c2": "pwrR", "stage": 2 },
     { "id": "VD6", "type": "D", "value": "1N4148", "r1": 11, "c1": "pwrR", "r2": 10, "c2": "i", "stage": 2 },
     { "id": "R16", "type": "R", "value": "100K",  "r1": 4,  "c1": "pwrL", "r2": 5, "c2": "a", "stage": 2 },
     { "id": "R4",  "type": "R", "value": "33K",   "r1": 5,  "c1": "b", "r2": 5, "c2": "pwrL", "stage": 2 },
@@ -84,8 +84,9 @@ registerLayout("EDU Kick Drum", {
     { "id": "R13", "type": "R", "value": "100K",  "r1": 12, "c1": "g", "r2": 13, "c2": "g", "stage": 3 },
     { "id": "R3",  "type": "R", "value": "120K",  "r1": 13, "c1": "i", "r2": 13, "c2": "pwrR", "stage": 3 },
     { "id": "R12", "type": "R", "value": "22K",   "r1": 13, "c1": "h", "r2": 15, "c2": "i", "stage": 3 },
-    { "id": "VD5", "type": "D", "value": "1N4148", "r1": 3,  "c1": "b", "r2": 4, "c2": "a", "stage": 3 },
-    { "id": "R18", "type": "R", "value": "100K",  "r1": 4,  "c1": "b", "r2": 9, "c2": "c", "stage": 3 },
+    { "id": "R2",  "type": "R", "value": "1K",    "r1": 14, "c1": "i", "r2": 16, "c2": "i", "stage": 3, "_note": "Accent CV series protection. XS2 (row 14R) → ACC_PROT (row 16R, VT1.B)" },
+    { "id": "VD9", "type": "D", "value": "1N4148", "r1": 15, "c1": "pwrR", "r2": 16, "c2": "j", "stage": 3, "_note": "Accent CV negative clamp. Anode=GND (pwrR row 15 odd), cathode=ACC_PROT (row 16R)" },
+    { "id": "R18", "type": "R", "value": "100K",  "r1": 3,  "c1": "b", "r2": 9, "c2": "c", "stage": 3 },
     { "id": "R9",  "type": "R", "value": "14K",   "r1": 9,  "c1": "d", "r2": 9, "c2": "pwrL", "stage": 3 },
 
     { "id": "C10", "type": "C", "value": "15nF",  "r1": 8,  "c1": "b", "r2": 11, "c2": "d", "stage": 4 },
@@ -141,13 +142,13 @@ registerLayout("EDU Kick Drum", {
     { "r1": 27, "c1": "h", "r2": 28, "c2": "pwrR", "label": "DA2 VEE", "stage": 1 },
     { "r1": 14, "c1": "c", "r2": 14, "c2": "pwrL", "label": "VT2.C\u2192VCC", "stage": 3 },
     { "r1": 17, "c1": "h", "r2": 17, "c2": "pwrR", "label": "VT1.C\u2192GND", "stage": 3 },
-    { "r1": 28, "c1": "g", "r2": 27, "c2": "pwrR", "label": "DA2.3\u2192GND", "stage": 5 },
+    { "r1": 28, "c1": "g", "r2": 29, "c2": "pwrR", "label": "DA2.3\u2192GND", "stage": 5 },
     { "r1": 17, "c1": "d", "r2": 18, "c2": "pwrL", "label": "VT3.C\u2192VCC", "stage": 6 }
   ],
 
   "jpsWires": [
     { "id": "XS1",  "label": "TRIGGER IN",    "row": 8,  "col": "h", "stage": 2 },
-    { "id": "XS2",  "label": "ACCENT CV",     "row": 16, "col": "i", "stage": 3 },
+    { "id": "XS2",  "label": "ACCENT CV",     "row": 14, "col": "j", "stage": 3 },
     { "id": "P2.1", "label": "PITCH pin1",    "row": 8,  "col": "c", "stage": 4 },
     { "id": "P2.w", "label": "PITCH wiper",   "row": 6,  "col": "c", "stage": 4 },
     { "id": "P1.1", "label": "DECAY pin1",    "row": 29, "col": "i", "stage": 5 },
@@ -165,7 +166,7 @@ registerLayout("EDU Kick Drum", {
 
   "netLabels": [
     { "r": 3,  "side": "L", "name": "ACC_TRIG",      "stage": 3 },
-    { "r": 4,  "side": "L", "name": "TRIG_POS",       "stage": 3 },
+    { "r": 3,  "side": "L", "name": "ACC_TRIG→OSC",    "stage": 3 },
     { "r": 5,  "side": "L", "name": "COMP_INV",       "stage": 2 },
     { "r": 6,  "side": "L", "name": "PITCH_BOT",      "stage": 4 },
     { "r": 7,  "side": "L", "name": "CAP_MID",        "stage": 4 },
@@ -182,7 +183,8 @@ registerLayout("EDU Kick Drum", {
     { "r": 15, "side": "L", "name": "ACC_EMIT",       "stage": 3 },
     { "r": 15, "side": "R", "name": "ACC_EMIT",       "stage": 3 },
     { "r": 16, "side": "L", "name": "ACC_TRIG",       "stage": 3 },
-    { "r": 16, "side": "R", "name": "ACCENT_CV_IN",   "stage": 3 },
+    { "r": 14, "side": "R", "name": "ACCENT_CV_IN",   "stage": 3 },
+    { "r": 16, "side": "R", "name": "ACC_PROT",        "stage": 3 },
     { "r": 18, "side": "L", "name": "ENV_CAP",        "stage": 6 },
     { "r": 18, "side": "R", "name": "ENV_CAP",        "stage": 6 },
     { "r": 19, "side": "L", "name": "ENV_BUF",        "stage": 6 },
