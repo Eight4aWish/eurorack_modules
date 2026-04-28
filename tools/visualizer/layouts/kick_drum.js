@@ -2,8 +2,28 @@ registerLayout("EDU Kick Drum", {
   "title": "MKI x ES EDU KICK DRUM",
   "source": "docs/mkixes - Kick.pdf",
   "board": "n8synth 6HP",
-  "revision": "1.0",
-  "notes": "Based on production schematic p50. BOM corrections: R12 (22K) and C9 (5.6nF) missing from printed BOM.",
+  "revision": "1.1",
+  "notes": "Rev 1.1: Pitch envelope section rewritten to match production schematic p50. Changes vs rev 1.0: added R11 (10K) and VD5 (1N4148); removed R10; R20 value 100K→1K; VT3 PNP rewired (E to pot output, C to GND, B to P6 wiper+VD5); R24 sources from ENV_BUF (was SMOOTH); JW2 removed. Stage-8 fix: P3 DISTORTION pot now has both wires (pin1 at r31:c DIST_OUT, wiper+pin2 at r33:b DIST_INV ext). R1 relocated to r33 and JW8 bridges DIST_INV to the new row. See _rework_notes below.",
+
+  "_rework_notes": [
+    "=== STAGE 6 — physical rework to the already-soldered board ===",
+    "R1. REMOVE JW2 jumper (was r18:c ↔ r18:g). ENV_CAP half-rows no longer bridged.",
+    "R2. RELOCATE R24 (100K): desolder the r21:d end, move that lead to r19:b. R24 now sources from ENV_BUF instead of SMOOTH. (r23:a end unchanged.)",
+    "R3. ADD R11 (10K) between r18:e and r20:a. New series element ahead of P5.",
+    "R4. ADD VD5 (1N4148) at r19:pwrR → r19:i, stripe toward r19:i (anode = GND).",
+    "R5. REWIRE P5 TUNE DECAY pot. Remove the existing single wire at r20:g. Run two new wires: CCW → r20:b, wiper+CW (shorted at pot) → r18:i.",
+    "R6. ADD powerWire r20:j → r21:pwrR. Grounds VT3.C. (When stage 7 adds P6.CCW at r20:i it will ride on this same GND half-row — no extra wire needed.)",
+    "=== STAGE 7 — fresh build (nothing here was soldered yet) ===",
+    "B1. Place R20 (1K) at r23:g ↔ r22:h. NOTE: schematic value is 1K, BOM-printed 100K is wrong.",
+    "B2. Place R22 (2K) at r24:d ↔ r25:a (in series with P7).",
+    "B3. Place VT5 (BC548 NPN) at r22-24 col b (C-B-E top-to-bottom).",
+    "B4. Place JW6 from r22:a → r7:c (VT5.C → CAP_MID).",
+    "B5. Wire XS3 PITCH CV jack → r23:h.",
+    "B6. Wire P6 PITCH CV pot as 3-terminal divider: CW → r22:i (to R20), wiper → r19:j (to VT3.B via VD5), CCW → r20:i (lands on GND half-row from R7).",
+    "B7. Wire P7 TUNE DEPTH pot: wiper+CCW (shorted at pot) → r25:b (DEPTH_MID), CW → r26:a.",
+    "B8. ADD powerWire r26:a → r25:pwrL (P7.CW → GND).",
+    "B9. NOTE on P7 direction: in the old schema CW = max degen = min depth; in the new wiring CW = GND = min degen = max depth. Pot sweep is reversed relative to rev 1.0."
+  ],
 
   "stages": [
     { "id": 1, "name": "ICs + Power",
@@ -26,16 +46,16 @@ registerLayout("EDU Kick Drum", {
       "desc": "DA2A inverts OSC_OUT via R25/R26. P1 (1M) sets feedback gain. R28 (470K) feeds back to CAP_MID, extending oscillation.",
       "test": "Turn DECAY pot. Oscillation should sustain longer at higher settings without droning.",
       "color": "#3498db" },
-    { "id": 6, "name": "Pitch Envelope",
-      "desc": "VD7 charges C6 from trigger. VT5 (PNP) discharges through P5 (tune decay). VT3 buffers envelope. C9/VD8/R23 smooth the tail. R24 drives pitch control.",
-      "test": "Probe ENV_BUF (row 19L). Should see decaying voltage on trigger. Hear pitch sweep downward.",
+    { "id": 6, "name": "Pitch Envelope (rev 1.1)",
+      "desc": "VD7 charges C6 from trigger. Discharge path: ENV_CAP → R11 (10K) → P5 (TUNE DECAY rheostat) → VT3.E → VT3.C → GND. VT4 (NPN) buffers envelope to ENV_BUF. VD5 sits at VT3.B as a negative clamp (P6 in stage 7 provides the DC drive). C9/VD8/R23 form push-pull compensation from ENV_BUF into CAP_MID.",
+      "test": "Not fully testable until stage 7 wires P6 (VT3.B floats otherwise). After stage 7, probe ENV_BUF (row 19L) — should show decay on trigger, length set by P5.",
       "color": "#9b59b6" },
-    { "id": 7, "name": "Pitch CV",
-      "desc": "VT4 (NPN) modulates CAP_MID resistance from smoothed envelope. P7 (tune depth) sets sweep range, R22 (2K) sets ceiling. R20/P6/R10 route external pitch CV to VT5 base.",
-      "test": "Adjust TUNE DEPTH and PITCH CV pots. External CV at XS3 should shift base pitch.",
+    { "id": 7, "name": "Pitch CV + Modulator (rev 1.1)",
+      "desc": "PITCH CV jack → R20 (1K protect) → P6 CW. P6 wiper → VD5 clamp → VT3.B (sets envelope floor). P6 CCW → GND. VT5 (NPN) modulates CAP_MID from ENV_BUF directly (via R24 100K). P7 (TUNE DEPTH) + R22 (2K) set emitter degeneration: CW=min degen=max depth.",
+      "test": "With stage 6 complete: probe ENV_BUF should show decay. Adjust P6 for swoop depth; P7 for sweep range. Listen for downward pitch sweep on trigger.",
       "color": "#1abc9c" },
     { "id": 8, "name": "Tone + Distortion + Output",
-      "desc": "P4/C12 low-pass filter on OSC_OUT. DA2B non-inverting amp with VD3/VD4 diode clipping, P3 gain, C7 HF soften. R21 output series resistor.",
+      "desc": "P4/C12 low-pass filter on OSC_OUT. DA2B non-inverting amp with VD3/VD4 diode clipping, P3 gain, C7 HF soften. R21 output series resistor. P3 wired as variable R: pin 1 → DIST_OUT (r31:c via JW7 ext), wiper+pin 2 shorted at pot → DIST_INV (r33:b via JW8 ext). R1 lives on r33 so JW8 can originate at r28:d.",
       "test": "Full signal at XS4 OUTPUT. TONE knob cuts click. DISTORTION adds harmonics. Done!",
       "color": "#f39c12" }
   ],
@@ -99,18 +119,19 @@ registerLayout("EDU Kick Drum", {
     { "id": "R28", "type": "R", "value": "470K",  "r1": 30, "c1": "h", "r2": 7, "c2": "b", "stage": 5 },
 
     { "id": "C6",  "type": "C", "value": "220nF", "r1": 18, "c1": "b", "r2": 19, "c2": "pwrL", "stage": 6 },
-    { "id": "C9",  "type": "C", "value": "5.6nF", "r1": 19, "c1": "a", "r2": 21, "c2": "a", "stage": 6 },
-    { "id": "VD7", "type": "D", "value": "1N4148", "r1": 16, "c1": "a", "r2": 18, "c2": "a", "stage": 6 },
-    { "id": "VD8", "type": "D", "value": "1N4148", "r1": 21, "c1": "b", "r2": 21, "c2": "pwrL", "stage": 6 },
-    { "id": "R23", "type": "R", "value": "1M",    "r1": 21, "c1": "c", "r2": 7, "c2": "a", "stage": 6 },
-    { "id": "R24", "type": "R", "value": "100K",  "r1": 21, "c1": "d", "r2": 23, "c2": "a", "stage": 6 },
+    { "id": "C9",  "type": "C", "value": "5.6nF", "r1": 19, "c1": "a", "r2": 21, "c2": "a", "stage": 6, "_note": "ENV_BUF → SMOOTH (unchanged from rev 1.0)" },
+    { "id": "VD7", "type": "D", "value": "1N4148", "r1": 16, "c1": "a", "r2": 18, "c2": "a", "stage": 6, "_note": "Stripe toward ENV_CAP (row 18L)" },
+    { "id": "VD8", "type": "D", "value": "1N4148", "r1": 21, "c1": "b", "r2": 21, "c2": "pwrL", "stage": 6, "_note": "Stripe toward GND (pwrL, row 21 odd=GND)" },
+    { "id": "R23", "type": "R", "value": "1M",    "r1": 21, "c1": "c", "r2": 7, "c2": "a", "stage": 6, "_note": "SMOOTH → CAP_MID (push-pull compensation)" },
+    { "id": "R24", "type": "R", "value": "100K",  "r1": 19, "c1": "b", "r2": 23, "c2": "a", "stage": 6, "_note": "REWIRED rev 1.1: now sources from ENV_BUF (r19L). Old position was r21:d ↔ r23:a. Desolder the r21:d end, resolder at r19:b. r23:a end unchanged." },
+    { "id": "R11", "type": "R", "value": "10K",   "r1": 18, "c1": "e", "r2": 20, "c2": "a", "stage": 6, "_note": "NEW rev 1.1: series with P5 TUNE DECAY. ENV_CAP → INT_DECAY (new row 20L)" },
+    { "id": "VD5", "type": "D", "value": "1N4148", "r1": 19, "c1": "pwrR", "r2": 19, "c2": "i", "stage": 6, "_note": "NEW rev 1.1: stripe toward r19R col i (VT3.B side). Anode=GND (pwrR row 19 odd=GND)" },
 
-    { "id": "R10", "type": "R", "value": "10K",   "r1": 22, "c1": "g", "r2": 19, "c2": "g", "stage": 7 },
-    { "id": "R20", "type": "R", "value": "100K",  "r1": 23, "c1": "g", "r2": 22, "c2": "h", "stage": 7 },
-    { "id": "R22", "type": "R", "value": "2K",    "r1": 25, "c1": "a", "r2": 25, "c2": "pwrL", "stage": 7 },
+    { "id": "R20", "type": "R", "value": "1K",    "r1": 23, "c1": "g", "r2": 22, "c2": "h", "stage": 7, "_note": "Value is 1K in rev 1.1 schematic (BOM print of 100K is wrong). Stage 7 area — not yet soldered. PITCH_CV_IN (r23R) → PITCH_CV_IN_1K (r22R = P6.CW)." },
+    { "id": "R22", "type": "R", "value": "2K",    "r1": 24, "c1": "d", "r2": 25, "c2": "a", "stage": 7, "_note": "MOVED rev 1.1: was r25/pwrL. Now in series between VT5.E (r24L) and P7 (r25L DEPTH_MID)" },
 
     { "id": "C12", "type": "C", "value": "15nF",  "r1": 27, "c1": "c", "r2": 27, "c2": "pwrL", "stage": 8 },
-    { "id": "R1",  "type": "R", "value": "33K",   "r1": 28, "c1": "d", "r2": 29, "c2": "pwrL", "stage": 8 },
+    { "id": "R1",  "type": "R", "value": "33K",   "r1": 33, "c1": "a", "r2": 33, "c2": "pwrL", "stage": 8, "_note": "Relocated to r33 so r28:d can carry JW8 (extends DIST_INV to r33L where P3 wiper+pin2 lands). Stage 8 not yet soldered — no rework." },
     { "id": "VD3", "type": "D", "value": "1N4148", "r1": 28, "c1": "c", "r2": 29, "c2": "d", "stage": 8 },
     { "id": "VD4", "type": "D", "value": "1N4148", "r1": 29, "c1": "c", "r2": 28, "c2": "b", "stage": 8 },
     { "id": "C7",  "type": "C", "value": "3.3nF", "r1": 28, "c1": "a", "r2": 29, "c2": "b", "stage": 8 },
@@ -120,9 +141,9 @@ registerLayout("EDU Kick Drum", {
   "transistors": [
     { "id": "VT2", "subtype": "NPN", "value": "BC548", "eR": 16, "eC": "c", "bR": 15, "bC": "c", "cR": 14, "cC": "c", "stage": 3 },
     { "id": "VT1", "subtype": "PNP", "value": "BC558", "eR": 15, "eC": "h", "bR": 16, "bC": "h", "cR": 17, "cC": "h", "stage": 3 },
-    { "id": "VT3", "subtype": "NPN", "value": "BC548", "eR": 19, "eC": "d", "bR": 18, "bC": "d", "cR": 17, "cC": "d", "stage": 6 },
-    { "id": "VT5", "subtype": "PNP", "value": "BC558", "eR": 18, "eC": "h", "bR": 19, "bC": "h", "cR": 20, "cC": "h", "stage": 6 },
-    { "id": "VT4", "subtype": "NPN", "value": "BC548", "eR": 24, "eC": "b", "bR": 23, "bC": "b", "cR": 22, "cC": "b", "stage": 7 }
+    { "id": "VT4", "subtype": "NPN", "value": "BC548", "eR": 19, "eC": "d", "bR": 18, "bC": "d", "cR": 17, "cC": "d", "stage": 6 },
+    { "id": "VT3", "subtype": "PNP", "value": "BC558", "eR": 18, "eC": "h", "bR": 19, "bC": "h", "cR": 20, "cC": "h", "stage": 6 },
+    { "id": "VT5", "subtype": "NPN", "value": "BC548", "eR": 24, "eC": "b", "bR": 23, "bC": "b", "cR": 22, "cC": "b", "stage": 7 }
   ],
 
   "jumpers": [
@@ -130,9 +151,9 @@ registerLayout("EDU Kick Drum", {
     { "id": "JW1", "r1": 15, "c1": "a", "r2": 15, "c2": "j", "label": "ACC_EMIT", "stage": 3 },
     { "id": "JW5", "r1": 16, "c1": "b", "r2": 3,  "c2": "a", "label": "ACC_TRIG", "stage": 3 },
     { "id": "JW4", "r1": 7,  "c1": "d", "r2": 8,  "c2": "d", "label": "CAP_MID", "stage": 4 },
-    { "id": "JW2", "r1": 18, "c1": "c", "r2": 18, "c2": "g", "label": "ENV_CAP", "stage": 6 },
-    { "id": "JW6", "r1": 22, "c1": "a", "r2": 7,  "c2": "c", "label": "VT4\u2192CAP_MID", "stage": 7 },
-    { "id": "JW7", "r1": 29, "c1": "a", "r2": 31, "c2": "b", "label": "DIST_OUT", "stage": 8 }
+    { "id": "JW6", "r1": 22, "c1": "a", "r2": 7,  "c2": "c", "label": "VT5\u2192CAP_MID", "stage": 7 },
+    { "id": "JW7", "r1": 29, "c1": "a", "r2": 31, "c2": "b", "label": "DIST_OUT", "stage": 8 },
+    { "id": "JW8", "r1": 28, "c1": "d", "r2": 33, "c2": "a", "label": "DIST_INV ext", "stage": 8 }
   ],
 
   "powerWires": [
@@ -143,25 +164,31 @@ registerLayout("EDU Kick Drum", {
     { "r1": 14, "c1": "c", "r2": 14, "c2": "pwrL", "label": "VT2.C\u2192VCC", "stage": 3 },
     { "r1": 17, "c1": "h", "r2": 17, "c2": "pwrR", "label": "VT1.C\u2192GND", "stage": 3 },
     { "r1": 28, "c1": "g", "r2": 29, "c2": "pwrR", "label": "DA2.3\u2192GND", "stage": 5 },
-    { "r1": 17, "c1": "d", "r2": 18, "c2": "pwrL", "label": "VT3.C\u2192VCC", "stage": 6 }
+    { "r1": 17, "c1": "d", "r2": 18, "c2": "pwrL", "label": "VT4.C\u2192VCC", "stage": 6 },
+    { "r1": 20, "c1": "j", "r2": 21, "c2": "pwrR", "label": "VT3.C+P6.CCW\u2192GND", "stage": 6 },
+    { "r1": 26, "c1": "a", "r2": 25, "c2": "pwrL", "label": "P7.CW\u2192GND", "stage": 7 }
   ],
 
   "jpsWires": [
-    { "id": "XS1",  "label": "TRIGGER IN",    "row": 8,  "col": "h", "stage": 2 },
-    { "id": "XS2",  "label": "ACCENT CV",     "row": 14, "col": "j", "stage": 3 },
-    { "id": "P2.1", "label": "PITCH pin1",    "row": 8,  "col": "c", "stage": 4 },
-    { "id": "P2.w", "label": "PITCH wiper",   "row": 6,  "col": "c", "stage": 4 },
-    { "id": "P1.1", "label": "DECAY pin1",    "row": 29, "col": "i", "stage": 5 },
-    { "id": "P1.w", "label": "DECAY wiper",   "row": 30, "col": "i", "stage": 5 },
-    { "id": "P5",   "label": "TUNE DECAY",    "row": 20, "col": "g", "stage": 6 },
-    { "id": "XS3",  "label": "PITCH CV",      "row": 23, "col": "h", "stage": 7 },
-    { "id": "P6.w", "label": "PITCH CV att",  "row": 22, "col": "i", "stage": 7 },
-    { "id": "P7.1", "label": "DEPTH pin1",    "row": 24, "col": "a", "stage": 7 },
-    { "id": "P7.w", "label": "DEPTH wiper",   "row": 25, "col": "b", "stage": 7 },
-    { "id": "P4.1", "label": "TONE osc\u2192",    "row": 11, "col": "b", "stage": 8 },
-    { "id": "P4.w", "label": "TONE \u2192filter",  "row": 27, "col": "b", "stage": 8 },
-    { "id": "P3",   "label": "DISTORTION",    "row": 31, "col": "c", "stage": 8 },
-    { "id": "XS4",  "label": "OUTPUT",        "row": 32, "col": "b", "stage": 8 }
+    { "id": "XS1",     "label": "TRIGGER IN",         "row": 8,  "col": "h", "stage": 2 },
+    { "id": "XS2",     "label": "ACCENT CV",          "row": 14, "col": "j", "stage": 3 },
+    { "id": "P2.1",    "label": "PITCH pin1",         "row": 8,  "col": "c", "stage": 4 },
+    { "id": "P2.w",    "label": "PITCH wiper",        "row": 6,  "col": "c", "stage": 4 },
+    { "id": "P1.1",    "label": "DECAY pin1",         "row": 29, "col": "i", "stage": 5 },
+    { "id": "P1.w",    "label": "DECAY wiper",        "row": 30, "col": "i", "stage": 5 },
+    { "id": "P5.CCW",  "label": "TUNE DECAY CCW",     "row": 20, "col": "b", "stage": 6 },
+    { "id": "P5.w+CW", "label": "TUNE DECAY wiper+CW","row": 18, "col": "i", "stage": 6 },
+    { "id": "XS3",     "label": "PITCH CV IN",        "row": 23, "col": "h", "stage": 7 },
+    { "id": "P6.CW",   "label": "PITCH CV CW",        "row": 22, "col": "i", "stage": 7 },
+    { "id": "P6.w",    "label": "PITCH CV wiper",     "row": 19, "col": "j", "stage": 7 },
+    { "id": "P6.CCW",  "label": "PITCH CV CCW\u2192GND", "row": 20, "col": "i", "stage": 7 },
+    { "id": "P7.w+CCW","label": "DEPTH wiper+CCW",    "row": 25, "col": "b", "stage": 7 },
+    { "id": "P7.CW",   "label": "DEPTH CW\u2192GND",     "row": 26, "col": "a", "stage": 7 },
+    { "id": "P4.1",    "label": "TONE osc\u2192",        "row": 11, "col": "b", "stage": 8 },
+    { "id": "P4.w",    "label": "TONE \u2192filter",      "row": 27, "col": "b", "stage": 8 },
+    { "id": "P3.1",    "label": "DISTORTION pin1",    "row": 31, "col": "c", "stage": 8 },
+    { "id": "P3.w+2",  "label": "DISTORTION w+pin2",  "row": 33, "col": "b", "stage": 8 },
+    { "id": "XS4",     "label": "OUTPUT",             "row": 32, "col": "b", "stage": 8 }
   ],
 
   "netLabels": [
@@ -186,15 +213,16 @@ registerLayout("EDU Kick Drum", {
     { "r": 14, "side": "R", "name": "ACCENT_CV_IN",   "stage": 3 },
     { "r": 16, "side": "R", "name": "ACC_PROT",        "stage": 3 },
     { "r": 18, "side": "L", "name": "ENV_CAP",        "stage": 6 },
-    { "r": 18, "side": "R", "name": "ENV_CAP",        "stage": 6 },
+    { "r": 18, "side": "R", "name": "VT3_E",          "stage": 6 },
     { "r": 19, "side": "L", "name": "ENV_BUF",        "stage": 6 },
-    { "r": 19, "side": "R", "name": "VT5_BASE",       "stage": 7 },
-    { "r": 20, "side": "R", "name": "VT5_C",          "stage": 6 },
+    { "r": 19, "side": "R", "name": "VT3_B",          "stage": 6 },
+    { "r": 20, "side": "L", "name": "INT_DECAY",      "stage": 6 },
+    { "r": 20, "side": "R", "name": "GND",            "stage": 6 },
     { "r": 21, "side": "L", "name": "SMOOTH",         "stage": 6 },
-    { "r": 22, "side": "R", "name": "PCV_ATT",        "stage": 7 },
-    { "r": 23, "side": "L", "name": "PCV_BASE",       "stage": 7 },
+    { "r": 22, "side": "R", "name": "PITCH_CV_IN_1K", "stage": 7 },
+    { "r": 23, "side": "L", "name": "VT5_B",          "stage": 7 },
     { "r": 23, "side": "R", "name": "PITCH_CV_IN",    "stage": 7 },
-    { "r": 24, "side": "L", "name": "VT4_E",          "stage": 7 },
+    { "r": 24, "side": "L", "name": "VT5_E",          "stage": 7 },
     { "r": 25, "side": "L", "name": "DEPTH_MID",      "stage": 7 },
     { "r": 27, "side": "L", "name": "TONE_OUT",       "stage": 1 },
     { "r": 28, "side": "L", "name": "DIST_INV",       "stage": 1 },
@@ -204,7 +232,8 @@ registerLayout("EDU Kick Drum", {
     { "r": 30, "side": "L", "name": "VCC",            "stage": 1 },
     { "r": 30, "side": "R", "name": "DECAY_OUT",      "stage": 1 },
     { "r": 31, "side": "L", "name": "DIST_OUT ext",   "stage": 8 },
-    { "r": 32, "side": "L", "name": "OUTPUT_J",       "stage": 8 }
+    { "r": 32, "side": "L", "name": "OUTPUT_J",       "stage": 8 },
+    { "r": 33, "side": "L", "name": "DIST_INV ext",   "stage": 8 }
   ]
 }
 );

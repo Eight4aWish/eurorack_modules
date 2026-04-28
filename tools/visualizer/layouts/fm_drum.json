@@ -1,0 +1,1448 @@
+{
+  "title": "MKI x ES EDU FM DRUM",
+  "source": "docs/fm_drum_netlist.md",
+  "board": "n8synth 6HP",
+  "revision": "0.1",
+  "notes": "Auto-generated skeleton \u2014 row/column placements need to be filled in.",
+  "stages": [
+    {
+      "id": 1,
+      "name": "ICs + Power",
+      "desc": "Install  and decoupling caps. Wire IC power pins to rails.",
+      "test": "Verify +12V/-12V on IC power pins.",
+      "color": "#888"
+    },
+    {
+      "id": 2,
+      "name": "Gate-to-Trigger Converter",
+      "desc": "Converts sustained gate input to a short trigger pulse via HP filter + comparator.",
+      "test": "",
+      "color": "#e67e22"
+    },
+    {
+      "id": 3,
+      "name": "Accent CV Section",
+      "desc": "Limits trigger amplitude based on external accent CV. PNP sets voltage floor,\nNPN buffers the output. Creates both accented and unaccented trigger outputs.",
+      "test": "",
+      "color": "#e74c3c"
+    },
+    {
+      "id": 4,
+      "name": "Decay Envelope",
+      "desc": "Simple diode-cap-pot envelope. Trigger charges cap instantly through diode;\ncap discharges slowly through pot + minimum resistor.",
+      "test": "",
+      "color": "#2ecc71"
+    },
+    {
+      "id": 5,
+      "name": "Pitch Envelope",
+      "desc": "Trigger charges pitch cap through diode + small series resistor (470\u03a9 softens\nattack). Cap discharges through tune decay pot + 1K min. Output isolated by\ndiode so pitch only bends downward from base t",
+      "test": "",
+      "color": "#3498db"
+    },
+    {
+      "id": 6,
+      "name": "Carrier VCO",
+      "desc": "909-style triangle VCO. Integrator + schmitt trigger with NPN current switch.\nGenerates triangle (from integrator) and square (from schmitt) waves.",
+      "test": "",
+      "color": "#9b59b6"
+    },
+    {
+      "id": 7,
+      "name": "Carrier VCO Reset",
+      "desc": "Resets carrier VCO phase on trigger by discharging integrator cap through\nNPN + 10K bridge. Ensures consistent attack transient on every hit.",
+      "test": "",
+      "color": "#1abc9c"
+    },
+    {
+      "id": 8,
+      "name": "Modulator VCO",
+      "desc": "Uses DA1 sections C (integrator) and D (schmitt trigger). Differences from carrier:\n1. C6 = 2.2nF (vs 330pF) \u2014 shifts frequency range much lower\n2. R25 = 100K (vs 68K) \u2014 wider schmitt thresholds for s",
+      "test": "",
+      "color": "#f39c12"
+    },
+    {
+      "id": 9,
+      "name": "Modulator VCO Reset",
+      "desc": "Same as carrier reset but for modulator integrator cap C6.",
+      "test": "",
+      "color": "#e91e63"
+    },
+    {
+      "id": 10,
+      "name": "Carrier CV Mixer",
+      "desc": "Passive mixer combining tune pot, pitch envelope, and modulator into CARRIER_CV.\n33K from +12V limits tune pot max to ~9V (leaves headroom for pitch envelope).",
+      "test": "",
+      "color": "#00bcd4"
+    },
+    {
+      "id": 11,
+      "name": "Tri-to-Sine Waveshaper",
+      "desc": "Anti-parallel diodes + voltage divider soft-clip the carrier triangle into\napproximate sine wave. 10K/2K divider scales triangle from ~10Vpp down to\n~1.6Vpp \u2014 just right for gradual diode conduction.",
+      "test": "",
+      "color": "#888"
+    },
+    {
+      "id": 12,
+      "name": "Impact Distortion",
+      "desc": "NPN bridges the 10K waveshaper input resistor on accented hits. Driven by\na short envelope (5.6nF + 470K decay). Reduces waveshaper scaling momentarily,\ncreating asymmetric clipping = sharp attack + e",
+      "test": "",
+      "color": "#e67e22"
+    },
+    {
+      "id": 13,
+      "name": "Added Click",
+      "desc": "Injects trigger pulse directly into waveshaper output via diode + 39K.\nAdds initial click/transient to the drum sound.",
+      "test": "",
+      "color": "#e74c3c"
+    },
+    {
+      "id": 14,
+      "name": "Decay CV",
+      "desc": "PNP transistor between decay envelope discharge path and GND creates a\nvoltage floor. Cap can only discharge to the CV level at PNP base.\n470K bypass allows slow continued discharge past the floor.",
+      "test": "",
+      "color": "#2ecc71"
+    },
+    {
+      "id": 15,
+      "name": "Crude VCA + DC Offset Trim",
+      "desc": "NPN transistor as voltage-controlled \"fake resistor\" at op-amp inverting input.\nBase current (from waveshaper) modulated by collector current (from envelope).\n200K feedback sets gain. 2M trimmer + 1M ",
+      "test": "",
+      "color": "#3498db"
+    },
+    {
+      "id": 16,
+      "name": "Sine/Pulse Switch",
+      "desc": "SPDT switch selects between sine wave output and XOR pulse output as VCA input.\nPulse path has extra 18K scaling resistor (pulse is much louder than sine).",
+      "test": "",
+      "color": "#9b59b6"
+    },
+    {
+      "id": 17,
+      "name": "XOR Pulse Gate",
+      "desc": "Discrete XOR gate from 4 diodes + PNP transistor. Takes carrier and modulator\nsquare waves, outputs ring-mod-like pulse with semi-chaotic pulse width.\nSounds harsh and metallic \u2014 ideal for cymbal/hi-h",
+      "test": "",
+      "color": "#1abc9c"
+    },
+    {
+      "id": 18,
+      "name": "High Pass Filter",
+      "desc": "Sallen-Key HPF removes low-end from XOR pulse for cymbal/hi-hat sounds.\nTransistor-based (NPN emitter follower as active element). 12 dB/oct rolloff\nstarting at ~7.5 kHz with resonance bump. 15nF outp",
+      "test": "",
+      "color": "#f39c12"
+    },
+    {
+      "id": 19,
+      "name": "FM On/Off Switch",
+      "desc": "SPDT switch selects between modulator output and GND for the FM path.\nPrevents carrier from crashing into supply rail when modulator CV goes negative.",
+      "test": "",
+      "color": "#e91e63"
+    },
+    {
+      "id": 20,
+      "name": "Tune CV",
+      "desc": "External CV controls both VCO frequencies simultaneously via PNP transistors\ninserted between tune pots and GND. PNP emitters mirror base voltage,\nshifting the voltage divider point. Diode + 1M compen",
+      "test": "",
+      "color": "#00bcd4"
+    }
+  ],
+  "ics": [],
+  "twoPins": [
+    {
+      "id": "C1",
+      "type": "C",
+      "value": "10nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "Gate HP coupling cap"
+    },
+    {
+      "id": "C10",
+      "type": "C",
+      "value": "100nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 1,
+      "_role": "IC decoupling (2 per IC)"
+    },
+    {
+      "id": "C11",
+      "type": "C",
+      "value": "100nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 1,
+      "_role": "IC decoupling (2 per IC)"
+    },
+    {
+      "id": "C12",
+      "type": "C",
+      "value": "100nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 1,
+      "_role": "IC decoupling (2 per IC)"
+    },
+    {
+      "id": "C13",
+      "type": "C",
+      "value": "47uF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "Power supply bypass (near ICs)"
+    },
+    {
+      "id": "C14",
+      "type": "C",
+      "value": "47uF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "Power supply bypass (near ICs)"
+    },
+    {
+      "id": "C15",
+      "type": "C",
+      "value": "470pF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "Sallen-Key HPF caps"
+    },
+    {
+      "id": "C2",
+      "type": "C",
+      "value": "330pF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "Carrier integrator cap"
+    },
+    {
+      "id": "C3",
+      "type": "C",
+      "value": "1uF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 4,
+      "_role": "Decay envelope timing"
+    },
+    {
+      "id": "C4",
+      "type": "C",
+      "value": "470nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 5,
+      "_role": "Pitch envelope timing"
+    },
+    {
+      "id": "C5",
+      "type": "C",
+      "value": "5.6nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 12,
+      "_role": "Impact distortion envelope"
+    },
+    {
+      "id": "C6",
+      "type": "C",
+      "value": "2.2nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "Modulator integrator cap"
+    },
+    {
+      "id": "C7",
+      "type": "C",
+      "value": "470pF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "Sallen-Key HPF caps"
+    },
+    {
+      "id": "C8",
+      "type": "C",
+      "value": "15nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "HPF DC-blocking output"
+    },
+    {
+      "id": "C9",
+      "type": "C",
+      "value": "100nF",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 1,
+      "_role": "IC decoupling (2 per IC)"
+    },
+    {
+      "id": "R1",
+      "type": "R",
+      "value": "39K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "Gate HP discharge, click injection"
+    },
+    {
+      "id": "R10",
+      "type": "R",
+      "value": "47K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 5,
+      "_role": "Pitch env mixer resistor"
+    },
+    {
+      "id": "R12",
+      "type": "R",
+      "value": "51K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "VCO bias dividers (carrier + modulator)"
+    },
+    {
+      "id": "R13",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R14",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R15",
+      "type": "R",
+      "value": "68K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "Carrier integrator\u2192schmitt coupling"
+    },
+    {
+      "id": "R16",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R17",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 6,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R2",
+      "type": "R",
+      "value": "5K6",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "Accent threshold reference"
+    },
+    {
+      "id": "R20",
+      "type": "R",
+      "value": "1M",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 7,
+      "_role": "VCO reset bias \u00d72, VCA trim baseline, tune CV bias"
+    },
+    {
+      "id": "R21",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 7,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R22",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R23",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R24",
+      "type": "R",
+      "value": "51K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "VCO bias dividers (carrier + modulator)"
+    },
+    {
+      "id": "R25",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R26",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R27",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 8,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R29",
+      "type": "R",
+      "value": "1M",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 9,
+      "_role": "VCO reset bias \u00d72, VCA trim baseline, tune CV bias"
+    },
+    {
+      "id": "R3",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R30",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 9,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R31",
+      "type": "R",
+      "value": "33K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 10,
+      "_role": "Comp feedback, tune limiter, carrier CV mixer"
+    },
+    {
+      "id": "R32",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 10,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R33",
+      "type": "R",
+      "value": "33K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 10,
+      "_role": "Comp feedback, tune limiter, carrier CV mixer"
+    },
+    {
+      "id": "R34",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 11,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R35",
+      "type": "R",
+      "value": "39K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 13,
+      "_role": "Gate HP discharge, click injection"
+    },
+    {
+      "id": "R36",
+      "type": "R",
+      "value": "470K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 12,
+      "_role": "Impact NPN pull-up, VCA emitter bias, decay CV discharge"
+    },
+    {
+      "id": "R37",
+      "type": "R",
+      "value": "18K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 16,
+      "_role": "Pulse wave VCA input scaling"
+    },
+    {
+      "id": "R38",
+      "type": "R",
+      "value": "2K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 11,
+      "_role": "Waveshaper diode bias, impact trigger envelope"
+    },
+    {
+      "id": "R39",
+      "type": "R",
+      "value": "200K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 15,
+      "_role": "VCA feedback"
+    },
+    {
+      "id": "R4",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R40",
+      "type": "R",
+      "value": "47",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 15,
+      "_role": "VCA waveshaper coupling"
+    },
+    {
+      "id": "R41",
+      "type": "R",
+      "value": "470K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 15,
+      "_role": "Impact NPN pull-up, VCA emitter bias, decay CV discharge"
+    },
+    {
+      "id": "R42",
+      "type": "R",
+      "value": "1M",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 15,
+      "_role": "VCO reset bias \u00d72, VCA trim baseline, tune CV bias"
+    },
+    {
+      "id": "R43",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 17,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R44",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R45",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 17,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R46",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R47",
+      "type": "R",
+      "value": "10K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 18,
+      "_role": "Trigger, VCO reset bridges \u00d72, waveshaper, HPF bias \u00d72, XOR pull-down"
+    },
+    {
+      "id": "R48",
+      "type": "R",
+      "value": "330K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 20,
+      "_role": "Tune CV input attenuator"
+    },
+    {
+      "id": "R49",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 20,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R5",
+      "type": "R",
+      "value": "33K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 2,
+      "_role": "Comp feedback, tune limiter, carrier CV mixer"
+    },
+    {
+      "id": "R50",
+      "type": "R",
+      "value": "470K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 14,
+      "_role": "Impact NPN pull-up, VCA emitter bias, decay CV discharge"
+    },
+    {
+      "id": "R51",
+      "type": "R",
+      "value": "2K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 12,
+      "_role": "Waveshaper diode bias, impact trigger envelope"
+    },
+    {
+      "id": "R52",
+      "type": "R",
+      "value": "1M",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 20,
+      "_role": "VCO reset bias \u00d72, VCA trim baseline, tune CV bias"
+    },
+    {
+      "id": "R53",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R54",
+      "type": "R",
+      "value": "1K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "Pitch env discharge + production protection \u00d73 (verify against PCB)"
+    },
+    {
+      "id": "R55",
+      "type": "R",
+      "value": "1K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "Pitch env discharge + production protection \u00d73 (verify against PCB)"
+    },
+    {
+      "id": "R56",
+      "type": "R",
+      "value": "1K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": null,
+      "_role": "Pitch env discharge + production protection \u00d73 (verify against PCB)"
+    },
+    {
+      "id": "R6",
+      "type": "R",
+      "value": "100K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 3,
+      "_role": "See blocks"
+    },
+    {
+      "id": "R7",
+      "type": "R",
+      "value": "4K7",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 4,
+      "_role": "Decay minimum discharge"
+    },
+    {
+      "id": "R8",
+      "type": "R",
+      "value": "470",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 5,
+      "_role": "Pitch envelope charge series"
+    },
+    {
+      "id": "R9",
+      "type": "R",
+      "value": "1K",
+      "r1": null,
+      "c1": null,
+      "r2": null,
+      "c2": null,
+      "stage": 5,
+      "_role": "Pitch env discharge + production protection \u00d73 (verify against PCB)"
+    }
+  ],
+  "transistors": [],
+  "jumpers": [],
+  "powerWires": [],
+  "jpsWires": [],
+  "netLabels": [],
+  "_netConnections": {
+    "C1": [
+      "GATE_IN",
+      "HP_OUT",
+      "HP"
+    ],
+    "R1": [
+      "HP_OUT",
+      "GND",
+      "HP"
+    ],
+    "R3": [
+      "VCC",
+      "COMP_INV",
+      "Threshold"
+    ],
+    "R5": [
+      "COMP_OUT",
+      "DA2",
+      "Positive"
+    ],
+    "R4": [
+      "HP_OUT",
+      "DA2",
+      "Signal"
+    ],
+    "R2": [
+      "DA2",
+      "GND",
+      "Threshold"
+    ],
+    "R6": [
+      "COMP_OUT",
+      "ACC_NODE"
+    ],
+    "Q9": [
+      "ACCENT_CV_IN",
+      "GND",
+      "ACC_NODE"
+    ],
+    "Q8": [
+      "ACC_NODE",
+      "VCC",
+      "ACC_TRIG"
+    ],
+    "D1": [
+      "ACC_TRIG",
+      "DECAY_CAP",
+      "Charge"
+    ],
+    "C3": [
+      "DECAY_CAP",
+      "GND",
+      "Envelope"
+    ],
+    "R7": [
+      "DECAY_CAP",
+      "GND",
+      "Min"
+    ],
+    "R8": [
+      "UNACC_TRIG",
+      "D2",
+      "Charge"
+    ],
+    "D2": [
+      "R8",
+      "PITCH_CAP",
+      "Charge"
+    ],
+    "C4": [
+      "PITCH_CAP",
+      "GND",
+      "Pitch"
+    ],
+    "R9": [
+      "PITCH_CAP",
+      "GND",
+      "Min"
+    ],
+    "D3": [
+      "PITCH_CAP",
+      "PITCH_OUT",
+      "Output"
+    ],
+    "R10": [
+      "PITCH_OUT",
+      "TUNE_MIX",
+      "Pitch"
+    ],
+    "R13": [
+      "CARRIER_CV",
+      "CAR_INT_INV",
+      "CV"
+    ],
+    "R14": [
+      "CARRIER_CV",
+      "CAR_INT_NINV",
+      "CV"
+    ],
+    "R12": [
+      "CAR_INT_NINV",
+      "GND",
+      "Bias"
+    ],
+    "C2": [
+      "CAR_INT_INV",
+      "CAR_INT_OUT",
+      "Integrator"
+    ],
+    "R15": [
+      "CAR_INT_OUT",
+      "CAR_SCH_INV",
+      "Integrator"
+    ],
+    "R16": [
+      "CAR_SCH_OUT",
+      "CAR_SCH_NINV",
+      "Schmitt"
+    ],
+    "R17": [
+      "CAR_SCH_OUT",
+      "CAR_INT_INV",
+      "Feedback"
+    ],
+    "Q1": [
+      "CAR_SCH_OUT",
+      "CAR_INT_INV",
+      "GND"
+    ],
+    "R20": [
+      "VCC",
+      "Q2",
+      "Trigger"
+    ],
+    "R21": [
+      "Q2",
+      "Q2",
+      "Bridge"
+    ],
+    "Q2": [
+      "R20",
+      "CAR_INT_OUT",
+      "CAR_INT_INV"
+    ],
+    "R22": [
+      "MOD_CV",
+      "MOD_INT_INV",
+      "CV"
+    ],
+    "R23": [
+      "MOD_CV",
+      "MOD_INT_NINV",
+      "CV"
+    ],
+    "R24": [
+      "MOD_INT_NINV",
+      "GND",
+      "Bias"
+    ],
+    "C6": [
+      "MOD_INT_INV",
+      "MOD_INT_OUT",
+      "Integrator"
+    ],
+    "R25": [
+      "MOD_INT_OUT",
+      "DA1",
+      "Integrator"
+    ],
+    "R26": [
+      "MOD_SCH_OUT",
+      "DA1",
+      "Schmitt"
+    ],
+    "R27": [
+      "MOD_SCH_OUT",
+      "MOD_INT_INV",
+      "Feedback"
+    ],
+    "Q3": [
+      "MOD_SCH_OUT",
+      "MOD_INT_INV",
+      "GND"
+    ],
+    "R29": [
+      "VCC",
+      "Q4",
+      "Trigger"
+    ],
+    "R30": [
+      "Q4",
+      "Q4",
+      "Bridge"
+    ],
+    "Q4": [
+      "R29",
+      "MOD_INT_OUT",
+      "MOD_INT_INV"
+    ],
+    "R31": [
+      "VCC",
+      "POT4",
+      "Limits"
+    ],
+    "R33": [
+      "POT4",
+      "CARRIER_CV",
+      "Tune"
+    ],
+    "R32": [
+      "FM_SW_COM",
+      "CARRIER_CV",
+      "Modulator"
+    ],
+    "D4": [
+      "GND",
+      "CARRIER_CV",
+      "Clamp"
+    ],
+    "R34": [
+      "CAR_INT_OUT",
+      "SINE_NODE",
+      "Input"
+    ],
+    "D5": [
+      "SINE_NODE",
+      "SINE_NODE",
+      "Anti"
+    ],
+    "D6": [
+      "SINE_NODE",
+      "SINE_NODE"
+    ],
+    "R38": [
+      "SINE_NODE",
+      "GND",
+      "Diode"
+    ],
+    "D7": [
+      "ACC_TRIG",
+      "C5",
+      "Trigger"
+    ],
+    "C5": [
+      "D7",
+      "IMPACT_NODE",
+      "Distortion"
+    ],
+    "R51": [
+      "IMPACT_NODE",
+      "GND",
+      "Envelope"
+    ],
+    "R36": [
+      "VCC",
+      "Q6",
+      "NPN"
+    ],
+    "Q6": [
+      "IMPACT_NODE",
+      "R34",
+      "CAR_INT_OUT"
+    ],
+    "D8": [
+      "UNACC_TRIG",
+      "CLICK_NODE",
+      "Isolation"
+    ],
+    "R35": [
+      "CLICK_NODE",
+      "SINE_OUT",
+      "Injection"
+    ],
+    "Q11": [
+      "DECAY_CV_IN",
+      "GND",
+      "DECAY_CAP"
+    ],
+    "R50": [
+      "DECAY_CAP",
+      "GND",
+      "Slow"
+    ],
+    "R40": [
+      "TYPE_SW_COM",
+      "VCA_BASE_NODE",
+      "Waveshaper"
+    ],
+    "Q5": [
+      "VCA_BASE_NODE",
+      "VCA_INV",
+      "VCA_EMIT"
+    ],
+    "R41": [
+      "VCA_EMIT",
+      "GND",
+      "Emitter"
+    ],
+    "R39": [
+      "VCA_OUT",
+      "VCA_INV",
+      "Feedback"
+    ],
+    "RV1": [
+      "VCA_INV",
+      "RV1",
+      "DC"
+    ],
+    "R42": [
+      "RV1",
+      "GND",
+      "Trim"
+    ],
+    "R37": [
+      "HPF_OUT",
+      "SW2",
+      "Pulse"
+    ],
+    "SW2": [
+      "SINE_OUT",
+      "TYPE_SW_COM",
+      "R37"
+    ],
+    "D9": [
+      "CAR_SCH_OUT",
+      "Q10"
+    ],
+    "D10": [
+      "Q10",
+      "CAR_SCH_OUT"
+    ],
+    "D11": [
+      "Q10",
+      "MOD_SCH_OUT"
+    ],
+    "D12": [
+      "MOD_SCH_OUT",
+      "Q10"
+    ],
+    "Q10": [
+      "see",
+      "see",
+      "XOR_COLL"
+    ],
+    "R43": [
+      "Q10",
+      "Q10",
+      "Bias"
+    ],
+    "R45": [
+      "XOR_OUT",
+      "GND",
+      "Output"
+    ],
+    "C7": [
+      "XOR_OUT",
+      "HPF_NODE_A",
+      "HPF"
+    ],
+    "C15": [
+      "HPF_NODE_A",
+      "Q7",
+      "HPF"
+    ],
+    "R44": [
+      "HPF_NODE_A",
+      "Q7",
+      "Sallen"
+    ],
+    "Q7": [
+      "C15",
+      "VCC",
+      "HPF_EMIT"
+    ],
+    "R46": [
+      "HPF_EMIT",
+      "VEE_BIAS",
+      "Emitter"
+    ],
+    "R47": [
+      "VEE_BIAS",
+      "VEE",
+      "Emitter"
+    ],
+    "C8": [
+      "HPF_EMIT",
+      "HPF_OUT",
+      "DC"
+    ],
+    "SW1": [
+      "MOD_INT_OUT",
+      "FM_SW_COM",
+      "GND"
+    ],
+    "R48": [
+      "TUNE_CV_IN",
+      "TUNE_CV_ATT",
+      "Input"
+    ],
+    "D13": [
+      "TUNE_CV_BIAS",
+      "PNP_BASES",
+      "Vbe"
+    ],
+    "R52": [
+      "TUNE_CV_BIAS",
+      "VEE",
+      "Ensures"
+    ],
+    "Q12": [
+      "PNP_BASES",
+      "GND",
+      "CARRIER_TUNE_BOT"
+    ],
+    "Q13": [
+      "PNP_BASES",
+      "GND",
+      "MOD_TUNE_BOT"
+    ],
+    "R49": [
+      "POT6",
+      "TUNE_CV_ATT",
+      "Tune"
+    ]
+  },
+  "_blockComponentMap": {
+    "Block 1: Gate-to-Trigger Converter": [
+      "C1",
+      "R1",
+      "R3",
+      "R5",
+      "R4",
+      "R2",
+      "DA2"
+    ],
+    "Block 2: Accent CV Section": [
+      "R6",
+      "Q9",
+      "Q8"
+    ],
+    "Block 3: Decay Envelope": [
+      "D1",
+      "C3",
+      "R7"
+    ],
+    "Block 4: Pitch Envelope": [
+      "R8",
+      "D2",
+      "C4",
+      "R9",
+      "D3",
+      "R10"
+    ],
+    "Block 5: Carrier VCO": [
+      "R13",
+      "R14",
+      "R12",
+      "C2",
+      "R15",
+      "R16",
+      "R17",
+      "Q1"
+    ],
+    "Block 6: Carrier VCO Reset": [
+      "R20",
+      "R21",
+      "Q2"
+    ],
+    "Block 7: Modulator VCO": [
+      "R22",
+      "R23",
+      "R24",
+      "C6",
+      "R25",
+      "R26",
+      "R27",
+      "Q3"
+    ],
+    "Block 8: Modulator VCO Reset": [
+      "R29",
+      "R30",
+      "Q4"
+    ],
+    "Block 9: Carrier CV Mixer": [
+      "R31",
+      "R33",
+      "R32",
+      "D4"
+    ],
+    "Block 10: Tri-to-Sine Waveshaper": [
+      "R34",
+      "D5",
+      "D6",
+      "R38"
+    ],
+    "Block 11: Impact Distortion": [
+      "D7",
+      "C5",
+      "R51",
+      "R36",
+      "Q6"
+    ],
+    "Block 12: Added Click": [
+      "D8",
+      "R35"
+    ],
+    "Block 13: Decay CV": [
+      "Q11",
+      "R50"
+    ],
+    "Block 14: Crude VCA + DC Offset Trim": [
+      "R40",
+      "Q5",
+      "R41",
+      "R39",
+      "RV1",
+      "R42",
+      "DA2"
+    ],
+    "Block 15: Sine/Pulse Switch": [
+      "R37",
+      "SW2"
+    ],
+    "Block 16: XOR Pulse Gate": [
+      "D9",
+      "D10",
+      "D11",
+      "D12",
+      "Q10",
+      "R43",
+      "R45"
+    ],
+    "Block 17: High Pass Filter": [
+      "C7",
+      "C15",
+      "R44",
+      "Q7",
+      "R46",
+      "R47",
+      "C8"
+    ],
+    "Block 18: FM On/Off Switch": [
+      "SW1"
+    ],
+    "Block 19: Tune CV": [
+      "R48",
+      "D13",
+      "R52",
+      "Q12",
+      "Q13",
+      "R49"
+    ]
+  }
+}

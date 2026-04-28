@@ -12,6 +12,14 @@
 resistor that are both described in the tutorial text AND present on the
 production schematic.
 
+**Rev 1.1 correction (2026-04-20):** Re-read production schematic p50
+revealed topology errors in pitch envelope (Blocks 6/8/9). Previously-inferred
+components R10 (10K) did not exist; R20 is 1K (not 100K); a new R11 (10K)
+in series with TUNE DECAY was missed; a new VD5 clamp on VT3 base was missed;
+R24 (100K) sources from ENV_BUF (not SMOOTH). The "smoothing network" is
+actually a push-pull compensation from VT4.emitter, NOT from the PNP base
+side. See Block 6 for full revised topology.
+
 ---
 
 ## CORRECTED BOM
@@ -22,15 +30,15 @@ production schematic.
 | 2 | 1M | R5, R23 | Oscillator bridge, smoothing discharge |
 | 1 | 470K | R28 | Decay feedback to CAP_MID |
 | 1 | 120K | R3 | Accent parallel limiter |
-| 5 | 100K | R13, R16, R18, R20, R24 | Various (see block details) |
+| 4 | 100K | R13, R16, R18, R24 | Accent input, comp threshold, trigger divider, pitch mod base drive |
 | 2 | 47K | R25, R26 | Decay buffer input + feedback |
 | 1 | 39K | R8 | Gate HP filter discharge |
 | 2 | 33K | R1, R4 | Distortion GND ref, comparator threshold |
 | 1 | **22K** | **R12** | **Accent series — MISSING FROM PRINTED BOM** |
 | 1 | 14K | R9 | Trigger voltage divider bottom |
-| 2 | 10K | R10, R27 | Pitch CV to PNP base, pitch baseline |
+| 2 | 10K | R11, R27 | TUNE DECAY series, pitch baseline |
 | 1 | 2K | R22 | Pitch depth ceiling |
-| 3 | 1K | R21, R2, R7 | Output series, accent CV protection, 1 unconfirmed |
+| 4 | 1K | R21, R2, R20, R7 | Output series, accent CV protection, pitch CV protection, 1 unconfirmed |
 | 2 | 10R | R14, R15 | Power supply series filtering |
 
 ### Capacitors (15 total)
@@ -47,10 +55,10 @@ production schematic.
 ### Semiconductors
 | Qty | Type | Designators | Role |
 |-----|------|-------------|------|
-| 7 | 1N4148 | VD3-VD9 | Signal diodes (see block details) |
+| 7 | 1N4148 | VD3, VD4, VD5, VD6, VD7, VD8, VD9 | Signal diodes (see block details) |
 | 2 | 1N5819 | VD1, VD2 | Power reverse polarity protection |
-| 2 | BC558 (PNP) | VT1, VT5 | Accent limiter, pitch CV floor |
-| 3 | BC548 (NPN) | VT2, VT3, VT4 | Accent buffer, envelope buffer, pitch CV |
+| 2 | BC558 (PNP) | VT1, VT3 | Accent limiter, pitch envelope discharge |
+| 3 | BC548 (NPN) | VT2, VT4, VT5 | Accent buffer, envelope buffer, pitch modulator |
 | 2 | TL072 | DA1, DA2 | 4 op-amp halves total |
 
 ### Potentiometers (7 total)
@@ -96,15 +104,17 @@ production schematic.
 | PITCH_BOT | Bottom of pitch pot (to baseline resistor) |
 | DECAY_INV | Decay buffer inverting input |
 | DECAY_OUT | Decay buffer output |
-| ENV_CAP | Envelope capacitor top node |
-| VT5_C | PNP collector (to TUNE DECAY pot) |
-| ENV_BUF | Envelope buffer output (VT3 emitter) |
-| SMOOTH | Smoothed envelope node |
-| PCV_BASE | Pitch CV NPN transistor base |
-| VT4_E | Pitch CV NPN emitter |
-| DEPTH_MID | Between tune depth pot and 2K |
-| PCV_ATT | Pitch CV attenuated (pot wiper to PNP base) |
-| PITCH_CV_IN | Pitch CV jack tip |
+| ENV_CAP | Envelope capacitor top node (VD7 cathode, C6, VT4.B, R11 pin1) |
+| INT_DECAY | Intermediate node after R11, before TUNE DECAY pot CCW |
+| VT3_E | PNP emitter (after P5 pot wiper+CW) — was part of ENV_CAP in rev 1.0 |
+| VT3_B | PNP base (P6 wiper + VD5 cathode) — replaces old PCV_ATT |
+| ENV_BUF | Envelope buffer output (VT4 emitter) — drives R24 and C9 |
+| SMOOTH | Push-pull compensation node (C9, VD8, R23) — does NOT drive any transistor |
+| PCV_BASE | Pitch modulator (VT5) base |
+| VT5_E | Pitch modulator (VT5) emitter |
+| DEPTH_MID | Between R22 (2K) and P7 TUNE DEPTH pot |
+| PITCH_CV_IN_1K | Between R20 (1K) and P6 PITCH CV pot CW end |
+| PITCH_CV_IN | Pitch CV jack tip (XS3) |
 | ACCENT_CV_IN | Accent CV jack tip |
 | TONE_OUT | Tone filter output (distortion + input) |
 | DIST_INV | Distortion inverting input |
@@ -211,7 +221,7 @@ ground at CAP_MID (the node between the two 15nF caps).
 - R27 (10K) sets minimum resistance → max frequency ~110Hz (p15)
 - At P2 max (260K total): frequency drops to deep sub-bass
 - R5 (1M bridge) determines oscillation decay rate and amplitude
-- CAP_MID also receives connections from: VT4 collector (pitch CV),
+- CAP_MID also receives connections from: VT5 collector (pitch CV),
   R28 (decay feedback), R23 (smoothing)
 
 ---
@@ -241,92 +251,133 @@ how much energy is fed back, extending the oscillation duration.
 
 ---
 
-### BLOCK 6: Pitch Envelope Generator
-**Source: p21-22 (tutorial), p50 (schematic)**
+### BLOCK 6: Pitch Envelope Generator (REVISED rev 1.1)
+**Source: p21-22 (tutorial), p50 (production schematic — authoritative)**
 
-A simple RC envelope: the trigger charges C6 (220nF) through a diode, and
-it discharges through the PNP transistor (VT5) and TUNE DECAY pot. VT3
-(NPN buffer) taps the envelope voltage without loading the cap. VT5 acts
-as a voltage-controlled gate in the discharge path (see Block 8).
+The trigger charges C6 (220nF) through VD7. The envelope discharges through
+**R11 (10K) + P5 (100K TUNE DECAY)** in series, then through the PNP (VT3)
+to GND. VT4 (NPN emitter follower) buffers the envelope voltage. The PNP's
+base is driven by the PITCH CV attenuator (P6) with a VD5 clamp, setting
+the discharge floor.
+
+**Schematic designator mapping (rev 1.1: transistors now match schematic; other IDs still use netlist-local names):**
+
+Transistors: **aligned with schematic** — VT1 PNP (accent), VT2 NPN (accent buffer), VT3 PNP (envelope discharge), VT4 NPN (envelope buffer), VT5 NPN (pitch modulator).
+
+Pots (netlist uses P-numbers; schematic uses R-numbers):
+
+| Netlist | Schematic | Function |
+|---|---|---|
+| P1 | R1 | DECAY (1M) |
+| P2 | R2 | PITCH (250K) |
+| P3 | R6 | DISTORTION |
+| P4 | R7 | TONE (50K) |
+| P5 | R5 | TUNE DECAY (100K) |
+| P6 | R3 | PITCH CV (100K) |
+| P7 | R4 | TUNE DEPTH |
+
+Block-6/7 resistor/diode mapping where numbers differ:
+
+| Netlist | Schematic | Component |
+|---|---|---|
+| VD7 | VD4 | Envelope charge diode |
+| VD5 (new) | VD5 | PNP base negative clamp |
+| C6 | C8 | Envelope cap (220nF) |
+| R11 (new, 10K) | R18 | TUNE DECAY series |
+| R24 (100K) | R19 | Pitch mod base drive |
+| R22 (2K) | R24 | Pitch depth series |
+| R20 (1K) | R20 | PITCH CV input series (match) |
+
+**Components:**
 
 | Component | Value | Pin 1 | Pin 2 | Pin 3 |
 |-----------|-------|-------|-------|-------|
 | VD7 (1N4148) | — | ACC_TRIG (anode) | ENV_CAP (cathode) | — |
 | C6 | 220nF | ENV_CAP | GND | — |
-| VT3 (BC548 NPN) | — | ENV_CAP (B) | VCC (C) | ENV_BUF (E) |
-| VT5 (BC558 PNP) | — | PCV_ATT (B) | VT5_C (C) | ENV_CAP (E) |
-| P5 (100K B) | TUNE DECAY | VT5_C (pin 1) | GND (wiper+pin 3) | — |
+| VT4 (BC548 NPN) | — | ENV_CAP (B) | VCC (C) | ENV_BUF (E) |
+| **R11 (NEW, 10K)** | 10K | ENV_CAP | INT_DECAY | — |
+| P5 (100K B) | TUNE DECAY | INT_DECAY (CCW) | VT3_E (wiper+CW shorted) | floating (none) |
+| VT3 (BC558 PNP) | — | VT3_B (B) | GND (C) | VT3_E (E) |
+| **VD5 (NEW, 1N4148)** | — | GND (anode) | VT3_B (cathode) | — |
+| P6 (100K B) | PITCH CV | PITCH_CV_IN_1K (CW) | VT3_B (wiper) | GND (CCW) |
+| R20 | **1K** (was 100K) | XS3 tip | PITCH_CV_IN_1K | — |
 
 **Notes:**
-- Charge path: ACC_TRIG → VD7 → ENV_CAP → C6 → GND (fast charge)
-- Discharge path: ENV_CAP → VT5(E→C) → P5 → GND (rate set by P5)
-- VT5 (PNP) conducts only when ENV_CAP > PCV_ATT + 0.6V:
-  creates a voltage floor set by the pitch CV (see Block 8)
-- VT3 (NPN emitter follower) buffers ENV_CAP → ENV_BUF
-  without draining the cap. Collector to VCC, emitter = output.
-- P5 wired as variable resistor (wiper to pin 3)
+- **Charge path:** ACC_TRIG → VD7 → ENV_CAP → C6 → GND (fast; ~55us to peak)
+- **Discharge path:** ENV_CAP → R11 (10K) → P5 (0-100K variable) → VT3.E → VT3.C → GND
+  - Total discharge R = 10K to 110K through PNP
+  - At P5 fully CW: 10K (fastest decay)
+  - At P5 fully CCW: 110K (slowest decay)
+- **VT3 (PNP) conducts** when VT3.E > VT3.B + 0.6V. When ENV_CAP discharges
+  to near-CV-level, VT3 cuts off → discharge stops → creates CV-controlled floor.
+- **VT4 (NPN emitter follower)** buffers ENV_CAP → ENV_BUF without loading C6.
+  Base on ENV_CAP directly (no input R). Collector to VCC. Emitter = ENV_BUF output.
+- **ENV_BUF drives three things** (see Blocks 7 and merged Block 9):
+  1. R24 (100K) → PCV_BASE → VT5 base (pitch modulation)
+  2. C9 (5.6nF) → SMOOTH → push-pull compensation (see Block 9 below)
+  3. (nothing else — SMOOTH does NOT feed VT5 base as old netlist claimed)
+- **P5 (TUNE DECAY)** wired as 2-terminal variable resistor: CCW + {wiper+CW
+  shorted} used, third terminal floating. 2 wires to control deck.
+- **P6 (PITCH CV)** wired as 3-terminal voltage divider: CW from R20/jack,
+  CCW to GND, wiper to VT3.B (through VD5 clamp).
+- **VD5 orientation:** stripe (cathode) toward VT3.B, anode to GND. Clamps
+  negative pitch CV to -0.6V (protects PNP B-E junction from reverse breakdown
+  with negative CV inputs).
+- **R20 was wrongly inferred as 100K in rev 1.0.** Schematic shows 1K — this
+  is ESD/short protection only, not attenuation. The P6 divider does the
+  attenuation.
 
 ---
 
-### BLOCK 7: Pitch CV Control Transistor
+### BLOCK 7: Pitch Modulator Transistor (REVISED rev 1.1)
 **Source: p19-20, p22 (tutorial), p50 (schematic)**
 
-VT4 provides voltage-controlled resistance from CAP_MID to ground, modulating
-the oscillator frequency. Its base is driven from the smoothed envelope
-(through R24). When base voltage rises, VT4 opens, lowering CAP_MID
-resistance, raising oscillator frequency.
+VT5 (NPN) provides voltage-controlled resistance from
+CAP_MID to ground, modulating the oscillator frequency. Its base is driven
+**directly from ENV_BUF through R24 (100K)** — NOT from the smoothed node
+as the previous netlist claimed. The smoothing network (Block 9) is a
+separate push-pull compensation into CAP_MID, not in the base drive path.
 
 | Component | Value | Pin 1 | Pin 2 | Pin 3 |
 |-----------|-------|-------|-------|-------|
-| VT4 (BC548 NPN) | — | PCV_BASE (B) | CAP_MID (C) | VT4_E (E) |
-| R24 | 100K | SMOOTH | PCV_BASE | — |
-| P7 (10K B) | TUNE DEPTH | VT4_E (pin 1) | DEPTH_MID (wiper+pin 3) | — |
-| R22 | 2K | DEPTH_MID | GND | — |
+| VT5 (BC548 NPN) | — | PCV_BASE (B) | CAP_MID (C) | VT5_E (E) |
+| R24 | 100K | **ENV_BUF** (was SMOOTH) | PCV_BASE | — |
+| R22 | 2K | VT5_E | DEPTH_MID | — |
+| P7 (10K B) | TUNE DEPTH | DEPTH_MID (CCW + wiper shorted) | GND (CW) | floating (none) |
 
 **Notes:**
-- R24 (100K) protects VT4 base from excessive current
-- R22 (2K) sets minimum emitter resistance → max frequency ceiling ~250Hz (p22)
-- P7 (TUNE DEPTH) varies emitter degeneration:
-  at 0Ω: max depth (full pitch sweep), at 10K: min depth
-- P7 wired as variable resistor (wiper to pin 3)
-- VT4 collector connects to CAP_MID in parallel with the pitch pot chain
+- **R24 (100K) source is ENV_BUF directly**, not SMOOTH — corrected from rev 1.0.
+  This means the pitch modulation follows the raw envelope tail, not a smoothed
+  version.
+- R22 (2K) is in SERIES between VT5.E and P7 (not a direct path to GND).
+  Effective resistance to GND from VT5.E = R22 (2K) + P7_position (0-10K).
+- P7 (TUNE DEPTH) wired as 2-terminal variable R: CCW + wiper shorted, CW to GND.
+  - Fully CW (wiper at CW): P7 contributes 0Ω → total emitter R = 2K → max depth
+  - Fully CCW (wiper at CCW): P7 contributes 10K → total emitter R = 12K → min depth
+- R22 (2K) sets minimum degeneration → maximum depth ceiling (~250Hz swing, p22)
+- VT5 collector connects to CAP_MID in parallel with the pitch pot chain
 
 ---
 
-### BLOCK 8: Pitch CV Input
-**Source: p26-27 (tutorial), p50 (schematic)**
+### BLOCK 8: Pitch CV Input — MERGED INTO BLOCK 6 (rev 1.1)
 
-External pitch CV sets the envelope floor (the base pitch the envelope
-decays to). The CV goes through a 100K input resistor and a variable voltage
-divider (P6) to the PNP (VT5) base. When ENV_CAP drops to this CV-set
-floor, VT5 cuts off and discharge stops.
+This block is now part of Block 6. Summary of changes from rev 1.0:
+- **R10 (10K) DELETED** — this resistor does not exist on the production schematic.
+- **R20 is 1K** (not 100K as rev 1.0 inferred) — series ESD/short protection only.
+- **P6 (PITCH CV) is a 3-terminal voltage divider** going directly to VT3.B
+  (no intermediate R10). CW from jack, CCW to GND, wiper to VT3.B.
+- **VD5 (1N4148) added** — clamp on VT3.B to GND, stripe toward VT3.B.
 
-| Component | Value | Pin 1 | Pin 2 | Pin 3 |
-|-----------|-------|-------|-------|-------|
-| R20 | 100K | PITCH_CV_IN | P6 pin 1 | — |
-| P6 (100K B) | PITCH CV | R20 (pin 1) | PCV_ATT (wiper) | GND (pin 3) |
-| R10 | 10K | PCV_ATT | VT5 base | — |
-
-**Notes:**
-- R20 (100K) provides input protection / impedance matching
-- P6 wired as voltage divider: pin 1 from CV input, pin 3 to GND,
-  wiper = attenuated CV output
-- R10 (10K) limits base current into VT5
-- At P6 max: full CV → high floor → shallow pitch sweep
-- At P6 min: 0V → VT5 base at 0V → envelope decays to near-zero
-- XS3 jack tip = PITCH_CV_IN
-- **Note:** R20 and R10 are inferred from the production schematic and
-  component counts. The tutorial text only describes the pot as a
-  "variable voltage divider."
+See Block 6 for full revised topology.
 
 ---
 
-### BLOCK 9: Smoothed Pitch Envelope
+### BLOCK 9: Push-Pull Compensation to CAP_MID (REVISED rev 1.1)
 **Source: p24-25 (tutorial), p50 (schematic)**
 
-A 5.6nF cap smooths the pitch envelope's tail, preventing an abrupt
-transition to the base pitch. The diode allows fast initial charging
-but forces slow discharge through the 1M resistor.
+An AC-coupled compensation path from VT4.emitter (ENV_BUF) into CAP_MID.
+This block does NOT smooth the base drive of VT5 (that's a direct path via
+R24). Instead it injects a small compensating signal into CAP_MID itself.
 
 | Component | Value | Pin 1 | Pin 2 |
 |-----------|-------|-------|-------|
@@ -336,14 +387,17 @@ but forces slow discharge through the 1M resistor.
 
 **Notes:**
 - C9 is **missing from the printed BOM** but explicitly described on p24
-  ("additional capacitor") and visible on the production schematic
-- Charge: ENV_BUF rises → current through C9 → VD8 → GND (fast)
-- Discharge: VD8 reverse biased → current must go through R23 (1M)
-  to CAP_MID (slow)
-- R23 connects to CAP_MID (not GND) for push/pull compensation (p25):
-  "while the collector voltage is high, we give the 5.6nF capacitor a
-  little push"
-- SMOOTH also drives R24 (100K) → PCV_BASE → VT4 (pitch control)
+  ("additional capacitor") and visible on the production schematic as C9 5.6nF.
+- **VD8 orientation:** anode = SMOOTH, cathode = GND (stripe toward GND).
+  Clamps POSITIVE excursions of SMOOTH to ~+0.6V.
+- **Function (per tutorial p25):** C9 AC-couples the ENV_BUF signal to SMOOTH.
+  When ENV_BUF drops (envelope decaying), C9 forces SMOOTH to drop too. VD8
+  prevents SMOOTH from rising above +0.6V when ENV_BUF jumps up on next
+  trigger. The negative-going excursion at SMOOTH is then bled into CAP_MID
+  via R23 (1M), giving CAP_MID a slight "push" that compensates for the
+  bridge-T's natural droop — extending the audible oscillation tail.
+- **SMOOTH does NOT drive any transistor base** (VT5 base comes from ENV_BUF
+  via R24, not from SMOOTH — corrected from rev 1.0).
 
 ---
 
@@ -450,16 +504,16 @@ exact placement is not described in the tutorial text.
 
 ```
 NET GND (0V):
-  R8.2, R4.2, R9.2, R27.2, R22.2(via DEPTH_MID), R1.2, R3.2,
+  R8.2, R4.2, R9.2, R27.2, R1.2, R3.2,
   C6.2, C12.2,
-  P5.wiper+pin3(TUNE DECAY), P6.pin3(PITCH CV), P4.wiper+pin3(TONE),
-  VD6.anode, VD8.cathode, VD9.anode,
-  VT1.C(collector), DA2A.+(noninv),
+  P6.CCW(PITCH CV), P4.wiper+pin3(TONE), P7.CW(TUNE DEPTH),
+  VD5.anode, VD6.anode, VD8.cathode, VD9.anode,
+  VT1.C(collector), VT3.C(collector), DA2A.+(noninv),
   Power: C2.-, C3.+, C1/C4/C5/C13/C14/C15 (decoupling)
 
 NET VCC (+12V):
   R16.1,
-  VT2.C(collector), VT3.C(collector),
+  VT2.C(collector), VT4.C(collector),
   DA1.pin8(V+), DA2.pin8(V+),
   Power: VD1.cathode, R14, C2.+, decoupling caps
 
@@ -499,7 +553,7 @@ NET OSC_OUT:
 
 NET CAP_MID:
   C10.2, C11.1, P2.pin1(PITCH),
-  VT4.C(collector), R28.2, R23.2
+  VT5.C(collector), R28.2, R23.2
 
 NET PITCH_BOT:
   P2.wiper+pin3, R27.1
@@ -511,37 +565,37 @@ NET DECAY_OUT:
   R26.2, P1.pin2+wiper, R28.1, DA2A.out
 
 NET ENV_CAP:
-  VD7.cathode, C6.1, VT3.B(base), VT5.E(emitter)
+  VD7.cathode, C6.1, VT4.B(base), R11.1
 
-NET VT5_C:
-  VT5.C(collector), P5.pin1(TUNE DECAY)
+NET INT_DECAY:
+  R11.2, P5.CCW
+
+NET VT3_E:
+  P5.wiper+CW shorted, VT3.E(emitter)
+
+NET VT3_B:
+  P6.wiper, VD5.cathode, VT3.B(base)
 
 NET ENV_BUF:
-  VT3.E(emitter), C9.1
+  VT4.E(emitter), C9.1, R24.1
 
 NET SMOOTH:
-  C9.2, VD8.anode, R23.1, R24.1
+  C9.2, VD8.anode, R23.1
 
 NET PCV_BASE:
-  R24.2, VT4.B(base)
+  R24.2, VT5.B(base)
 
-NET VT4_E:
-  VT4.E(emitter), P7.pin1(TUNE DEPTH)
+NET VT5_E:
+  VT5.E(emitter), R22.1
 
 NET DEPTH_MID:
-  P7.wiper+pin3, R22.1
+  R22.2, P7.CCW+wiper shorted
 
 NET PITCH_CV_IN:
   XS3.tip, R20.1
 
-NET PCV_POT_IN:
-  R20.2, P6.pin1(PITCH CV)
-
-NET PCV_ATT:
-  P6.wiper, R10.1
-
-NET VT5_BASE:
-  R10.2, VT5.B(base)
+NET PITCH_CV_IN_1K:
+  R20.2, P6.CW
 
 NET ACCENT_CV_IN:
   XS2.tip, R2.1
@@ -624,7 +678,9 @@ numbers above match the production PCB routing.
 |------|----------|------------|------------|
 | R to GND in oscillator | 51K (original 808) | 250K pot + 10K | Tutorial explains the change on p15 |
 | Accent section topology | Builds up progressively p28-29 | Final version with all components | Use final version (p29 + schematic) |
-| Pitch CV input details | "variable voltage divider" only | Includes R20 (100K) + R10 (10K) | Use schematic version with protection Rs |
+| Pitch CV input details | "variable voltage divider" only | R20 (1K) + P6 divider + VD5 clamp on VT3.B | Rev 1.1: R10 does NOT exist; R20 is 1K not 100K |
+| Pitch envelope discharge | Single PNP with pot on collector | R11 (10K) + P5 pot series on PNP emitter side | Rev 1.1: discharge path is on emitter, not collector |
+| Pitch mod base drive | Via SMOOTH node | Direct from ENV_BUF via R24 | Rev 1.1: smoothing is push-pull to CAP_MID only |
 
 ---
 
@@ -640,21 +696,28 @@ numbers above match the production PCB routing.
                                     │                   │
                                     ▼                   ▼
                               Trigger Path         Envelope Path
-                              VD5 → R18/R9         VD7 → C6/VT3
+                              R18/R9               VD7 → ENV_CAP/C6/VT4
                                     │                   │
-                                    ▼                   ▼
-                              OSC_NONINV            ENV_BUF
-                                    │                   │
-                                    ▼                   ▼
-                              Oscillator           Smoothing
-                              DA1B/C10/C11         C9/VD8/R23
-                              R5/P2/R27                │
-                                    │              ┌────┤
-                                    │              │    ▼
-                              OSC_OUT          R23→CAP_MID  R24→VT4(NPN)→CAP_MID
-                                │                            ↑
-                                │                       PITCH CV (XS3)
-                                │                       R20→P6→R10→VT5(PNP)
+                                    ▼          ┌────────┼────────┐
+                              OSC_NONINV       ▼        ▼        ▼
+                                    │     R11→P5→    VT4(NPN)  R24(100K)
+                                    │     VT3(PNP)   buffer     │
+                                    ▼     (discharge)  │        ▼
+                              Oscillator   │         ENV_BUF  PCV_BASE
+                              DA1B/C10/C11 ▼           │        │
+                              R5/P2/R27   GND      ┌───┤        ▼
+                                    │   (PITCH CV  │   │    VT5(NPN)
+                                    │    floor via │   │    pitch mod
+                                    │    VT3.B)    ▼   ▼    │
+                              OSC_OUT             C9  R24   VT5.C
+                                │                  │         │
+                                │                  ▼         ▼
+                                │              SMOOTH       CAP_MID
+                                │              (VD8 clamp)   ↑
+                                │              R23──────────→┘ push-pull
+                                │
+                                │              PITCH CV (XS3)
+                                │              → R20(1K) → P6 divider → VD5 clamp → VT3.B
                                 │
                           ┌─────┼─────┐
                           │     │     │
