@@ -8,6 +8,9 @@
 //   - Clock input on D9: interrupt-driven pulse count + last interval.
 //   - 3× MCP4822 over SPI: writes a unique fixed test voltage per output.
 //     Measure with a meter on each chip's Vout A (pin 8) and Vout B (pin 6).
+//   - WiFi + ArduinoOTA: module joins the configured network and accepts
+//     OTA firmware uploads. mDNS advertises as <OTA_HOST>.local. Real-time
+//     work continues while WiFi connects in the background.
 //
 // Expected voltages per channel (raw MCP output, before bipolar shift):
 //   CV1 (MCP1 Vout A) = 0.5 V
@@ -42,12 +45,80 @@
 
 #include <Arduino.h>
 #include <SPI.h>
+#include <WiFi.h>
+#include <ArduinoOTA.h>
+#include <ESPmDNS.h>
+
+// secrets.h is gitignored — copy secrets.h.example to secrets.h and fill in
+// your WiFi SSID/password and OTA password. See file for details.
+#include "secrets.h"
 
 // Use SPI3 (HSPI) instead of the default SPI2 (FSPI). FSPI has IOMUX
 // default pins (GPIO9, 11, 12, 13, 14) for HD/WP/CLK/Q/D that collide
 // with our button and LED assignments. SPI3 has no IOMUX defaults —
 // only the pins we specify get claimed.
 SPIClass HSpi(HSPI);
+
+// WiFi connect + ArduinoOTA setup. Non-blocking — kicks off connection
+// and returns; the loop runs even while WiFi is still connecting.
+void setup_wifi_ota() {
+  WiFi.mode(WIFI_STA);
+  WiFi.setHostname(OTA_HOST);
+  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  Serial.printf("WiFi: connecting to '%s' (non-blocking)...\n", WIFI_SSID);
+
+  ArduinoOTA.setHostname(OTA_HOST);
+  ArduinoOTA.setPassword(OTA_PASS);
+
+  ArduinoOTA.onStart([]() {
+    Serial.printf("\nOTA: starting %s upload\n",
+                  ArduinoOTA.getCommand() == U_FLASH ? "firmware" : "filesystem");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nOTA: complete — rebooting");
+  });
+  ArduinoOTA.onProgress([](unsigned int p, unsigned int total) {
+    static int last_pct = -1;
+    int pct = total ? (p * 100) / total : 0;
+    if (pct != last_pct) {
+      Serial.printf("OTA: %d%%\r", pct);
+      last_pct = pct;
+    }
+  });
+  ArduinoOTA.onError([](ota_error_t e) {
+    Serial.printf("OTA error %u\n", e);
+  });
+}
+
+// Called periodically from loop. Reports WiFi status changes and starts
+// the OTA listener once WiFi connects. Safe to call every loop tick.
+void poll_wifi_ota() {
+  static bool ota_started = false;
+  static wl_status_t last_status = WL_NO_SHIELD;
+
+  const wl_status_t now_status = WiFi.status();
+  if (now_status != last_status) {
+    last_status = now_status;
+    if (now_status == WL_CONNECTED) {
+      Serial.printf("\nWiFi: connected, IP %s, RSSI %d dBm\n",
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      if (!ota_started) {
+        if (MDNS.begin(OTA_HOST)) {
+          Serial.printf("mDNS: %s.local\n", OTA_HOST);
+        }
+        ArduinoOTA.begin();
+        Serial.printf("OTA: ready (host %s, password set)\n", OTA_HOST);
+        ota_started = true;
+      }
+    } else if (now_status == WL_DISCONNECTED) {
+      Serial.println("\nWiFi: disconnected");
+    }
+  }
+
+  if (ota_started) {
+    ArduinoOTA.handle();
+  }
+}
 
 // MCP4822 chip-select pins.
 constexpr int CS_MCP1 = D2;
@@ -193,9 +264,14 @@ void setup() {
   Serial.println("  code 2000 -> DAC 2.00V -> op-amp ~+0.13 V");
   Serial.println("  code 3500 -> DAC 3.50V -> op-amp ~-3.91 V");
   Serial.println("Cycles continuously. Probe each CV output through one cycle.");
+
+  setup_wifi_ota();
 }
 
 void loop() {
+  // WiFi state machine + OTA poll. Non-blocking; safe every tick.
+  poll_wifi_ota();
+
   // Buttons → LEDs.
   bool pressed[N_CHANNELS];
   for (int i = 0; i < N_CHANNELS; i++) {

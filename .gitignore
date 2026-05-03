@@ -16,3 +16,6 @@ libs/daisy_duino/
 .DS_Store
 build/
 /EuroPi
+
+# Per-developer WiFi / OTA credentials (use the .example file as a template)
+src/*/secrets.h
