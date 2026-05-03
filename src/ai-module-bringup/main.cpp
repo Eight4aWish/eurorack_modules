@@ -48,10 +48,24 @@
 #include <WiFi.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
+#include <ESPAsyncWebServer.h>
 
 // secrets.h is gitignored — copy secrets.h.example to secrets.h and fill in
 // your WiFi SSID/password and OTA password. See file for details.
 #include "secrets.h"
+
+// Web server + WebSocket for the diag page (port 80, files embedded in flash).
+AsyncWebServer http_server(80);
+AsyncWebSocket ws("/ws");
+
+// Static diag-page assets, embedded at link time via board_build.embed_txtfiles
+// in platformio.ini. The _start / _end symbols come from the linker.
+extern const char index_html_start[] asm("_binary_src_ai_module_bringup_data_index_html_start");
+extern const char index_html_end[]   asm("_binary_src_ai_module_bringup_data_index_html_end");
+extern const char style_css_start[]  asm("_binary_src_ai_module_bringup_data_style_css_start");
+extern const char style_css_end[]    asm("_binary_src_ai_module_bringup_data_style_css_end");
+extern const char app_js_start[]     asm("_binary_src_ai_module_bringup_data_app_js_start");
+extern const char app_js_end[]       asm("_binary_src_ai_module_bringup_data_app_js_end");
 
 // Use SPI3 (HSPI) instead of the default SPI2 (FSPI). FSPI has IOMUX
 // default pins (GPIO9, 11, 12, 13, 14) for HD/WP/CLK/Q/D that collide
@@ -71,8 +85,7 @@ void setup_wifi_ota() {
   ArduinoOTA.setPassword(OTA_PASS);
 
   ArduinoOTA.onStart([]() {
-    Serial.printf("\nOTA: starting %s upload\n",
-                  ArduinoOTA.getCommand() == U_FLASH ? "firmware" : "filesystem");
+    Serial.println("\nOTA: starting firmware upload");
   });
   ArduinoOTA.onEnd([]() {
     Serial.println("\nOTA: complete — rebooting");
@@ -226,6 +239,90 @@ void IRAM_ATTR clk_isr() {
   clk_count++;
 }
 
+// HTTP + WebSocket server for the diag page. Static assets are embedded in
+// the firmware (see _binary_*_start/_end symbols above). Live telemetry is
+// pushed to clients over /ws as JSON.
+void setup_web_server() {
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client,
+                AwsEventType type, void *arg, uint8_t *data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.printf("WS: client %u connected from %s\n",
+                    client->id(), client->remoteIP().toString().c_str());
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.printf("WS: client %u disconnected\n", client->id());
+    }
+  });
+
+  http_server.addHandler(&ws);
+
+  // Embedded static handlers — one per file, no filesystem.
+  // embed_txtfiles appends a NUL terminator that we must strip from the
+  // served length, otherwise the trailing \0 trips strict JS parsers
+  // (Chrome throws SyntaxError on a NUL after the last token).
+  http_server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(index_html_end - index_html_start) - 1;
+    req->send_P(200, "text/html", (const uint8_t*)index_html_start, len);
+  });
+  http_server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(style_css_end - style_css_start) - 1;
+    req->send_P(200, "text/css", (const uint8_t*)style_css_start, len);
+  });
+  http_server.on("/app.js", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(app_js_end - app_js_start) - 1;
+    req->send_P(200, "application/javascript", (const uint8_t*)app_js_start, len);
+  });
+
+  http_server.onNotFound([](AsyncWebServerRequest *request) {
+    request->send(404, "text/plain", "not found");
+  });
+
+  http_server.begin();
+  Serial.printf("HTTP+WS server: listening on :80 "
+                "(html=%u css=%u js=%u bytes embedded)\n",
+                (unsigned)(index_html_end - index_html_start),
+                (unsigned)(style_css_end - style_css_start),
+                (unsigned)(app_js_end - app_js_start));
+}
+
+// Build and push one telemetry JSON frame to every connected WS client.
+// Caller passes a snapshot of loop-local state to avoid double-reading volatiles.
+void broadcast_telemetry(const bool* pressed,
+                         uint32_t clk_cnt,
+                         uint32_t clk_last_us_snap,
+                         uint32_t clk_interval_us_snap) {
+  if (ws.count() == 0) return;  // no listeners → skip the formatting
+
+  const uint32_t uptime_s = millis() / 1000;
+  const bool clk_live = (clk_cnt >= 2)
+                        && ((micros() - clk_last_us_snap) < 2000000UL);
+  const uint32_t interval_ms = clk_live ? (clk_interval_us_snap / 1000) : 0;
+  const uint16_t cv_code = cv_step_codes[cv_step_idx];
+
+  static char buf[640];
+  const int n = snprintf(buf, sizeof(buf),
+    "{"
+      "\"btn\":[%d,%d,%d,%d,%d,%d,%d],"
+      "\"audio\":{\"l\":{\"dc\":%u,\"pp\":%u},\"r\":{\"dc\":%u,\"pp\":%u}},"
+      "\"clk\":{\"cnt\":%lu,\"interval_ms\":%lu},"
+      "\"cv\":[%u,%u,%u,%u,%u,%u],"
+      "\"sys\":{\"uptime_s\":%lu,\"free_heap\":%u,\"rssi\":%d,\"ip\":\"%s\"}"
+    "}",
+    pressed[0]?1:0, pressed[1]?1:0, pressed[2]?1:0, pressed[3]?1:0,
+    pressed[4]?1:0, pressed[5]?1:0, pressed[6]?1:0,
+    stats_l.mean(), stats_l.pp(),
+    stats_r.mean(), stats_r.pp(),
+    (unsigned long)clk_cnt, (unsigned long)interval_ms,
+    cv_code, cv_code, cv_code, cv_code, cv_code, cv_code,
+    (unsigned long)uptime_s,
+    (unsigned)ESP.getFreeHeap(),
+    (int)WiFi.RSSI(),
+    WiFi.localIP().toString().c_str());
+
+  if (n > 0 && n < (int)sizeof(buf)) {
+    ws.textAll(buf, n);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 3000) { /* wait up to 3 s for USB-CDC */ }
@@ -266,11 +363,16 @@ void setup() {
   Serial.println("Cycles continuously. Probe each CV output through one cycle.");
 
   setup_wifi_ota();
+  setup_web_server();
 }
 
 void loop() {
   // WiFi state machine + OTA poll. Non-blocking; safe every tick.
   poll_wifi_ota();
+
+  // Periodically clean up dead WebSocket clients (recommended for
+  // AsyncWebSocket; cheap to call every loop tick).
+  ws.cleanupClients();
 
   // Buttons → LEDs.
   bool pressed[N_CHANNELS];
@@ -327,6 +429,10 @@ void loop() {
       Serial.printf(" int=%lums", (unsigned long)(interval_us / 1000));
     }
     Serial.println();
+
+    // Push the same snapshot to any connected diag-page clients before
+    // resetting the audio stats accumulator.
+    broadcast_telemetry(pressed, cnt, last_us, interval_us);
 
     stats_l.reset();
     stats_r.reset();

@@ -1,0 +1,261 @@
+/* CortHex diag page — iPad-first dark theme */
+
+:root {
+  --bg: #0d1117;
+  --bg-elev: #161b22;
+  --fg: #e6edf3;
+  --fg-dim: #8b949e;
+  --accent: #58a6ff;
+  --on: #2ea043;
+  --off: #21262d;
+  --border: #30363d;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  min-height: 100vh;
+}
+
+body {
+  padding: 20px;
+  padding-top: env(safe-area-inset-top, 20px);
+  padding-bottom: env(safe-area-inset-bottom, 20px);
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 14px;
+  margin-bottom: 20px;
+}
+
+h1 {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+h1 .subtitle {
+  color: var(--fg-dim);
+  font-weight: 500;
+  font-size: 16px;
+  margin-left: 8px;
+}
+
+#conn {
+  color: var(--fg-dim);
+  font-size: 14px;
+  padding: 4px 10px;
+  background: var(--off);
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+#conn.ok { color: var(--on); background: rgba(46, 160, 67, 0.12); }
+#conn.bad { color: #f85149; background: rgba(248, 81, 73, 0.12); }
+
+main {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+section {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+  margin-bottom: 14px;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+/* --- Buttons --- */
+.btn-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+}
+
+.btn {
+  aspect-ratio: 1 / 1;
+  background: var(--off);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  transition: background 80ms, color 80ms;
+}
+
+.btn.pressed {
+  background: var(--on);
+  color: #0d1117;
+}
+
+/* --- Audio --- */
+.audio-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.audio-ch {
+  background: var(--off);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.ch-label {
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.ch-bar {
+  height: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.ch-bar-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--on), var(--accent));
+  transition: width 80ms linear;
+}
+
+.ch-stats {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--fg-dim);
+  margin-top: 8px;
+}
+
+/* --- Clock --- */
+.clk-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.clk-stats > div {
+  background: var(--off);
+  border-radius: 8px;
+  padding: 12px 10px;
+  text-align: center;
+}
+
+.clk-stats span {
+  font-size: 22px;
+  font-weight: 700;
+  display: block;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.clk-stats label {
+  font-size: 10px;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* --- CV outputs --- */
+.cv-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.cv {
+  background: var(--off);
+  border-radius: 8px;
+  padding: 12px 6px;
+  text-align: center;
+}
+
+.cv label {
+  font-size: 10px;
+  color: var(--fg-dim);
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.cv-val {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- System --- */
+.sys-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.sys-stats > div {
+  background: var(--off);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.sys-stats label {
+  color: var(--fg-dim);
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.sys-stats span {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+}
+
+/* --- Responsive tweaks --- */
+@media (max-width: 600px) {
+  body { padding: 14px; }
+  h1 { font-size: 22px; }
+  .cv-grid { grid-template-columns: repeat(3, 1fr); }
+  .clk-stats { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* iPad in landscape — give cards more breathing room */
+@media (min-width: 900px) {
+  main { gap: 20px; }
+  section { padding: 22px; }
+}

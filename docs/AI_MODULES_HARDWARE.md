@@ -564,7 +564,8 @@ All hardware is built on the n8synth two-deck stack and validated end-to-end via
 | Clock input | ✅ ISR-driven, BPM math correct |
 | 3× MCP4822 SPI bus | ✅ all 6 raw outputs verified at unique fixed test voltages |
 | 6× bipolar shift stages | ✅ ±5 V swing on all six, calibration table captured |
-| Front-panel jacks | pending — output protection (1 kΩ + 2× 1N5819) + jack wiring |
+| Front-panel jacks + output protection | ✅ 1 kΩ series + 2× 1N5819 clamps wired per channel; jacks live |
+| WiFi + ArduinoOTA | ✅ module joins LAN at boot; OTA flashing validated end-to-end |
 
 ### Substitutions vs. the doc spec
 

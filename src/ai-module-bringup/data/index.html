@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CortHex">
+  <meta name="theme-color" content="#0d1117">
+  <title>CortHex AI Module</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>CortHex <span class="subtitle">AI Module</span></h1>
+    <span id="conn">connecting…</span>
+  </header>
+
+  <main>
+
+    <section id="btn-section">
+      <h2>Buttons</h2>
+      <div class="btn-grid">
+        <div class="btn"><span>M</span></div>
+        <div class="btn"><span>1</span></div>
+        <div class="btn"><span>2</span></div>
+        <div class="btn"><span>3</span></div>
+        <div class="btn"><span>4</span></div>
+        <div class="btn"><span>5</span></div>
+        <div class="btn"><span>6</span></div>
+      </div>
+    </section>
+
+    <section id="audio-section">
+      <h2>Audio listening tap</h2>
+      <div class="audio-pair">
+        <div class="audio-ch">
+          <div class="ch-label">L</div>
+          <div class="ch-bar"><div class="ch-bar-fill" id="audio-l-bar"></div></div>
+          <div class="ch-stats" id="audio-l-stats">dc=— pp=—</div>
+        </div>
+        <div class="audio-ch">
+          <div class="ch-label">R</div>
+          <div class="ch-bar"><div class="ch-bar-fill" id="audio-r-bar"></div></div>
+          <div class="ch-stats" id="audio-r-stats">dc=— pp=—</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="clk-section">
+      <h2>Clock</h2>
+      <div class="clk-stats">
+        <div><span id="clk-cnt">0</span><label>pulses</label></div>
+        <div><span id="clk-int">—</span><label>interval (ms)</label></div>
+        <div><span id="clk-bpm">—</span><label>BPM (¼-note)</label></div>
+      </div>
+    </section>
+
+    <section id="cv-section">
+      <h2>CV outputs</h2>
+      <div class="cv-grid">
+        <div class="cv"><label>CV1</label><span class="cv-val" id="cv-0">—</span></div>
+        <div class="cv"><label>CV2</label><span class="cv-val" id="cv-1">—</span></div>
+        <div class="cv"><label>CV3</label><span class="cv-val" id="cv-2">—</span></div>
+        <div class="cv"><label>CV4</label><span class="cv-val" id="cv-3">—</span></div>
+        <div class="cv"><label>CV5</label><span class="cv-val" id="cv-4">—</span></div>
+        <div class="cv"><label>CV6</label><span class="cv-val" id="cv-5">—</span></div>
+      </div>
+    </section>
+
+    <section id="sys-section">
+      <h2>System</h2>
+      <div class="sys-stats">
+        <div><label>uptime</label><span id="sys-uptime">—</span></div>
+        <div><label>free heap</label><span id="sys-heap">—</span></div>
+        <div><label>RSSI</label><span id="sys-rssi">—</span></div>
+        <div><label>IP</label><span id="sys-ip">—</span></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>
