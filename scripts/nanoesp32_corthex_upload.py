@@ -1,4 +1,4 @@
-# Post-script for [env:ai-module-bringup] that injects a serial-number
+# Post-script for [env:nanoesp32-corthex] that injects a serial-number
 # filter into the dfu-util UPLOADERFLAGS list. The espressif32 platform's
 # default DFU upload uses only the vendor:product ID (2341:0070), which is
 # ambiguous when other Arduino-DFU devices are on the bus.

@@ -135,7 +135,7 @@ pio device monitor -b 115200
 
 See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
-## AI Module (CortHex) — `ai-module-bringup`
+## AI Module (CortHex) — `nanoesp32-corthex`
 
 A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + Four Play patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
 
@@ -151,15 +151,15 @@ Build & upload:
 
 ```sh
 # First flash via DFU (USB)
-pio run -e ai-module-bringup -t upload
+pio run -e nanoesp32-corthex -t upload
 
 # Subsequent OTA flashes (over WiFi, mDNS hostname from secrets.h)
-AI_MODULE_OTA_PASS='your-ota-password' pio run -e ai-module-bringup-ota -t upload
+AI_MODULE_OTA_PASS='your-ota-password' pio run -e nanoesp32-corthex-ota -t upload
 ```
 
-WiFi credentials and OTA password live in `src/ai-module-bringup/secrets.h` (gitignored — copy from `secrets.h.example`).
+WiFi credentials and OTA password live in `src/nanoesp32-corthex/secrets.h` (gitignored — copy from `secrets.h.example`).
 
-See [src/ai-module-bringup/README.md](src/ai-module-bringup/README.md) for the firmware architecture, HTTP API, and per-page usage notes.
+See [docs/NANOESP32_CORTHEX.md](docs/NANOESP32_CORTHEX.md) for the firmware architecture, HTTP API, and per-page usage notes.
 
 ## Ksoloti Big Genes — `ksoloti-elements`
 

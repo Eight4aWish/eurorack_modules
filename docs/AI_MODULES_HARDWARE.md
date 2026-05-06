@@ -554,7 +554,7 @@ void setup() {
 
 ### Phase 1 (complete, 2026-04-29 → 2026-05-02): hardware + bring-up
 
-All hardware is built on the n8synth two-deck stack and validated end-to-end via the `[env:ai-module-bringup]` firmware. Status:
+All hardware is built on the n8synth two-deck stack and validated end-to-end via the `[env:nanoesp32-corthex]` firmware. Status:
 
 | Subsystem | Status |
 |---|---|

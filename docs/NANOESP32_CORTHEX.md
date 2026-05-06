@@ -5,14 +5,14 @@ module's WiFi address, calibrates and drives six CV outputs to a Plaits +
 Swords + Four Play voice, and lets an LLM-generated 6-patch "bank" be
 auditioned via the panel buttons.
 
-Hardware spec, panel layout, and bring-up history: [docs/AI_MODULES_HARDWARE.md](../../docs/AI_MODULES_HARDWARE.md).
+Hardware spec, panel layout, and bring-up history: [AI_MODULES_HARDWARE.md](AI_MODULES_HARDWARE.md).
 
 ## Quick start
 
 1. Copy `secrets.h.example` → `secrets.h` and fill in your WiFi SSID, password, OTA hostname (default: `CortHex-ESP32`), and OTA password.
-2. First flash via USB / DFU: `pio run -e ai-module-bringup -t upload`. The module joins your WiFi and prints its IP on serial.
+2. First flash via USB / DFU: `pio run -e nanoesp32-corthex -t upload`. The module joins your WiFi and prints its IP on serial.
 3. Open `http://<OTA_HOST>.local/` in any browser on the LAN. The diagnostics page should load and start streaming telemetry.
-4. Subsequent flashes happen OTA: `AI_MODULE_OTA_PASS='...' pio run -e ai-module-bringup-ota -t upload`.
+4. Subsequent flashes happen OTA: `AI_MODULE_OTA_PASS='...' pio run -e nanoesp32-corthex-ota -t upload`.
 
 ## The three pages
 
@@ -33,7 +33,7 @@ Chat with a Mac-side proxy. The proxy turns prompts into a "bank" of 6 distinct 
 ## Architecture
 
 ```
-src/ai-module-bringup/
+src/nanoesp32-corthex/
   main.cpp           — single firmware: WiFi/OTA, MCP4822 chain, AR envelope
                        engine, patch bank, HTTP/WebSocket server, panel-button
                        slot select.

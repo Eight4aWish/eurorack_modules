@@ -61,20 +61,20 @@ AsyncWebSocket ws("/ws");
 
 // Static diag-page assets, embedded at link time via board_build.embed_txtfiles
 // in platformio.ini. The _start / _end symbols come from the linker.
-extern const char index_html_start[]  asm("_binary_src_ai_module_bringup_data_index_html_start");
-extern const char index_html_end[]    asm("_binary_src_ai_module_bringup_data_index_html_end");
-extern const char style_css_start[]   asm("_binary_src_ai_module_bringup_data_style_css_start");
-extern const char style_css_end[]     asm("_binary_src_ai_module_bringup_data_style_css_end");
-extern const char app_js_start[]      asm("_binary_src_ai_module_bringup_data_app_js_start");
-extern const char app_js_end[]        asm("_binary_src_ai_module_bringup_data_app_js_end");
-extern const char plaits_html_start[] asm("_binary_src_ai_module_bringup_data_plaits_html_start");
-extern const char plaits_html_end[]   asm("_binary_src_ai_module_bringup_data_plaits_html_end");
-extern const char plaits_js_start[]   asm("_binary_src_ai_module_bringup_data_plaits_js_start");
-extern const char plaits_js_end[]     asm("_binary_src_ai_module_bringup_data_plaits_js_end");
-extern const char llm_html_start[]    asm("_binary_src_ai_module_bringup_data_llm_html_start");
-extern const char llm_html_end[]      asm("_binary_src_ai_module_bringup_data_llm_html_end");
-extern const char llm_js_start[]      asm("_binary_src_ai_module_bringup_data_llm_js_start");
-extern const char llm_js_end[]        asm("_binary_src_ai_module_bringup_data_llm_js_end");
+extern const char index_html_start[]  asm("_binary_src_nanoesp32_corthex_data_index_html_start");
+extern const char index_html_end[]    asm("_binary_src_nanoesp32_corthex_data_index_html_end");
+extern const char style_css_start[]   asm("_binary_src_nanoesp32_corthex_data_style_css_start");
+extern const char style_css_end[]     asm("_binary_src_nanoesp32_corthex_data_style_css_end");
+extern const char app_js_start[]      asm("_binary_src_nanoesp32_corthex_data_app_js_start");
+extern const char app_js_end[]        asm("_binary_src_nanoesp32_corthex_data_app_js_end");
+extern const char plaits_html_start[] asm("_binary_src_nanoesp32_corthex_data_plaits_html_start");
+extern const char plaits_html_end[]   asm("_binary_src_nanoesp32_corthex_data_plaits_html_end");
+extern const char plaits_js_start[]   asm("_binary_src_nanoesp32_corthex_data_plaits_js_start");
+extern const char plaits_js_end[]     asm("_binary_src_nanoesp32_corthex_data_plaits_js_end");
+extern const char llm_html_start[]    asm("_binary_src_nanoesp32_corthex_data_llm_html_start");
+extern const char llm_html_end[]      asm("_binary_src_nanoesp32_corthex_data_llm_html_end");
+extern const char llm_js_start[]      asm("_binary_src_nanoesp32_corthex_data_llm_js_start");
+extern const char llm_js_end[]        asm("_binary_src_nanoesp32_corthex_data_llm_js_end");
 
 // Use SPI3 (HSPI) instead of the default SPI2 (FSPI). FSPI has IOMUX
 // default pins (GPIO9, 11, 12, 13, 14) for HD/WP/CLK/Q/D that collide
