@@ -1,0 +1,18 @@
+[project]
+name = "corthex-llm-proxy"
+version = "0.1.0"
+description = "Mac proxy that turns natural-language prompts into Plaits-voice patches via the Claude API."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.40.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["proxy"]

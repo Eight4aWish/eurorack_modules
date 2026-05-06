@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CortHex Plaits">
+  <meta name="theme-color" content="#0d1117">
+  <title>CortHex — Plaits</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>CortHex <span class="subtitle">Plaits</span></h1>
+    <span id="conn">connecting…</span>
+  </header>
+
+  <nav class="top-nav">
+    <a href="/">Diagnostics</a>
+    <a href="/plaits" class="active">Plaits</a>
+    <a href="/llm">LLM</a>
+  </nav>
+
+  <main>
+
+    <section id="model-section">
+      <h2>Model</h2>
+      <p class="section-note">
+        Tap a model. Bank colours match Plaits' LED.
+      </p>
+      <div class="model-banks" id="model-banks">
+        <!-- 3 bank sections (each with 8 cells) injected by JS -->
+      </div>
+    </section>
+
+    <section id="macro-section">
+      <h2>Macros (CV2 – CV4)</h2>
+      <div class="macro-current" id="macro-current">— select a model —</div>
+      <div class="macro-row">
+
+        <div class="cv-tune">
+          <div class="cv-tune-label">
+            <span class="cv-tune-name">CV2 · Timbre</span>
+            <span class="cv-tune-fn" id="cv2-fn">—</span>
+          </div>
+          <input type="range" class="macro-slider" data-ch="1"
+                 min="0" max="5000" step="10" value="2500" />
+          <div class="cv-tune-readout">
+            <span id="cv2-voltage">+2.500 V</span>
+            <span class="cv-tune-hint">0 V (CCW) – 5 V (CW)</span>
+          </div>
+        </div>
+
+        <div class="cv-tune">
+          <div class="cv-tune-label">
+            <span class="cv-tune-name">CV3 · Harmonics</span>
+            <span class="cv-tune-fn" id="cv3-fn">—</span>
+          </div>
+          <input type="range" class="macro-slider" data-ch="2"
+                 min="0" max="5000" step="10" value="2500" />
+          <div class="cv-tune-readout">
+            <span id="cv3-voltage">+2.500 V</span>
+            <span class="cv-tune-hint">0 V (CCW) – 5 V (CW)</span>
+          </div>
+        </div>
+
+        <div class="cv-tune">
+          <div class="cv-tune-label">
+            <span class="cv-tune-name">CV4 · Morph</span>
+            <span class="cv-tune-fn" id="cv4-fn">—</span>
+          </div>
+          <input type="range" class="macro-slider" data-ch="3"
+                 min="0" max="5000" step="10" value="2500" />
+          <div class="cv-tune-readout">
+            <span id="cv4-voltage">+2.500 V</span>
+            <span class="cv-tune-hint">0 V (CCW) – 5 V (CW)</span>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <section id="outputs-section">
+      <h2>Outputs &amp; envelope</h2>
+      <div class="info-row">
+        <span class="info-key">OUT</span>
+        <span class="info-val" id="info-out">—</span>
+      </div>
+      <div class="info-row">
+        <span class="info-key">AUX</span>
+        <span class="info-val" id="info-aux">—</span>
+      </div>
+      <p class="info-note" id="info-note" style="display:none">—</p>
+
+      <h3 class="subsection-header">Internal LPG &amp; envelope</h3>
+      <ol class="envelope-steps">
+        <li>Patch a gate to <strong>TRIG</strong>; leave <strong>LEVEL</strong>
+            unpatched so Plaits uses its built-in LPG envelope.</li>
+        <li><em>Decay:</em> hold Plaits' first menu button and turn
+            <strong>MORPH</strong>. Four yellow LEDs show the value.</li>
+        <li><em>Response (VCFA ↔ VCA):</em> hold the same button and turn
+            <strong>TIMBRE</strong>.</li>
+      </ol>
+      <p class="section-note warn">
+        ⚠ When unpatching any CV with TRIG patched, reset that channel's
+        attenuverter to 12 o'clock or the internal envelope will start
+        modulating the parameter.
+      </p>
+    </section>
+
+  </main>
+
+  <script src="/plaits.js"></script>
+</body>
+</html>

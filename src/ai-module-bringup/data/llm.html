@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CortHex LLM">
+  <meta name="theme-color" content="#0d1117">
+  <title>CortHex — LLM</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>CortHex <span class="subtitle">LLM</span></h1>
+    <span id="conn">connecting…</span>
+  </header>
+
+  <nav class="top-nav">
+    <a href="/">Diagnostics</a>
+    <a href="/plaits">Plaits</a>
+    <a href="/llm" class="active">LLM</a>
+  </nav>
+
+  <main>
+
+    <section id="proxy-section">
+      <h2>Proxy</h2>
+      <div class="proxy-row">
+        <input type="url" id="proxy-url"
+               placeholder="http://your-mac.local:8000"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        <button id="proxy-test" class="patch-btn">Test</button>
+      </div>
+      <div class="proxy-status" id="proxy-status">enter your Mac's proxy URL above</div>
+      <button id="reset-session" class="patch-btn proxy-reset">↻ Reset chat</button>
+    </section>
+
+    <section id="chat-section">
+      <h2>Chat</h2>
+      <div class="chat-log" id="chat-log">
+        <div class="chat-empty">
+          Describe a sound and I'll generate 6 variations. Press buttons 1–6
+          on the module (or tap a card below) to audition.
+        </div>
+      </div>
+      <div class="prompt-bar">
+        <textarea id="prompt-input" rows="2"
+                  placeholder="e.g. snappy pluck bass, slow string pad, 808 kick, cinematic drone…"></textarea>
+        <button id="send-btn" class="patch-btn">Send</button>
+      </div>
+    </section>
+
+    <section id="bank-section">
+      <h2>Patch bank — slot <span id="active-slot">—</span></h2>
+      <div class="bank-concept" id="bank-concept">No bank loaded yet.</div>
+      <div class="bank-grid" id="bank-grid">
+        <!-- six patch cards injected by JS -->
+      </div>
+    </section>
+
+    <section id="live-section">
+      <h2>Live module state</h2>
+      <div class="info-row">
+        <span class="info-key">Engine</span>
+        <span class="info-val" id="live-model">—</span>
+      </div>
+      <div class="cv-grid">
+        <div class="cv"><label>CV1 Model</label><span class="cv-val" id="live-cv-0">—</span></div>
+        <div class="cv"><label>CV2 Timbre</label><span class="cv-val" id="live-cv-1">—</span></div>
+        <div class="cv"><label>CV3 Harm.</label><span class="cv-val" id="live-cv-2">—</span></div>
+        <div class="cv"><label>CV4 FREQ</label><span class="cv-val" id="live-cv-3">—</span></div>
+        <div class="cv"><label>CV5 RES</label><span class="cv-val" id="live-cv-4">—</span></div>
+        <div class="cv"><label>CV6 VCA</label><span class="cv-val" id="live-cv-5">—</span></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/llm.js"></script>
+</body>
+</html>

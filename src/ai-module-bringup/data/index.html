@@ -7,19 +7,46 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="CortHex">
   <meta name="theme-color" content="#0d1117">
-  <title>CortHex AI Module</title>
+  <title>CortHex — Diagnostics</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <header>
-    <h1>CortHex <span class="subtitle">AI Module</span></h1>
+    <h1>CortHex <span class="subtitle">Diagnostics</span></h1>
     <span id="conn">connecting…</span>
   </header>
 
+  <nav class="top-nav">
+    <a href="/" class="active">Diagnostics</a>
+    <a href="/plaits">Plaits</a>
+    <a href="/llm">LLM</a>
+  </nav>
+
   <main>
 
+    <section id="patch-section">
+      <h2>Sample patches</h2>
+      <p class="section-note">
+        For the Plaits + Swords + Four Play voice. Loads a hardcoded patch
+        that drives all six CVs (some channels enveloped — use the buttons
+        below or the physical D9 gate to fire).
+      </p>
+      <div class="patch-row">
+        <button class="patch-btn" data-patch="0">Pluck Bass</button>
+        <button class="patch-btn" data-patch="1">Slow Pad</button>
+        <button class="patch-btn" data-patch="2">Kick</button>
+        <button class="patch-btn" data-patch="3">Drone</button>
+      </div>
+      <div class="patch-controls">
+        <button class="trigger-btn" id="patch-trigger">▶ Trigger</button>
+        <button class="release-btn" id="patch-release">■ Release</button>
+      </div>
+      <button class="patch-btn" id="patch-reset" style="margin-top:8px">↻ Reset to test mode</button>
+      <div class="patch-current" id="patch-current">—</div>
+    </section>
+
     <section id="btn-section">
-      <h2>Buttons</h2>
+      <h2>Panel buttons</h2>
       <div class="btn-grid">
         <div class="btn"><span>M</span></div>
         <div class="btn"><span>1</span></div>
@@ -47,24 +74,23 @@
       </div>
     </section>
 
-    <section id="clk-section">
-      <h2>Clock</h2>
-      <div class="clk-stats">
-        <div><span id="clk-cnt">0</span><label>pulses</label></div>
-        <div><span id="clk-int">—</span><label>interval (ms)</label></div>
-        <div><span id="clk-bpm">—</span><label>BPM (¼-note)</label></div>
+    <section id="gate-section">
+      <h2>Gate input (D9)</h2>
+      <div class="gate-stats">
+        <div><span id="gate-state">—</span><label>state</label></div>
+        <div><span id="gate-pulses">0</span><label>pulses</label></div>
       </div>
     </section>
 
     <section id="cv-section">
-      <h2>CV outputs</h2>
+      <h2>CV outputs (live voltage)</h2>
       <div class="cv-grid">
-        <div class="cv"><label>CV1</label><span class="cv-val" id="cv-0">—</span></div>
-        <div class="cv"><label>CV2</label><span class="cv-val" id="cv-1">—</span></div>
-        <div class="cv"><label>CV3</label><span class="cv-val" id="cv-2">—</span></div>
-        <div class="cv"><label>CV4</label><span class="cv-val" id="cv-3">—</span></div>
-        <div class="cv"><label>CV5</label><span class="cv-val" id="cv-4">—</span></div>
-        <div class="cv"><label>CV6</label><span class="cv-val" id="cv-5">—</span></div>
+        <div class="cv"><label>CV1 Model</label><span class="cv-val" id="cv-0">—</span></div>
+        <div class="cv"><label>CV2 Timbre</label><span class="cv-val" id="cv-1">—</span></div>
+        <div class="cv"><label>CV3 Harm.</label><span class="cv-val" id="cv-2">—</span></div>
+        <div class="cv"><label>CV4 Morph</label><span class="cv-val" id="cv-3">—</span></div>
+        <div class="cv"><label>CV5 unused</label><span class="cv-val" id="cv-4">—</span></div>
+        <div class="cv"><label>CV6 unused</label><span class="cv-val" id="cv-5">—</span></div>
       </div>
     </section>
 

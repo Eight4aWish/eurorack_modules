@@ -49,6 +49,7 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 
 // secrets.h is gitignored — copy secrets.h.example to secrets.h and fill in
 // your WiFi SSID/password and OTA password. See file for details.
@@ -60,12 +61,20 @@ AsyncWebSocket ws("/ws");
 
 // Static diag-page assets, embedded at link time via board_build.embed_txtfiles
 // in platformio.ini. The _start / _end symbols come from the linker.
-extern const char index_html_start[] asm("_binary_src_ai_module_bringup_data_index_html_start");
-extern const char index_html_end[]   asm("_binary_src_ai_module_bringup_data_index_html_end");
-extern const char style_css_start[]  asm("_binary_src_ai_module_bringup_data_style_css_start");
-extern const char style_css_end[]    asm("_binary_src_ai_module_bringup_data_style_css_end");
-extern const char app_js_start[]     asm("_binary_src_ai_module_bringup_data_app_js_start");
-extern const char app_js_end[]       asm("_binary_src_ai_module_bringup_data_app_js_end");
+extern const char index_html_start[]  asm("_binary_src_ai_module_bringup_data_index_html_start");
+extern const char index_html_end[]    asm("_binary_src_ai_module_bringup_data_index_html_end");
+extern const char style_css_start[]   asm("_binary_src_ai_module_bringup_data_style_css_start");
+extern const char style_css_end[]     asm("_binary_src_ai_module_bringup_data_style_css_end");
+extern const char app_js_start[]      asm("_binary_src_ai_module_bringup_data_app_js_start");
+extern const char app_js_end[]        asm("_binary_src_ai_module_bringup_data_app_js_end");
+extern const char plaits_html_start[] asm("_binary_src_ai_module_bringup_data_plaits_html_start");
+extern const char plaits_html_end[]   asm("_binary_src_ai_module_bringup_data_plaits_html_end");
+extern const char plaits_js_start[]   asm("_binary_src_ai_module_bringup_data_plaits_js_start");
+extern const char plaits_js_end[]     asm("_binary_src_ai_module_bringup_data_plaits_js_end");
+extern const char llm_html_start[]    asm("_binary_src_ai_module_bringup_data_llm_html_start");
+extern const char llm_html_end[]      asm("_binary_src_ai_module_bringup_data_llm_html_end");
+extern const char llm_js_start[]      asm("_binary_src_ai_module_bringup_data_llm_js_start");
+extern const char llm_js_end[]        asm("_binary_src_ai_module_bringup_data_llm_js_end");
 
 // Use SPI3 (HSPI) instead of the default SPI2 (FSPI). FSPI has IOMUX
 // default pins (GPIO9, 11, 12, 13, 14) for HD/WP/CLK/Q/D that collide
@@ -173,24 +182,394 @@ void write_all_cvs(uint16_t code) {
   mcp4822_write(CS_MCP3, true,  code);  // CV6
 }
 
-// All-channel stepped pattern.
+// =====================================================================
+// Patch + CV system (Plaits-helper foundation)
+// =====================================================================
 //
-// Cycles through fixed DAC codes with multi-second hold per step so a
-// multimeter can settle. All 6 CVs receive the same code at the same time.
-const uint16_t cv_step_codes[] = {500, 2000, 3500};
-constexpr int N_STEPS = sizeof(cv_step_codes) / sizeof(cv_step_codes[0]);
-int      cv_step_idx     = 0;
-uint32_t cv_step_last_ms = 0;
-constexpr uint32_t CV_STEP_HOLD_MS = 3000;
+// Six CV outputs drive a Plaits + Swords + Four Play voice. Each CV channel
+// has a per-channel calibration (codes for ±5V/0V) plus a semantic range
+// that captures whether the destination expects unipolar 0..+5V or bipolar
+// ±5V or the offset −1.7..+3.4V used by Plaits Model.
+//
+// A "patch" is six PatchChannel records. Each channel either holds a
+// static voltage forever, or runs a gated rise/fall envelope. v1 ignores
+// the LFO `cycle` field (data parsed, renderer falls back to static).
 
-struct Channel {
+// Per-channel CV calibration + semantic range. Codes from 2026-05-02
+// bench measurement (memory: project_ai_modules_cv_calibration). Ranges
+// from 2026-05-04 bench measurement (memory: project_ai_modules_plaits_mapping).
+struct CvCal {
+  uint16_t code_pos5v;
+  uint16_t code_0v;
+  uint16_t code_neg5v;
+  float    output_min_v;   // semantic range — clamps user/LLM input
+  float    output_max_v;
+  int      cs_pin;         // which MCP4822 chip
+  bool     channel_b;      // false = Vout A, true = Vout B
+};
+
+const CvCal CV_CAL[6] = {
+  // CV 1 — Plaits Model — offset bipolar (-1.7 to +3.4 V), discrete 24 bands
+  { 367, 2033, 3700, -1.7f,  3.4f, CS_MCP1, false },
+  // CV 2 — Plaits Timbre — unipolar 0..5 V
+  { 377, 2035, 3692,  0.0f,  5.0f, CS_MCP1, true  },
+  // CV 3 — Plaits Harmonics — unipolar 0..5 V
+  { 372, 2018, 3665,  0.0f,  5.0f, CS_MCP2, false },
+  // CV 4 — dual-purpose. Plaits-only page treats this as Plaits Morph (0..5 V);
+  // LLM-voice page treats it as Swords FREQ (±5 V). Firmware range broadened
+  // to ±5 V so both work; per-page UI clamps to its own semantic sub-range.
+  { 378, 2025, 3671, -5.0f,  5.0f, CS_MCP2, true  },
+  // CV 5 — Swords RES — bipolar ±5 V (LLM-voice only; unused on Plaits-only page)
+  { 380, 2045, 3710, -5.0f,  5.0f, CS_MCP3, false },
+  // CV 6 — Four Play VCA — unipolar 0..5 V (LLM-voice only)
+  { 384, 2045, 3706,  0.0f,  5.0f, CS_MCP3, true  },
+};
+constexpr int N_CV = 6;
+
+// PatchChannel — describes one CV's behaviour in a patch.
+//   cycle == 0 (none): rise=fall=0 → pure hold; otherwise gated envelope
+//   cycle != 0: free-running LFO (v2 — for now renderer treats as static)
+enum CycleShape : uint8_t {
+  CYCLE_NONE = 0,
+  CYCLE_TRI  = 1,
+  CYCLE_SIN  = 2,
+  CYCLE_SQR  = 3,
+  CYCLE_SAW  = 4,
+  CYCLE_RAMP = 5,
+};
+
+struct PatchChannel {
+  float    hold_v;     // peak voltage
+  uint16_t rise_ms;    // 0 → instant
+  uint16_t fall_ms;    // 0 → instant
+  uint8_t  cycle;      // CycleShape — v1 only renders CYCLE_NONE
+};
+
+struct Patch {
+  char         name[16];
+  char         category[8];
+  PatchChannel channels[N_CV];
+};
+
+// Convert a target voltage to a DAC code via the per-channel calibration.
+// Clamps to channel's semantic range first, then to safe DAC code limits.
+uint16_t cv_voltage_to_code(int ch, float v) {
+  if (ch < 0 || ch >= N_CV) return 2048;
+  const CvCal& c = CV_CAL[ch];
+  if (v < c.output_min_v) v = c.output_min_v;
+  if (v > c.output_max_v) v = c.output_max_v;
+  // Linear interp using the +5V and -5V endpoints (most accurate).
+  float code_f = c.code_neg5v
+               + (v + 5.0f) * (c.code_pos5v - c.code_neg5v) / 10.0f;
+  if (code_f < 50.0f)   code_f = 50.0f;
+  if (code_f > 4045.0f) code_f = 4045.0f;
+  return (uint16_t)(code_f + 0.5f);
+}
+
+// Write a voltage to a CV channel via SPI.
+void cv_set_voltage(int ch, float v) {
+  if (ch < 0 || ch >= N_CV) return;
+  mcp4822_write(CV_CAL[ch].cs_pin, CV_CAL[ch].channel_b,
+                cv_voltage_to_code(ch, v));
+}
+
+// Write a raw DAC code to a CV channel (bypasses calibration; useful for
+// testing or when the caller already knows the code).
+void cv_set_code(int ch, uint16_t code) {
+  if (ch < 0 || ch >= N_CV) return;
+  mcp4822_write(CV_CAL[ch].cs_pin, CV_CAL[ch].channel_b, code);
+}
+
+// Plaits Model — per-model centre voltages, empirically measured 2026-05-05.
+// Bands aren't perfectly uniform; linear-fit residuals exceed band width in
+// the upper red bank, so we use a lookup table instead of a formula.
+//
+// Each entry is the centre voltage of that model's band, computed as the
+// midpoint between consecutive observed lower-edges.
+constexpr int PLAITS_MODEL_COUNT = 24;
+const float PLAITS_MODEL_CENTRE_V[PLAITS_MODEL_COUNT] = {
+  // Orange bank (0–7)
+  -1.8f, -1.49f, -1.25f, -1.04f, -0.86f, -0.65f, -0.44f, -0.23f,
+  // Green bank (8–15)
+   -0.02f,  0.18f,  0.39f,  0.60f,  0.80f,  1.01f,  1.22f,  1.42f,
+  // Red bank (16–23)
+   1.62f,  1.83f,  2.03f,  2.23f,  2.44f,  2.64f,  2.85f,  3.06f,
+};
+
+// Forward decl — body lives below ChannelState definition since it touches
+// chan_state[]. Keeps the existing call sites and route handler valid.
+void plaits_set_model(int model_index);
+
+// Reverse of plaits_set_model: which model index does this voltage select?
+// Uses closest-centre matching, which is mathematically equivalent to
+// midpoint-boundary detection. Single source of truth for both directions.
+int plaits_voltage_to_model(float v) {
+  int best = 0;
+  float best_d = fabsf(v - PLAITS_MODEL_CENTRE_V[0]);
+  for (int i = 1; i < PLAITS_MODEL_COUNT; i++) {
+    const float d = fabsf(v - PLAITS_MODEL_CENTRE_V[i]);
+    if (d < best_d) { best_d = d; best = i; }
+  }
+  return best;
+}
+
+// =====================================================================
+// Envelope render engine (1 kHz tick, gated by D9 input)
+// =====================================================================
+
+// Runtime state for each CV channel — recomputed every tick from the
+// loaded patch + the gate state.
+struct ChannelState {
+  uint8_t  mode;            // 0 = static, 1 = envelope
+  float    hold_v;          // patch's hold voltage
+  uint16_t rise_ms;
+  uint16_t fall_ms;
+  // Envelope dynamics
+  enum Phase { PH_IDLE = 0, PH_RISING, PH_HOLDING, PH_FALLING };
+  uint8_t  phase;
+  uint32_t phase_start_ms;
+  float    phase_start_v;   // voltage at start of current phase (for smooth transitions)
+  float    current_v;       // last value written
+};
+
+ChannelState chan_state[N_CV];
+
+// Set a CV to a static voltage and update chan_state so envelope_tick
+// doesn't override it. Used by /api/cv, /api/plaits/model, /api/patch.
+void cv_set_static(int ch, float v) {
+  if (ch < 0 || ch >= N_CV) return;
+  ChannelState& st = chan_state[ch];
+  st.mode = 0;
+  st.phase = ChannelState::PH_IDLE;
+  st.hold_v = v;
+  st.current_v = v;
+  cv_set_voltage(ch, v);
+}
+
+void plaits_set_model(int model_index) {
+  if (model_index < 0)  model_index = 0;
+  if (model_index >= PLAITS_MODEL_COUNT) model_index = PLAITS_MODEL_COUNT - 1;
+  cv_set_static(0, PLAITS_MODEL_CENTRE_V[model_index]);
+}
+
+// Currently loaded patch. Mutable copy so the live UI can edit it.
+Patch current_patch = {};
+
+// Apply a patch: snapshot it into chan_state, then immediately write the
+// resting voltage of each channel (static channels hold; envelope channels
+// idle at 0 V awaiting gate).
+void patch_apply(const Patch& p) {
+  current_patch = p;
+  const uint32_t now_ms = millis();
+
+  for (int i = 0; i < N_CV; i++) {
+    const PatchChannel& pc = p.channels[i];
+    ChannelState& st = chan_state[i];
+
+    st.hold_v   = pc.hold_v;
+    st.rise_ms  = pc.rise_ms;
+    st.fall_ms  = pc.fall_ms;
+
+    const bool is_static = (pc.cycle == CYCLE_NONE)
+                        && (pc.rise_ms == 0)
+                        && (pc.fall_ms == 0);
+
+    if (is_static) {
+      st.mode = 0;
+      st.phase = ChannelState::PH_IDLE;
+      st.current_v = pc.hold_v;
+      cv_set_voltage(i, pc.hold_v);
+    } else if (pc.cycle == CYCLE_NONE) {
+      // Gated envelope; idle at 0 V until gate.
+      st.mode = 1;
+      st.phase = ChannelState::PH_IDLE;
+      st.current_v = 0.0f;
+      st.phase_start_ms = now_ms;
+      st.phase_start_v  = 0.0f;
+      cv_set_voltage(i, 0.0f);
+    } else {
+      // v2: LFO. For now, render as static at hold_v.
+      st.mode = 0;
+      st.phase = ChannelState::PH_IDLE;
+      st.current_v = pc.hold_v;
+      cv_set_voltage(i, pc.hold_v);
+    }
+  }
+
+  Serial.printf("Patch loaded: '%s' (%s)\n", p.name, p.category);
+}
+
+// Gate input state — driven by D9 ISR.
+volatile bool     gate_state         = false;
+volatile uint32_t gate_changed_us    = 0;
+volatile bool     gate_edge_pending  = false;
+volatile uint32_t gate_pulse_count   = 0;
+
+void IRAM_ATTR gate_isr() {
+  const bool now = (digitalRead(D9) == HIGH);
+  if (now != gate_state) {
+    gate_state = now;
+    gate_changed_us = micros();
+    gate_edge_pending = true;
+    if (now) gate_pulse_count++;
+  }
+}
+
+// Called from the main loop once per millisecond. Updates envelope state
+// for each enveloped channel, writes new CV codes when the value moves.
+void envelope_tick(uint32_t now_ms) {
+  // Pick up any pending gate edge.
+  bool gate_now;
+  bool edge;
+  noInterrupts();
+  gate_now = gate_state;
+  edge = gate_edge_pending;
+  gate_edge_pending = false;
+  interrupts();
+
+  for (int i = 0; i < N_CV; i++) {
+    ChannelState& st = chan_state[i];
+    if (st.mode != 1) continue;  // static channels handled at patch_apply
+
+    // Edge handling
+    if (edge) {
+      if (gate_now) {
+        // Gate on → start rising from current value to hold_v
+        st.phase = ChannelState::PH_RISING;
+        st.phase_start_ms = now_ms;
+        st.phase_start_v  = st.current_v;
+      } else {
+        // Gate off → start falling from current value to 0 V
+        st.phase = ChannelState::PH_FALLING;
+        st.phase_start_ms = now_ms;
+        st.phase_start_v  = st.current_v;
+      }
+    }
+
+    float target_v = st.current_v;
+    const uint32_t elapsed = now_ms - st.phase_start_ms;
+
+    switch (st.phase) {
+      case ChannelState::PH_RISING: {
+        if (st.rise_ms == 0 || elapsed >= st.rise_ms) {
+          target_v = st.hold_v;
+          st.phase = ChannelState::PH_HOLDING;
+        } else {
+          const float t = (float)elapsed / (float)st.rise_ms;
+          target_v = st.phase_start_v + t * (st.hold_v - st.phase_start_v);
+        }
+        break;
+      }
+      case ChannelState::PH_HOLDING:
+        target_v = st.hold_v;
+        break;
+      case ChannelState::PH_FALLING: {
+        if (st.fall_ms == 0 || elapsed >= st.fall_ms) {
+          target_v = 0.0f;
+          st.phase = ChannelState::PH_IDLE;
+        } else {
+          const float t = (float)elapsed / (float)st.fall_ms;
+          target_v = st.phase_start_v + t * (0.0f - st.phase_start_v);
+        }
+        break;
+      }
+      case ChannelState::PH_IDLE:
+      default:
+        target_v = 0.0f;
+        break;
+    }
+
+    if (target_v != st.current_v) {
+      st.current_v = target_v;
+      cv_set_voltage(i, target_v);
+    }
+  }
+}
+
+// =====================================================================
+// Test patches — hardcoded so we can validate the pipeline end-to-end
+// =====================================================================
+//
+// Channel order: [Model, Timbre, Harmonics, Swords RES, Swords FREQ, VCA]
+
+// Boot / reset patch — chosen to be audible regardless of which voice is
+// patched up (Plaits-only or Plaits+Swords+Four Play). All-static, with
+// CV6 = +5 V so Four Play VCA is fully open if it's in the chain.
+const Patch test_mode_patch = { "Test Mode", "test", {
+  {  0.0f,  0, 0, CYCLE_NONE },  // CV1 Model — engine ≈8 area at 0 V
+  {  2.5f,  0, 0, CYCLE_NONE },  // CV2 Timbre — mid
+  {  2.5f,  0, 0, CYCLE_NONE },  // CV3 Harmonics — mid
+  {  0.0f,  0, 0, CYCLE_NONE },  // CV4 — bipolar mid (Swords FREQ centre / Plaits Morph CCW)
+  {  0.0f,  0, 0, CYCLE_NONE },  // CV5 — bipolar mid (Swords RES centre)
+  {  5.0f,  0, 0, CYCLE_NONE },  // CV6 — Four Play VCA full open (audible)
+}};
+
+const Patch test_patches[] = {
+  // Pluck Bass — Pair VA + filter envelope, punchy VCA.
+  { "Pluck Bass", "bass", {
+    { -0.02f, 0,   0,   CYCLE_NONE },  // Model — engine 8 (Pair VA, green slot 1)
+    {  2.5f,  0,   0,   CYCLE_NONE },  // CV2 Timbre — full square (mid)
+    {  0.8f,  0,   0,   CYCLE_NONE },  // CV3 Harmonics — light detune for life
+    {  4.0f,  5,   300, CYCLE_NONE },  // CV4 Swords FREQ — snap open, decay to mid
+    {  1.5f,  0,   0,   CYCLE_NONE },  // CV5 Swords RES — moderate, no self-osc
+    {  5.0f,  1,   350, CYCLE_NONE },  // CV6 VCA — punchy attack, ~350 ms release
+  }},
+  // Slow Pad
+  { "Slow Pad", "pad", {
+    {  0.80f,  0,    0,    CYCLE_NONE },  // Model — engine 12 (Harmonic, green slot 5)
+    {  3.5f,   0,    0,    CYCLE_NONE },  // Timbre
+    {  3.0f,   0,    0,    CYCLE_NONE },  // Harmonics
+    {  1.5f,   0,    0,    CYCLE_NONE },  // RES
+    {  2.0f,   800,  1500, CYCLE_NONE },  // FREQ slow envelope
+    {  4.5f,   1200, 2000, CYCLE_NONE },  // VCA slow envelope
+  }},
+  // Kick
+  { "Kick", "perc", {
+    {  2.64f, 0, 0,   CYCLE_NONE },  // Model — engine 21 (Bass Drum, red bank slot 6)
+    {  3.0f,  0, 0,   CYCLE_NONE },  // Timbre
+    {  1.5f,  0, 0,   CYCLE_NONE },  // Harmonics
+    {  3.0f,  0, 0,   CYCLE_NONE },  // RES — bumpy
+    {  2.5f,  1, 80,  CYCLE_NONE },  // FREQ fast click
+    {  5.0f,  1, 120, CYCLE_NONE },  // VCA punchy
+  }},
+  // Drone
+  { "Drone", "drone", {
+    { -0.44f, 0,    0,    CYCLE_NONE },  // Model — engine 6 (String Machine, orange slot 7)
+    {  2.0f,  0,    0,    CYCLE_NONE },  // Timbre
+    {  4.0f,  0,    0,    CYCLE_NONE },  // Harmonics
+    {  0.0f,  0,    0,    CYCLE_NONE },  // RES
+    {  0.0f,  0,    0,    CYCLE_NONE },  // FREQ static at mid
+    {  4.5f,  2000, 3000, CYCLE_NONE },  // VCA slow swell
+  }},
+};
+constexpr int N_TEST_PATCHES = sizeof(test_patches) / sizeof(test_patches[0]);
+
+// =====================================================================
+// LLM patch bank — 6 patches selectable via panel buttons 1–6
+// =====================================================================
+//
+// When the LLM voice (via the Mac proxy + /llm page) generates a set of 6
+// variations on a prompt, the iPad POSTs them as a "bank" to /api/patch/bank.
+// The firmware stores them and applies slot 0 immediately. Panel buttons 1–6
+// then select among the 6 — channel-button LED stays lit on the active slot.
+// `active_patch_idx == -1` means no LLM bank loaded yet (boot state).
+
+constexpr int PATCH_BANK_SIZE = 6;
+Patch patch_bank[PATCH_BANK_SIZE] = {};
+int   active_patch_idx = -1;
+
+// =====================================================================
+// Panel button + LED + audio + clock telemetry (existing bring-up code)
+// =====================================================================
+
+struct PanelChannel {
   const char* name;
   int button_pin;
   int led_pin;
   char short_name; // for the compact serial line: M, 1, 2, ...
 };
 
-const Channel channels[] = {
+const PanelChannel panel_channels[] = {
   {"master", D12, D10, 'M'},
   {"ch1",    D8,  D7,  '1'},
   {"ch2",    A2,  A3,  '2'},
@@ -199,7 +578,8 @@ const Channel channels[] = {
   {"ch5",    D4,  D3,  '5'},
   {"ch6",    A6,  A7,  '6'},
 };
-constexpr int N_CHANNELS = sizeof(channels) / sizeof(channels[0]);
+constexpr int N_PANEL = sizeof(panel_channels) / sizeof(panel_channels[0]);
+constexpr int N_CHANNELS = N_PANEL;  // legacy alias used by older code below
 
 struct AdcStats {
   uint16_t min;
@@ -224,20 +604,6 @@ struct AdcStats {
 };
 
 AdcStats stats_l, stats_r;
-
-// Clock input: rising-edge interrupt counter + interval.
-volatile uint32_t clk_count = 0;
-volatile uint32_t clk_last_us = 0;
-volatile uint32_t clk_interval_us = 0;
-
-void IRAM_ATTR clk_isr() {
-  const uint32_t now_us = micros();
-  if (clk_last_us != 0) {
-    clk_interval_us = now_us - clk_last_us;
-  }
-  clk_last_us = now_us;
-  clk_count++;
-}
 
 // HTTP + WebSocket server for the diag page. Static assets are embedded in
 // the firmware (see _binary_*_start/_end symbols above). Live telemetry is
@@ -271,6 +637,284 @@ void setup_web_server() {
     const size_t len = (size_t)(app_js_end - app_js_start) - 1;
     req->send_P(200, "application/javascript", (const uint8_t*)app_js_start, len);
   });
+  http_server.on("/plaits", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(plaits_html_end - plaits_html_start) - 1;
+    req->send_P(200, "text/html", (const uint8_t*)plaits_html_start, len);
+  });
+  http_server.on("/plaits.js", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(plaits_js_end - plaits_js_start) - 1;
+    req->send_P(200, "application/javascript", (const uint8_t*)plaits_js_start, len);
+  });
+  http_server.on("/llm", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(llm_html_end - llm_html_start) - 1;
+    req->send_P(200, "text/html", (const uint8_t*)llm_html_start, len);
+  });
+  http_server.on("/llm.js", HTTP_GET, [](AsyncWebServerRequest *req) {
+    const size_t len = (size_t)(llm_js_end - llm_js_start) - 1;
+    req->send_P(200, "application/javascript", (const uint8_t*)llm_js_start, len);
+  });
+
+  // POST /api/plaits/model — body is a single integer 0..23.
+  http_server.on("/api/plaits/model", HTTP_POST,
+    [](AsyncWebServerRequest *req) {},  // body handler below provides the payload
+    nullptr,
+    [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index != 0) return;  // only handle first chunk for tiny payloads
+      // Trim and parse: accept either a bare integer or {"model":N} JSON.
+      char tmp[16] = {0};
+      const size_t copylen = (len < sizeof(tmp) - 1) ? len : sizeof(tmp) - 1;
+      memcpy(tmp, data, copylen);
+      int model = -1;
+      // Look for a digit anywhere in the buffer (handles "5", "{\"model\":5}", "model=5")
+      for (size_t i = 0; i < copylen; i++) {
+        if (tmp[i] >= '0' && tmp[i] <= '9') {
+          model = atoi(&tmp[i]);
+          break;
+        }
+      }
+      if (model < 0 || model >= PLAITS_MODEL_COUNT) {
+        req->send(400, "text/plain", "invalid model index");
+        return;
+      }
+      plaits_set_model(model);
+      Serial.printf("Plaits model -> %d\n", model);
+      char resp[48];
+      snprintf(resp, sizeof(resp), "model=%d voltage=%.4f",
+               model, PLAITS_MODEL_CENTRE_V[model]);
+      req->send(200, "text/plain", resp);
+    });
+
+  // POST /api/patch/test/:N — load hardcoded test patch by index.
+  http_server.on("^/api/patch/test/([0-9]+)$", HTTP_POST,
+    [](AsyncWebServerRequest *req) {
+      const int n = req->pathArg(0).toInt();
+      if (n < 0 || n >= N_TEST_PATCHES) {
+        req->send(400, "text/plain", "invalid test patch index");
+        return;
+      }
+      patch_apply(test_patches[n]);
+      char resp[64];
+      snprintf(resp, sizeof(resp), "patch=%s ok", test_patches[n].name);
+      req->send(200, "text/plain", resp);
+    });
+
+  // POST /api/patch/bank — load 6 LLM-generated patches into the panel-button
+  // bank. Body is JSON; can exceed a single TCP chunk so we accumulate into
+  // req->_tempObject (a String*) and parse only once the full body has arrived.
+  http_server.on("/api/patch/bank", HTTP_POST,
+    [](AsyncWebServerRequest *req) {
+      String* buf = static_cast<String*>(req->_tempObject);
+      if (!buf || buf->length() == 0) {
+        req->send(400, "text/plain", "no body");
+        return;
+      }
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, *buf);
+      if (err) {
+        req->send(400, "text/plain", "json parse error");
+        return;
+      }
+      JsonArray arr = doc["patches"].as<JsonArray>();
+      if (arr.isNull() || arr.size() != PATCH_BANK_SIZE) {
+        req->send(400, "text/plain", "expected 6 patches");
+        return;
+      }
+
+      auto load_chan = [&](JsonVariant n, PatchChannel& c) {
+        if (n.is<JsonObject>()) {
+          c.hold_v   = n["v"]       | 0.0f;
+          c.rise_ms  = n["rise_ms"] | 0;
+          c.fall_ms  = n["fall_ms"] | 0;
+        } else {
+          c.hold_v   = n.as<float>();
+          c.rise_ms  = 0;
+          c.fall_ms  = 0;
+        }
+        c.cycle = CYCLE_NONE;
+      };
+
+      const char* needed[] = {"model","timbre","harmonics","swords_freq","swords_res","vca"};
+      for (int i = 0; i < PATCH_BANK_SIZE; i++) {
+        JsonVariant p = arr[i];
+        for (const char* k : needed) {
+          if (p[k].isNull()) {
+            char m[64];
+            snprintf(m, sizeof(m), "patch %d missing field: %s", i, k);
+            req->send(400, "text/plain", m);
+            return;
+          }
+        }
+        Patch& dst = patch_bank[i];
+        memset(&dst, 0, sizeof(dst));
+        const char* nm = p["name"] | (const char*)nullptr;
+        snprintf(dst.name, sizeof(dst.name), "%s", nm ? nm : "LLM Patch");
+        snprintf(dst.category, sizeof(dst.category), "%s", "llm");
+
+        const int model = p["model"] | 0;
+        const int model_clamped =
+          (model < 0) ? 0 : (model >= PLAITS_MODEL_COUNT ? PLAITS_MODEL_COUNT - 1 : model);
+        dst.channels[0] = { PLAITS_MODEL_CENTRE_V[model_clamped], 0, 0, CYCLE_NONE };
+        load_chan(p["timbre"],      dst.channels[1]);
+        load_chan(p["harmonics"],   dst.channels[2]);
+        load_chan(p["swords_freq"], dst.channels[3]);
+        load_chan(p["swords_res"],  dst.channels[4]);
+        load_chan(p["vca"],         dst.channels[5]);
+      }
+
+      // Auto-apply slot 0 so the user immediately hears something.
+      active_patch_idx = 0;
+      patch_apply(patch_bank[0]);
+      Serial.printf("Bank loaded — 6 patches, slot 0 active.\n");
+      req->send(200, "text/plain", "bank loaded; slot 0 active");
+    },
+    nullptr,
+    // Body chunk handler — accumulate into req->_tempObject (String*).
+    // _tempObject is auto-deleted by AsyncWebServer when the request finishes.
+    [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+      String* buf = static_cast<String*>(req->_tempObject);
+      if (!buf) {
+        buf = new String();
+        if (total > 0) buf->reserve(total);
+        req->_tempObject = buf;
+      }
+      buf->concat((const char*)data, len);
+    });
+
+  // POST /api/patch/reset — re-apply the boot/test-mode patch. Useful as
+  // a "panic" button to get back to a known audible state.
+  http_server.on("/api/patch/reset", HTTP_POST,
+    [](AsyncWebServerRequest *req) {
+      patch_apply(test_mode_patch);
+      req->send(200, "text/plain", "reset to test mode");
+    });
+
+  // POST /api/patch/trigger — synthesise a gate-on/gate-off cycle from
+  // software so the page can audition envelopes without a physical gate.
+  http_server.on("/api/patch/trigger", HTTP_POST,
+    [](AsyncWebServerRequest *req) {
+      // Force a "gate-on" edge.
+      noInterrupts();
+      gate_state = true;
+      gate_edge_pending = true;
+      gate_pulse_count++;
+      interrupts();
+      req->send(200, "text/plain", "trigger sent");
+    });
+
+  // POST /api/patch/release — synthesise gate-off (release).
+  http_server.on("/api/patch/release", HTTP_POST,
+    [](AsyncWebServerRequest *req) {
+      noInterrupts();
+      gate_state = false;
+      gate_edge_pending = true;
+      interrupts();
+      req->send(200, "text/plain", "release sent");
+    });
+
+  // POST /api/cv/:ch — body is the target voltage as a plain decimal number
+  // (e.g. "1.234" or "-2.5"). Sets that CV channel directly via the calibrated
+  // mapping. Used by the v1.1 model-tuning slider; later by per-CV manual-mode
+  // sliders. Updates chan_state so static-channel rendering doesn't fight us.
+  http_server.on("^/api/cv/([0-9]+)$", HTTP_POST,
+    [](AsyncWebServerRequest *req) {},  // no params handler
+    nullptr,
+    [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index != 0) return;
+      const int ch = req->pathArg(0).toInt();
+      if (ch < 0 || ch >= N_CV) {
+        req->send(400, "text/plain", "invalid channel");
+        return;
+      }
+      char tmp[24] = {0};
+      const size_t copylen = (len < sizeof(tmp) - 1) ? len : sizeof(tmp) - 1;
+      memcpy(tmp, data, copylen);
+      const float v = atof(tmp);
+      cv_set_static(ch, v);
+      char resp[40];
+      snprintf(resp, sizeof(resp), "cv%d=%.3f V", ch + 1, v);
+      req->send(200, "text/plain", resp);
+    });
+
+  // POST /api/patch — apply a complete LLM-voice patch in one shot.
+  // Routes through patch_apply() so per-channel rise/fall envelopes are honoured;
+  // the gate input on D9 then drives them.
+  // Body is JSON. Each parameter is an object { "v", "rise_ms", "fall_ms" }.
+  // CV1 ("model") is special: it's a discrete index 0..23 (never enveloped).
+  //   { "model": 0..23,
+  //     "timbre":      { "v": 0..5,   "rise_ms": 0, "fall_ms": 0 },
+  //     "harmonics":   { "v": 0..5,   "rise_ms": 0, "fall_ms": 0 },
+  //     "swords_freq": { "v": -5..5,  "rise_ms": 0, "fall_ms": 0 },
+  //     "swords_res":  { "v": -5..5,  "rise_ms": 0, "fall_ms": 0 },
+  //     "vca":         { "v": 0..5,   "rise_ms": 0, "fall_ms": 0 },
+  //     "rationale":   "..." (optional; firmware ignores it) }
+  // rise=fall=0 → pure static hold. Otherwise gated AR envelope on D9.
+  http_server.on("/api/patch", HTTP_POST,
+    [](AsyncWebServerRequest *req) {},
+    nullptr,
+    [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+      if (index != 0) return;
+      JsonDocument doc;
+      DeserializationError err = deserializeJson(doc, data, len);
+      if (err) {
+        req->send(400, "text/plain", "json parse error");
+        return;
+      }
+      const char* needed[] = {"model","timbre","harmonics","swords_freq","swords_res","vca"};
+      for (const char* k : needed) {
+        if (doc[k].isNull()) {
+          char m[64];
+          snprintf(m, sizeof(m), "missing field: %s", k);
+          req->send(400, "text/plain", m);
+          return;
+        }
+      }
+
+      // Helper: pull { v, rise_ms, fall_ms } from a JSON node into a PatchChannel.
+      // Tolerates a bare number for v (treats it as a static channel).
+      auto load_chan = [&](const char* key, PatchChannel& c) {
+        JsonVariant n = doc[key];
+        if (n.is<JsonObject>()) {
+          c.hold_v   = n["v"]       | 0.0f;
+          c.rise_ms  = n["rise_ms"] | 0;
+          c.fall_ms  = n["fall_ms"] | 0;
+        } else {
+          c.hold_v   = n.as<float>();
+          c.rise_ms  = 0;
+          c.fall_ms  = 0;
+        }
+        c.cycle = CYCLE_NONE;
+      };
+
+      Patch p = {};
+      strncpy(p.name, "LLM Patch", sizeof(p.name) - 1);
+      strncpy(p.category, "llm", sizeof(p.category) - 1);
+
+      // CV1 — Plaits Model (discrete; always static)
+      const int model = doc["model"] | 0;
+      const int model_clamped =
+        (model < 0) ? 0 : (model >= PLAITS_MODEL_COUNT ? PLAITS_MODEL_COUNT - 1 : model);
+      p.channels[0] = { PLAITS_MODEL_CENTRE_V[model_clamped], 0, 0, CYCLE_NONE };
+
+      // CV2..CV6 — macros that may carry envelopes
+      load_chan("timbre",      p.channels[1]);
+      load_chan("harmonics",   p.channels[2]);
+      load_chan("swords_freq", p.channels[3]);
+      load_chan("swords_res",  p.channels[4]);
+      load_chan("vca",         p.channels[5]);
+
+      patch_apply(p);
+
+      Serial.printf("LLM patch applied: model=%d "
+                    "t=%.2f(%u/%u) h=%.2f(%u/%u) f=%.2f(%u/%u) "
+                    "r=%.2f(%u/%u) vca=%.2f(%u/%u)\n",
+                    model_clamped,
+                    p.channels[1].hold_v, p.channels[1].rise_ms, p.channels[1].fall_ms,
+                    p.channels[2].hold_v, p.channels[2].rise_ms, p.channels[2].fall_ms,
+                    p.channels[3].hold_v, p.channels[3].rise_ms, p.channels[3].fall_ms,
+                    p.channels[4].hold_v, p.channels[4].rise_ms, p.channels[4].fall_ms,
+                    p.channels[5].hold_v, p.channels[5].rise_ms, p.channels[5].fall_ms);
+      req->send(200, "text/plain", "patch applied");
+    });
 
   http_server.onNotFound([](AsyncWebServerRequest *request) {
     request->send(404, "text/plain", "not found");
@@ -278,41 +922,51 @@ void setup_web_server() {
 
   http_server.begin();
   Serial.printf("HTTP+WS server: listening on :80 "
-                "(html=%u css=%u js=%u bytes embedded)\n",
+                "(index=%u css=%u app=%u plaits-html=%u plaits-js=%u bytes embedded)\n",
                 (unsigned)(index_html_end - index_html_start),
                 (unsigned)(style_css_end - style_css_start),
-                (unsigned)(app_js_end - app_js_start));
+                (unsigned)(app_js_end - app_js_start),
+                (unsigned)(plaits_html_end - plaits_html_start),
+                (unsigned)(plaits_js_end - plaits_js_start));
 }
 
 // Build and push one telemetry JSON frame to every connected WS client.
-// Caller passes a snapshot of loop-local state to avoid double-reading volatiles.
-void broadcast_telemetry(const bool* pressed,
-                         uint32_t clk_cnt,
-                         uint32_t clk_last_us_snap,
-                         uint32_t clk_interval_us_snap) {
+// Per-CV current voltages come from chan_state (the live envelope state).
+void broadcast_telemetry(const bool* pressed) {
   if (ws.count() == 0) return;  // no listeners → skip the formatting
 
   const uint32_t uptime_s = millis() / 1000;
-  const bool clk_live = (clk_cnt >= 2)
-                        && ((micros() - clk_last_us_snap) < 2000000UL);
-  const uint32_t interval_ms = clk_live ? (clk_interval_us_snap / 1000) : 0;
-  const uint16_t cv_code = cv_step_codes[cv_step_idx];
 
-  static char buf[640];
+  // Snapshot gate state.
+  noInterrupts();
+  const bool gate_now = gate_state;
+  const uint32_t gate_pulses = gate_pulse_count;
+  interrupts();
+
+  const int plaits_model = plaits_voltage_to_model(chan_state[0].current_v);
+
+  static char buf[800];
   const int n = snprintf(buf, sizeof(buf),
     "{"
       "\"btn\":[%d,%d,%d,%d,%d,%d,%d],"
       "\"audio\":{\"l\":{\"dc\":%u,\"pp\":%u},\"r\":{\"dc\":%u,\"pp\":%u}},"
-      "\"clk\":{\"cnt\":%lu,\"interval_ms\":%lu},"
-      "\"cv\":[%u,%u,%u,%u,%u,%u],"
+      "\"gate\":{\"state\":%d,\"pulses\":%lu},"
+      "\"cv\":[%.3f,%.3f,%.3f,%.3f,%.3f,%.3f],"
+      "\"plaits\":{\"model\":%d},"
+      "\"bank\":{\"slot\":%d},"
+      "\"patch\":\"%s\","
       "\"sys\":{\"uptime_s\":%lu,\"free_heap\":%u,\"rssi\":%d,\"ip\":\"%s\"}"
     "}",
     pressed[0]?1:0, pressed[1]?1:0, pressed[2]?1:0, pressed[3]?1:0,
     pressed[4]?1:0, pressed[5]?1:0, pressed[6]?1:0,
     stats_l.mean(), stats_l.pp(),
     stats_r.mean(), stats_r.pp(),
-    (unsigned long)clk_cnt, (unsigned long)interval_ms,
-    cv_code, cv_code, cv_code, cv_code, cv_code, cv_code,
+    gate_now ? 1 : 0, (unsigned long)gate_pulses,
+    chan_state[0].current_v, chan_state[1].current_v, chan_state[2].current_v,
+    chan_state[3].current_v, chan_state[4].current_v, chan_state[5].current_v,
+    plaits_model,
+    active_patch_idx,
+    current_patch.name,
     (unsigned long)uptime_s,
     (unsigned)ESP.getFreeHeap(),
     (int)WiFi.RSSI(),
@@ -326,14 +980,13 @@ void broadcast_telemetry(const bool* pressed,
 void setup() {
   Serial.begin(115200);
   while (!Serial && millis() < 3000) { /* wait up to 3 s for USB-CDC */ }
-  Serial.println("\n=== AI Module bring-up: buttons + LEDs + audio ADC ===");
-  Serial.println("Press buttons to light paired LEDs.");
-  Serial.println("Audio: DC ~2048 at silence; pp grows with input amplitude.");
+  Serial.println("\n=== AI Module: Plaits helper v1 ===");
+  Serial.println("CV mapping: Plaits Model/Timbre/Harmonics + Swords RES/FREQ + 4Play VCA");
 
-  for (int i = 0; i < N_CHANNELS; i++) {
-    pinMode(channels[i].button_pin, INPUT_PULLUP);
-    pinMode(channels[i].led_pin,    OUTPUT);
-    digitalWrite(channels[i].led_pin, LOW);
+  for (int i = 0; i < N_PANEL; i++) {
+    pinMode(panel_channels[i].button_pin, INPUT_PULLUP);
+    pinMode(panel_channels[i].led_pin,    OUTPUT);
+    digitalWrite(panel_channels[i].led_pin, LOW);
   }
 
   analogReadResolution(12);            // 0..4095
@@ -342,10 +995,10 @@ void setup() {
   stats_l.reset();
   stats_r.reset();
 
-  // Clock input: hardware divider already pulls toward GND when idle, but
-  // INPUT_PULLDOWN gives a defined state if the conditioning isn't connected.
+  // Gate input on D9: respond to both edges. Internal pull-down keeps the
+  // pin defined when the conditioning network isn't connected.
   pinMode(D9, INPUT_PULLDOWN);
-  attachInterrupt(digitalPinToInterrupt(D9), clk_isr, RISING);
+  attachInterrupt(digitalPinToInterrupt(D9), gate_isr, CHANGE);
 
   // SPI3 bus (HSpi) + MCP4822 chip selects. SPI3 always uses GPIO-matrix
   // routing — only the explicit pins are claimed, no IOMUX defaults.
@@ -355,12 +1008,17 @@ void setup() {
   pinMode(CS_MCP3, OUTPUT); digitalWrite(CS_MCP3, HIGH);
   HSpi.begin(D13, -1, D11, -1);
 
-  write_all_cvs(cv_step_codes[0]);
-  Serial.println("All 6 CVs stepped pattern (3 s hold each):");
-  Serial.println("  code  500 -> DAC 0.50V -> op-amp ~+4.16 V");
-  Serial.println("  code 2000 -> DAC 2.00V -> op-amp ~+0.13 V");
-  Serial.println("  code 3500 -> DAC 3.50V -> op-amp ~-3.91 V");
-  Serial.println("Cycles continuously. Probe each CV output through one cycle.");
+  // Initialise channel state and load the test-mode patch (all static, safe
+  // resonance, VCA open) as the boot default. v1.1 focus: dial in Plaits Model.
+  for (int i = 0; i < N_CV; i++) {
+    chan_state[i] = {};
+  }
+  patch_apply(test_mode_patch);
+
+  Serial.printf("Test patches available: %d\n", N_TEST_PATCHES);
+  for (int i = 0; i < N_TEST_PATCHES; i++) {
+    Serial.printf("  [%d] %s (%s)\n", i, test_patches[i].name, test_patches[i].category);
+  }
 
   setup_wifi_ota();
   setup_web_server();
@@ -374,40 +1032,55 @@ void loop() {
   // AsyncWebSocket; cheap to call every loop tick).
   ws.cleanupClients();
 
-  // Buttons → LEDs.
-  bool pressed[N_CHANNELS];
-  for (int i = 0; i < N_CHANNELS; i++) {
-    pressed[i] = (digitalRead(channels[i].button_pin) == LOW);
-    digitalWrite(channels[i].led_pin, pressed[i] ? HIGH : LOW);
+  // Buttons → patch-bank slot select.
+  // Channel buttons (1–6) edge-detect to load patch_bank[i-1] and light their
+  // LED to indicate the active slot. Master button (M) stays as a diagnostic
+  // press-thru indicator.
+  static bool prev_pressed[N_PANEL] = { false };
+  bool pressed[N_PANEL];
+  for (int i = 0; i < N_PANEL; i++) {
+    pressed[i] = (digitalRead(panel_channels[i].button_pin) == LOW);
   }
+  for (int i = 1; i < N_PANEL; i++) {
+    if (pressed[i] && !prev_pressed[i]) {
+      const int slot = i - 1;
+      if (slot >= 0 && slot < PATCH_BANK_SIZE) {
+        active_patch_idx = slot;
+        patch_apply(patch_bank[slot]);
+        Serial.printf("Panel select: patch slot %d ('%s')\n",
+                      slot, patch_bank[slot].name);
+      }
+    }
+  }
+  // LED state: master = press-thru; ch 1–6 = active-slot indicator.
+  digitalWrite(panel_channels[0].led_pin, pressed[0] ? HIGH : LOW);
+  for (int i = 1; i < N_PANEL; i++) {
+    const int slot = i - 1;
+    digitalWrite(panel_channels[i].led_pin,
+                 (slot == active_patch_idx) ? HIGH : LOW);
+  }
+  memcpy(prev_pressed, pressed, sizeof(prev_pressed));
 
   // Sample audio L/R on every loop tick (~few kHz aggregate).
   stats_l.add(analogRead(A0));
   stats_r.add(analogRead(A1));
 
-  // All-CV stepped pattern: hold each code for CV_STEP_HOLD_MS.
+  // Envelope render tick at 1 ms cadence.
+  static uint32_t last_env_tick_ms = 0;
   const uint32_t now_ms = millis();
-  if (now_ms - cv_step_last_ms >= CV_STEP_HOLD_MS) {
-    cv_step_last_ms = now_ms;
-    cv_step_idx = (cv_step_idx + 1) % N_STEPS;
-    const uint16_t code = cv_step_codes[cv_step_idx];
-    write_all_cvs(code);
-
-    const float v_dac   = code / 1000.0f;
-    const float v_opamp = 2.69f * (2.048f - v_dac);
-    Serial.printf("CV step: code=%4u  DAC=%.3fV  expect_opamp=%+.2fV\n",
-                  code, v_dac, v_opamp);
+  if (now_ms != last_env_tick_ms) {
+    last_env_tick_ms = now_ms;
+    envelope_tick(now_ms);
   }
 
-  // Periodic report.
+  // Periodic serial print + WebSocket telemetry broadcast.
   static uint32_t last_print = 0;
-  const uint32_t now = millis();
-  if (now - last_print >= 250) {
-    last_print = now;
+  if (now_ms - last_print >= 250) {
+    last_print = now_ms;
 
     Serial.print("btn: ");
-    for (int i = 0; i < N_CHANNELS; i++) {
-      Serial.print(pressed[i] ? channels[i].short_name : '.');
+    for (int i = 0; i < N_PANEL; i++) {
+      Serial.print(pressed[i] ? panel_channels[i].short_name : '.');
       Serial.print(' ');
     }
 
@@ -415,24 +1088,12 @@ void loop() {
                   stats_l.mean(), stats_l.pp(),
                   stats_r.mean(), stats_r.pp());
 
-    // Clock readout. Snapshot volatile counters once.
-    noInterrupts();
-    const uint32_t cnt = clk_count;
-    const uint32_t last_us = clk_last_us;
-    const uint32_t interval_us = clk_interval_us;
-    interrupts();
+    Serial.printf("  gate:%s pulses=%lu  patch:%s\n",
+                  gate_state ? "HI" : "lo",
+                  (unsigned long)gate_pulse_count,
+                  current_patch.name);
 
-    Serial.printf("  clk: cnt=%lu", (unsigned long)cnt);
-    if (cnt < 2 || (micros() - last_us) > 2000000UL) {
-      Serial.print(" int= -");
-    } else {
-      Serial.printf(" int=%lums", (unsigned long)(interval_us / 1000));
-    }
-    Serial.println();
-
-    // Push the same snapshot to any connected diag-page clients before
-    // resetting the audio stats accumulator.
-    broadcast_telemetry(pressed, cnt, last_us, interval_us);
+    broadcast_telemetry(pressed);
 
     stats_l.reset();
     stats_r.reset();

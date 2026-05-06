@@ -19,3 +19,8 @@ build/
 
 # Per-developer WiFi / OTA credentials (use the .example file as a template)
 src/*/secrets.h
+
+# Python tools (tools/llm-proxy/) — virtualenv, byte-cache, build metadata
+**/.venv/
+**/__pycache__/
+**/*.egg-info/
