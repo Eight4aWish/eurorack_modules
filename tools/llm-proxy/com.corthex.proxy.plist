@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.corthex.proxy</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/dbaghurst/GitHub/eurorack_modules/tools/llm-proxy/.venv/bin/uvicorn</string>
+        <string>proxy:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8000</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/dbaghurst/GitHub/eurorack_modules/tools/llm-proxy</string>
+
+    <!-- Start at login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart automatically if the process exits / crashes -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Throttle restart attempts to once every 5 s so a config error doesn't pin a CPU -->
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
+
+    <!-- stdout/stderr go to a log file in the proxy dir -->
+    <key>StandardOutPath</key>
+    <string>/Users/dbaghurst/GitHub/eurorack_modules/tools/llm-proxy/proxy.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/dbaghurst/GitHub/eurorack_modules/tools/llm-proxy/proxy.log</string>
+</dict>
+</plist>

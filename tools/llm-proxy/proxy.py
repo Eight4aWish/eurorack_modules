@@ -19,9 +19,15 @@ from typing import Any
 
 import anthropic
 from anthropic.types import MessageParam, ToolParam
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Load .env from the proxy directory (same dir as this file) before any
+# os.environ reads. Lets us keep ANTHROPIC_API_KEY etc. in a gitignored file
+# instead of `export`ing on every shell session.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # --- Config ------------------------------------------------------------------
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-7")

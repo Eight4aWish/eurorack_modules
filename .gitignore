@@ -24,3 +24,6 @@ src/*/secrets.h
 **/.venv/
 **/__pycache__/
 **/*.egg-info/
+
+# Per-user secrets (API keys, hostnames). Use .env.example as a template.
+**/.env

@@ -1,25 +1,61 @@
 # CortHex LLM proxy
 
-Mac-side FastAPI service that turns natural-language prompts into Plaits-voice
-patches via the Claude API. The iPad page POSTs `{session_id, user_message}` to
+Mac-side FastAPI service that turns natural-language prompts into a 6-patch
+"bank" for the Plaits + Swords + Four Play voice via the Claude API.
+The `/llm` page on the module POSTs `{session_id, user_message}` to
 `/generate`; the proxy holds chat history per session, calls Claude with the
-engine table + a `set_patch` tool, and returns `{assistant_text, patch}`. The
-iPad applies the patch to the module's `/api/patch` endpoint.
+engine table + a `set_patch_bank` tool, and returns `{concept, patches[6]}`.
+The iPad page (or this proxy directly, if configured) loads the bank into the
+module via `POST /api/patch/bank`.
 
-Optionally, the proxy can forward patches to the module itself for curl-only
-testing (set `MODULE_HOST` and `APPLY_TO_MODULE=1`).
-
-## Setup
+## First-time setup
 
 ```bash
 cd tools/llm-proxy
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
-export ANTHROPIC_API_KEY=sk-ant-...
+
+# Copy the env template and fill in your key + module host
+cp .env.example .env
+$EDITOR .env
+
+# Sanity-run it once in the foreground (Ctrl-C to stop)
 uvicorn proxy:app --host 0.0.0.0 --port 8000
 ```
 
+The proxy auto-loads `.env` on startup via python-dotenv — no more
+`export ANTHROPIC_API_KEY=...` on every shell session. `.env` is gitignored.
+
+## Auto-start at login (recommended)
+
+A `launchd` plist is checked into the repo at `com.corthex.proxy.plist`.
+Install it once:
+
+```bash
+# Copy into LaunchAgents and load it
+cp tools/llm-proxy/com.corthex.proxy.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.corthex.proxy.plist
+```
+
+The proxy now starts at login and respawns automatically if it crashes.
+Logs go to `tools/llm-proxy/proxy.log` (`tail -f` it for live output).
+
+Useful commands:
+
+| Command | What it does |
+|---|---|
+| `launchctl unload ~/Library/LaunchAgents/com.corthex.proxy.plist` | Stop autostart (also kills the running process). |
+| `launchctl kickstart -k gui/$(id -u)/com.corthex.proxy` | Restart now (e.g. after editing `.env` or pulling new code). |
+| `tail -f tools/llm-proxy/proxy.log` | Watch live logs. |
+| `curl http://localhost:8000/health` | Confirm it's running. |
+
+If you move the repo, edit the absolute paths inside the plist file and
+re-run the `launchctl load` step.
+
 ## Configuration
+
+All values live in `tools/llm-proxy/.env` (gitignored). See
+`.env.example` for the full list with comments.
 
 | Env var                | Default              | Notes                                           |
 |------------------------|----------------------|-------------------------------------------------|
@@ -29,7 +65,7 @@ uvicorn proxy:app --host 0.0.0.0 --port 8000
 | `ANTHROPIC_EFFORT`     | `high`               | `low` / `medium` / `high` / `max`.              |
 | `ANTHROPIC_THINKING`   | `adaptive`           | `adaptive` (default) or `off`.                  |
 | `MODULE_HOST`          | (unset)              | e.g. `http://CortHex-ESP32.local`. Used only with `APPLY_TO_MODULE=1`. |
-| `APPLY_TO_MODULE`      | `0`                  | Set `1` to have the proxy POST patches directly to the module after generation. |
+| `APPLY_TO_MODULE`      | `0`                  | Set `1` to have the proxy POST banks directly to the module after generation. |
 
 ## API
 
@@ -45,21 +81,27 @@ Returns:
 
 ```json
 {
-  "assistant_text": "Pluck bass — Pair VA with quick filter snap.",
-  "patch": {
-    "model": 8,
-    "timbre":      { "v": 2.5,  "rise_ms": 0,  "fall_ms": 0 },
-    "harmonics":   { "v": 0.8,  "rise_ms": 0,  "fall_ms": 0 },
-    "swords_freq": { "v": 3.5,  "rise_ms": 5,  "fall_ms": 250 },
-    "swords_res":  { "v": 1.0,  "rise_ms": 0,  "fall_ms": 0 },
-    "vca":         { "v": 5.0,  "rise_ms": 1,  "fall_ms": 300 },
-    "rationale": "..."
-  },
-  "applied_to_module": false
+  "assistant_text": "Six pluck-bass variations from clean to gritty.",
+  "concept": "Six pluck-bass variations from clean to gritty.",
+  "patches": [
+    {
+      "name": "tight VA",
+      "model": 8,
+      "timbre":      { "v": 2.5,  "rise_ms": 0,  "fall_ms": 0 },
+      "harmonics":   { "v": 0.8,  "rise_ms": 0,  "fall_ms": 0 },
+      "swords_freq": { "v": 3.5,  "rise_ms": 5,  "fall_ms": 250 },
+      "swords_res":  { "v": 1.0,  "rise_ms": 0,  "fall_ms": 0 },
+      "vca":         { "v": 5.0,  "rise_ms": 1,  "fall_ms": 300 },
+      "rationale": "..."
+    },
+    "...×6 total"
+  ],
+  "applied_to_module": true
 }
 ```
 
-`patch` is `null` if Claude asked a clarifying question instead of patching.
+`patches` is `null` if Claude asked a clarifying question instead of
+emitting a bank.
 
 ### `POST /sessions/{id}/reset`
 
@@ -74,18 +116,6 @@ Liveness check; reports current configuration.
 ```bash
 curl -sS -X POST http://localhost:8000/generate \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "test", "user_message": "Make me a snappy pluck bass"}'
+  -d '{"session_id": "test", "user_message": "Make me a snappy pluck bass"}' \
+  | python3 -m json.tool
 ```
-
-To have the proxy apply the patch to the module directly:
-
-```bash
-export MODULE_HOST=http://CortHex-ESP32.local
-export APPLY_TO_MODULE=1
-uvicorn proxy:app --host 0.0.0.0 --port 8000
-```
-
-## Auto-start on Mac (optional)
-
-Drop a `~/Library/LaunchAgents/com.corthex.proxy.plist` with the right
-`WorkingDirectory` and `ProgramArguments` to run uvicorn at login.
