@@ -135,6 +135,32 @@ pio device monitor -b 115200
 
 See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
+## AI Module (CortHex) — `ai-module-bringup`
+
+A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + Four Play patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
+
+- **Hardware**: Arduino Nano ESP32 (NORA-W106 / ESP32-S3, 1M-context-class flash). Six CV outputs through 3× MCP4822 + bipolar shift, audio listening tap on A0/A1, clock input on D9, 7 panel buttons + LEDs. Full schematic and panel layout in [docs/AI_MODULES_HARDWARE.md](docs/AI_MODULES_HARDWARE.md).
+- **Three web pages** (all served by the firmware, on the module's LAN address):
+  - `/` — diagnostics: live telemetry, panel buttons, audio level, gate input, CV output voltages, system info, four sample patches with trigger/release.
+  - `/plaits` — Plaits-only control: 24-engine picker organised by bank (orange / green / red), three macro sliders for Timbre / Harmonics / Morph, per-engine OUT / AUX / macro reference text from the v1.2 manual, internal-LPG envelope explainer.
+  - `/llm` — natural-language patch generation: chat with a Mac-side LLM proxy, view a 6-patch bank as cards, telemetry highlights the slot the user selects via the panel buttons.
+- **Mac LLM proxy**: small FastAPI service at [tools/llm-proxy/](tools/llm-proxy/) that translates prompts into 6 distinct, named patches via Claude. The iPad page calls the proxy; the proxy forwards bank to the module. See its README for setup.
+- **AR envelope engine**: every CV channel can run a gate-driven attack/release envelope using the `D9` gate input, so generated patches can have per-channel dynamics (filter sweeps, VCA envelopes) on top of Plaits' own internal LPG.
+
+Build & upload:
+
+```sh
+# First flash via DFU (USB)
+pio run -e ai-module-bringup -t upload
+
+# Subsequent OTA flashes (over WiFi, mDNS hostname from secrets.h)
+AI_MODULE_OTA_PASS='your-ota-password' pio run -e ai-module-bringup-ota -t upload
+```
+
+WiFi credentials and OTA password live in `src/ai-module-bringup/secrets.h` (gitignored — copy from `secrets.h.example`).
+
+See [src/ai-module-bringup/README.md](src/ai-module-bringup/README.md) for the firmware architecture, HTTP API, and per-page usage notes.
+
 ## Ksoloti Big Genes — `ksoloti-elements`
 
 A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
