@@ -137,7 +137,7 @@ See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
 ## AI Module (CortHex) — `nanoesp32-corthex`
 
-A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + Four Play patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
+A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + T03 patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
 
 - **Hardware**: Arduino Nano ESP32 (NORA-W106 / ESP32-S3, 1M-context-class flash). Six CV outputs through 3× MCP4822 + bipolar shift, audio listening tap on A0/A1, clock input on D9, 7 panel buttons + LEDs. Full schematic and panel layout in [docs/AI_MODULES_HARDWARE.md](docs/AI_MODULES_HARDWARE.md).
 - **Three web pages** (all served by the firmware, on the module's LAN address):

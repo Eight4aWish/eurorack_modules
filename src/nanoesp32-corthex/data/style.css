@@ -809,6 +809,72 @@ h2 {
   gap: 2px;
 }
 
+.bank-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+.bank-actions .patch-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* --- Saved-banks list --- */
+.saved-empty {
+  color: var(--fg-dim);
+  font-size: 13px;
+  text-align: center;
+  padding: 12px;
+}
+.saved-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.saved-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  background: var(--off);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+}
+.saved-meta { min-width: 0; }
+.saved-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.saved-concept {
+  font-size: 12px;
+  color: var(--fg-dim);
+  font-style: italic;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.saved-date {
+  font-size: 10px;
+  color: var(--fg-dim);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  margin-top: 2px;
+}
+.saved-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.saved-load { font-size: 12px; padding: 6px 12px; }
+.saved-del  { font-size: 12px; padding: 6px 10px; color: #f85149; }
+
 /* --- Envelope explainer --- */
 .envelope-steps {
   margin: 8px 0 12px 20px;

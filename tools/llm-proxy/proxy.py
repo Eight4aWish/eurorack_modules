@@ -57,6 +57,41 @@ app.add_middleware(
 _sessions: dict[str, list[MessageParam]] = defaultdict(list)
 
 
+# --- Saved banks ------------------------------------------------------------
+# Persisted to a JSON file alongside the proxy so favourites survive process
+# restarts. id is a millisecond timestamp; entries hold {label, concept,
+# patches, created_at}.
+_BANKS_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "banks.json"
+)
+_banks: dict[str, dict[str, Any]] = {}
+
+
+def _load_banks() -> None:
+    global _banks
+    try:
+        with open(_BANKS_PATH, "r") as f:
+            _banks = json.load(f)
+        log.info("Loaded %d saved banks from %s", len(_banks), _BANKS_PATH)
+    except FileNotFoundError:
+        _banks = {}
+    except json.JSONDecodeError as e:
+        log.warning("banks.json is malformed (%s) — starting empty", e)
+        _banks = {}
+
+
+def _save_banks() -> None:
+    # Atomic write: dump to a temp file, then rename. Avoids leaving a
+    # truncated banks.json behind if the process is killed mid-write.
+    tmp = _BANKS_PATH + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(_banks, f, indent=2)
+    os.replace(tmp, _BANKS_PATH)
+
+
+_load_banks()
+
+
 # --- The set_patch tool ------------------------------------------------------
 def _macro_schema(description: str) -> dict[str, Any]:
     return {
@@ -94,7 +129,7 @@ _PATCH_OBJECT_SCHEMA: dict[str, Any] = {
             "CV5 — Swords filter resonance, -5 to +5 V (> +3 V self-oscillates)."
         ),
         "vca": _macro_schema(
-            "CV6 — Four Play VCA gain, 0 to +5 V (0 = silent, 5 = full open)."
+            "CV6 — T03 VCA gain, 0 to +5 V (0 = silent, 5 = full open)."
         ),
         "rationale": {
             "type": "string",
@@ -158,7 +193,7 @@ tool call.
 
 Six CV outputs feed three modules wired in series:
 
-    Plaits (oscillator, 24 engines) → Swords (filter) → Four Play (VCA) → audio out
+    Plaits (oscillator, 24 engines) → Swords (filter) → T03 (VCA) → audio out
 
 The user's gate fires both Plaits' TRIG (excites drum/physical models) and the
 firmware's envelope engine on D9 (drives any rise/fall envelopes you set on
@@ -173,7 +208,7 @@ CV2-6).
 | 3  | Plaits Harmonics     | 0 to +5 V      | Per-engine macro.                        |
 | 4  | Swords FREQUENCY     | -5 to +5 V     | Filter cutoff. 0 V = mid (~1 kHz).       |
 | 5  | Swords RESONANCE     | -5 to +5 V     | Q. > +3 V tends toward self-oscillation. |
-| 6  | Four Play VCA        | 0 to +5 V      | Final amplitude. 0 = silent, 5 = full open. |
+| 6  | T03 VCA        | 0 to +5 V      | Final amplitude. 0 = silent, 5 = full open. |
 
 Plaits MORPH is panel-only — out of your control.
 Plaits' V/oct (pitch) is set externally — out of your control.
@@ -509,3 +544,82 @@ def health() -> dict[str, str | bool]:
         "module_host": MODULE_HOST or "",
         "apply_to_module": APPLY_TO_MODULE,
     }
+
+
+# --- Saved-bank endpoints ---------------------------------------------------
+import time as _time  # noqa: E402  (kept local; only used by saved-bank API)
+
+
+class SaveBankRequest(BaseModel):
+    label: str | None = None
+    concept: str
+    patches: list[PatchPayload]
+
+
+class BankSummary(BaseModel):
+    id: str
+    label: str
+    concept: str
+    created_at: str
+
+
+@app.post("/banks")
+def save_bank(req: SaveBankRequest) -> dict[str, str]:
+    if len(req.patches) != 6:
+        raise HTTPException(status_code=400, detail="bank must contain exactly 6 patches")
+    bank_id = str(int(_time.time() * 1000))
+    label = (req.label or req.concept or f"bank {bank_id}").strip()[:80]
+    _banks[bank_id] = {
+        "id": bank_id,
+        "label": label,
+        "concept": req.concept,
+        "patches": [p.model_dump() for p in req.patches],
+        "created_at": _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime()),
+    }
+    _save_banks()
+    log.info("Saved bank %s (%s)", bank_id, label)
+    return {"id": bank_id, "label": label}
+
+
+@app.get("/banks", response_model=list[BankSummary])
+def list_banks() -> list[BankSummary]:
+    # Newest first
+    items = sorted(_banks.values(), key=lambda b: b["id"], reverse=True)
+    return [
+        BankSummary(
+            id=b["id"], label=b["label"], concept=b["concept"], created_at=b["created_at"]
+        )
+        for b in items
+    ]
+
+
+@app.get("/banks/{bank_id}")
+def get_bank(bank_id: str) -> dict[str, Any]:
+    b = _banks.get(bank_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="bank not found")
+    return b
+
+
+@app.delete("/banks/{bank_id}")
+def delete_bank(bank_id: str) -> dict[str, str]:
+    if bank_id not in _banks:
+        raise HTTPException(status_code=404, detail="bank not found")
+    _banks.pop(bank_id)
+    _save_banks()
+    log.info("Deleted bank %s", bank_id)
+    return {"status": "deleted", "id": bank_id}
+
+
+@app.post("/banks/{bank_id}/load")
+def load_bank_to_module(bank_id: str) -> dict[str, Any]:
+    b = _banks.get(bank_id)
+    if not b:
+        raise HTTPException(status_code=404, detail="bank not found")
+    if not MODULE_HOST:
+        raise HTTPException(
+            status_code=400,
+            detail="MODULE_HOST not configured; set it in .env to forward banks",
+        )
+    applied = _forward_bank_to_module(b["concept"], b["patches"])
+    return {"status": "ok" if applied else "module unreachable", "id": bank_id}

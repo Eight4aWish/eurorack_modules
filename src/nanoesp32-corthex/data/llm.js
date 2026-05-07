@@ -22,6 +22,9 @@
   const bankGrid = document.getElementById('bank-grid');
   const bankConcept = document.getElementById('bank-concept');
   const activeSlotLabel = document.getElementById('active-slot');
+  const saveBankBtn = document.getElementById('save-bank');
+  const savedList = document.getElementById('saved-list');
+  const savedEmpty = document.getElementById('saved-empty');
   const liveModel = document.getElementById('live-model');
   const liveCvEls = [
     document.getElementById('live-cv-0'),
@@ -210,6 +213,7 @@
       if (j.patches && j.patches.length === 6) {
         currentBank = { concept: j.concept || '', patches: j.patches };
         renderBank(currentBank, 0);
+        saveBankBtn.disabled = false;
         if (!j.applied_to_module) {
           // Proxy didn't auto-apply — push it to the module from here so the
           // panel buttons start working immediately.
@@ -272,6 +276,133 @@
       `Tap panel button ${slot + 1} on the module to audition this patch.`,
       { label: 'tip' });
   });
+
+  // --- Saved banks (favourites stored on the proxy) ---
+  async function refreshSavedList() {
+    const url = proxyEndpoint('/banks');
+    if (!url) return;
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const items = await r.json();
+      renderSavedList(items);
+    } catch (e) {
+      // Proxy unreachable — leave the list as-is, don't spam errors.
+    }
+  }
+
+  function renderSavedList(items) {
+    savedList.innerHTML = '';
+    if (!items.length) {
+      savedEmpty.style.display = '';
+      return;
+    }
+    savedEmpty.style.display = 'none';
+    items.forEach((b) => {
+      const li = document.createElement('li');
+      li.className = 'saved-item';
+      li.innerHTML =
+        `<div class="saved-meta">` +
+        `<div class="saved-label">${escapeHtml(b.label)}</div>` +
+        `<div class="saved-concept">${escapeHtml(b.concept || '')}</div>` +
+        `<div class="saved-date">${b.created_at}</div>` +
+        `</div>` +
+        `<div class="saved-actions">` +
+        `<button class="patch-btn saved-load" data-id="${b.id}">Load</button>` +
+        `<button class="patch-btn saved-del" data-id="${b.id}">✕</button>` +
+        `</div>`;
+      savedList.appendChild(li);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  }
+
+  saveBankBtn.addEventListener('click', async () => {
+    if (!currentBank) return;
+    const url = proxyEndpoint('/banks');
+    if (!url) {
+      appendChatBubble('error', 'Set the proxy URL before saving.', { label: 'error' });
+      return;
+    }
+    const label = prompt('Label for this bank?', currentBank.concept?.slice(0, 60) || '');
+    if (label === null) return;  // user cancelled
+    saveBankBtn.disabled = true;
+    saveBankBtn.textContent = '…saving';
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: label.trim() || currentBank.concept,
+          concept: currentBank.concept,
+          patches: currentBank.patches,
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status} ${await r.text()}`);
+      saveBankBtn.textContent = '✓ saved';
+      setTimeout(() => {
+        saveBankBtn.textContent = '★ Save current bank';
+        saveBankBtn.disabled = false;
+      }, 800);
+      refreshSavedList();
+    } catch (e) {
+      appendChatBubble('error', `Save failed: ${e.message}`, { label: 'error' });
+      saveBankBtn.textContent = '★ Save current bank';
+      saveBankBtn.disabled = false;
+    }
+  });
+
+  savedList.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    if (!id) return;
+
+    if (btn.classList.contains('saved-del')) {
+      if (!confirm('Delete this saved bank?')) return;
+      const url = proxyEndpoint(`/banks/${encodeURIComponent(id)}`);
+      try {
+        await fetch(url, { method: 'DELETE' });
+        refreshSavedList();
+      } catch (err) {
+        appendChatBubble('error', `Delete failed: ${err.message}`, { label: 'error' });
+      }
+      return;
+    }
+
+    if (btn.classList.contains('saved-load')) {
+      btn.disabled = true;
+      const orig = btn.textContent;
+      btn.textContent = '…';
+      try {
+        // Fetch the full bank, render it locally, and POST to the module.
+        const r = await fetch(proxyEndpoint(`/banks/${encodeURIComponent(id)}`));
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const bank = await r.json();
+        currentBank = { concept: bank.concept, patches: bank.patches };
+        renderBank(currentBank, 0);
+        saveBankBtn.disabled = false;
+        await fetch('/api/patch/bank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ concept: currentBank.concept, patches: currentBank.patches }),
+        });
+        appendChatBubble('system', `Loaded saved bank: ${bank.label}`, { label: 'note' });
+      } catch (err) {
+        appendChatBubble('error', `Load failed: ${err.message}`, { label: 'error' });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = orig;
+      }
+    }
+  });
+
+  // Refresh saved list whenever the proxy URL changes (and once on init below).
+  proxyUrl.addEventListener('change', refreshSavedList);
 
   // --- Proxy health-check (with timeout) ---
   proxyTest.addEventListener('click', async () => {
@@ -357,6 +488,7 @@
   setInterval(refreshConn, 500);
   connect();
 
-  // initial render — empty bank
+  // initial render — empty bank, plus pull the saved list if proxy is set
   renderBank(null);
+  refreshSavedList();
 })();

@@ -186,7 +186,7 @@ void write_all_cvs(uint16_t code) {
 // Patch + CV system (Plaits-helper foundation)
 // =====================================================================
 //
-// Six CV outputs drive a Plaits + Swords + Four Play voice. Each CV channel
+// Six CV outputs drive a Plaits + Swords + T03 voice. Each CV channel
 // has a per-channel calibration (codes for ±5V/0V) plus a semantic range
 // that captures whether the destination expects unipolar 0..+5V or bipolar
 // ±5V or the offset −1.7..+3.4V used by Plaits Model.
@@ -221,7 +221,7 @@ const CvCal CV_CAL[6] = {
   { 378, 2025, 3671, -5.0f,  5.0f, CS_MCP2, true  },
   // CV 5 — Swords RES — bipolar ±5 V (LLM-voice only; unused on Plaits-only page)
   { 380, 2045, 3710, -5.0f,  5.0f, CS_MCP3, false },
-  // CV 6 — Four Play VCA — unipolar 0..5 V (LLM-voice only)
+  // CV 6 — T03 VCA — unipolar 0..5 V (LLM-voice only)
   { 384, 2045, 3706,  0.0f,  5.0f, CS_MCP3, true  },
 };
 constexpr int N_CV = 6;
@@ -493,15 +493,15 @@ void envelope_tick(uint32_t now_ms) {
 // Channel order: [Model, Timbre, Harmonics, Swords RES, Swords FREQ, VCA]
 
 // Boot / reset patch — chosen to be audible regardless of which voice is
-// patched up (Plaits-only or Plaits+Swords+Four Play). All-static, with
-// CV6 = +5 V so Four Play VCA is fully open if it's in the chain.
+// patched up (Plaits-only or Plaits+Swords+T03). All-static, with
+// CV6 = +5 V so T03 VCA is fully open if it's in the chain.
 const Patch test_mode_patch = { "Test Mode", "test", {
   {  0.0f,  0, 0, CYCLE_NONE },  // CV1 Model — engine ≈8 area at 0 V
   {  2.5f,  0, 0, CYCLE_NONE },  // CV2 Timbre — mid
   {  2.5f,  0, 0, CYCLE_NONE },  // CV3 Harmonics — mid
   {  0.0f,  0, 0, CYCLE_NONE },  // CV4 — bipolar mid (Swords FREQ centre / Plaits Morph CCW)
   {  0.0f,  0, 0, CYCLE_NONE },  // CV5 — bipolar mid (Swords RES centre)
-  {  5.0f,  0, 0, CYCLE_NONE },  // CV6 — Four Play VCA full open (audible)
+  {  5.0f,  0, 0, CYCLE_NONE },  // CV6 — T03 VCA full open (audible)
 }};
 
 const Patch test_patches[] = {

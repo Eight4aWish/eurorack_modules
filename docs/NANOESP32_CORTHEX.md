@@ -2,7 +2,7 @@
 
 Arduino Nano ESP32 firmware for the AI module. Runs three web pages on the
 module's WiFi address, calibrates and drives six CV outputs to a Plaits +
-Swords + Four Play voice, and lets an LLM-generated 6-patch "bank" be
+Swords + T03 voice, and lets an LLM-generated 6-patch "bank" be
 auditioned via the panel buttons.
 
 Hardware spec, panel layout, and bring-up history: [AI_MODULES_HARDWARE.md](AI_MODULES_HARDWARE.md).
@@ -50,7 +50,7 @@ Static assets are embedded in flash at link time via `board_build.embed_txtfiles
 ### Audio chain (LLM voice)
 
 ```
-Plaits (osc, 24 engines) → Swords (filter) → Four Play (VCA) → audio out
+Plaits (osc, 24 engines) → Swords (filter) → T03 (VCA) → audio out
 ```
 
 Six CV outputs:
@@ -62,7 +62,7 @@ Six CV outputs:
 | 3  | Plaits Harmonics| 0 to +5 V      | Per-engine macro.                          |
 | 4  | Swords FREQ     | −5 to +5 V     | Filter cutoff. The Plaits-only page treats this as Plaits Morph (0–5 V) — UI-side range constraint, not firmware. |
 | 5  | Swords RES      | −5 to +5 V     | Filter Q.                                  |
-| 6  | Four Play VCA   | 0 to +5 V      | Final amplitude.                           |
+| 6  | T03 VCA   | 0 to +5 V      | Final amplitude.                           |
 
 CV calibration (per-channel +5 V / 0 V / −5 V codes) lives in the `CV_CAL[]` table in `main.cpp`. Bench-confirmed 2026-05-02; re-measure if Vdd or any bipolar-shift resistor changes.
 

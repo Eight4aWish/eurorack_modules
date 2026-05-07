@@ -27,3 +27,8 @@ src/*/secrets.h
 
 # Per-user secrets (API keys, hostnames). Use .env.example as a template.
 **/.env
+
+# Per-user saved data (LLM proxy bank library, runtime logs)
+tools/llm-proxy/banks.json
+tools/llm-proxy/banks.json.tmp
+tools/llm-proxy/proxy.log

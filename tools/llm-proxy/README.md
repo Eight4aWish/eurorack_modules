@@ -1,7 +1,7 @@
 # CortHex LLM proxy
 
 Mac-side FastAPI service that turns natural-language prompts into a 6-patch
-"bank" for the Plaits + Swords + Four Play voice via the Claude API.
+"bank" for the Plaits + Swords + T03 voice via the Claude API.
 The `/llm` page on the module POSTs `{session_id, user_message}` to
 `/generate`; the proxy holds chat history per session, calls Claude with the
 engine table + a `set_patch_bank` tool, and returns `{concept, patches[6]}`.
