@@ -96,13 +96,31 @@ _load_banks()
 def _macro_schema(description: str) -> dict[str, Any]:
     return {
         "type": "object",
-        "description": description,
+        "description": (
+            description
+            + " Three modes: STATIC (just `v`); AR ENVELOPE (gate-driven —"
+            " `v` is the peak, `rise_ms`/`fall_ms` are attack/release; idles"
+            " at 0 V between gates); LFO (free-running — set `shape` to one"
+            " of TRI/SIN/SQR/SAW/RAMP, `period_ms`, and `min_v`/`max_v` for"
+            " the swing range. Ignores gate)."
+        ),
         "properties": {
-            "v": {"type": "number"},
-            "rise_ms": {"type": "integer", "minimum": 0, "maximum": 5000},
-            "fall_ms": {"type": "integer", "minimum": 0, "maximum": 5000},
+            "v": {"type": "number", "description": "Static voltage, or AR-envelope peak."},
+            "rise_ms": {"type": "integer", "minimum": 0, "maximum": 5000, "description": "AR attack in ms."},
+            "fall_ms": {"type": "integer", "minimum": 0, "maximum": 5000, "description": "AR release in ms."},
+            "shape": {
+                "type": "string",
+                "enum": ["NONE", "TRI", "SIN", "SQR", "SAW", "RAMP"],
+                "description": "LFO shape; NONE (default) leaves the channel as static or AR.",
+            },
+            "period_ms": {"type": "integer", "minimum": 50, "maximum": 60000, "description": "LFO period in ms."},
+            "min_v": {"type": "number", "description": "LFO low voltage (within the channel's range)."},
+            "max_v": {"type": "number", "description": "LFO high voltage (within the channel's range)."},
         },
-        "required": ["v", "rise_ms", "fall_ms"],
+        # `v`/`rise_ms`/`fall_ms` matter for static and AR; `shape`+friends
+        # for LFO. None are individually required — the description tells the
+        # LLM which fields go with which mode.
+        "required": [],
         "additionalProperties": False,
     }
 
@@ -213,25 +231,39 @@ CV2-6).
 Plaits MORPH is panel-only — out of your control.
 Plaits' V/oct (pitch) is set externally — out of your control.
 
-# Macros: static vs enveloped
+# Macros: three modes per CV channel
 
-Each of CV2-6 is a {v, rise_ms, fall_ms} object:
+Each of CV2-6 is one of:
 
-- rise_ms = 0 AND fall_ms = 0 → static hold at v.
-- otherwise → idles at 0 V; on gate-on, rises to v over rise_ms;
-  on gate-off, falls to 0 V over fall_ms. Classic AR shape.
+- STATIC:  {"v": 2.5}                                          ← held until next bank
+- AR ENV:  {"v": 5, "rise_ms": 5, "fall_ms": 250}              ← gate-driven; idles at 0 V
+- LFO:     {"shape": "TRI", "period_ms": 4000,
+            "min_v": -2, "max_v": 2}                           ← free-running; ignores gate
+
+Shapes: TRI (symmetric triangle 0→1→0), SIN (full sine 0.5→1→0→0.5),
+SQR (50% duty 0/1), SAW (rising 0→1), RAMP (falling 1→0).
 
 Useful patterns:
 
 - Pluck/percussive: VCA fast attack (1-5 ms), short release (100-400 ms).
 - Pad: VCA slow rise (500-2000 ms), longer release.
-- Filter snap: SWORDS_FREQ enveloped from 0 V (mid cutoff) up to ~+3 V on gate-on,
-  fall ~200-400 ms; SWORDS_RES static around 0 to +1 V for body.
-- Drone/sustained: leave VCA open (5 V static); rely on Plaits' internal LPG
+- Filter snap: SWORDS_FREQ enveloped from 0 V to ~+3 V on gate-on, fall
+  ~200-400 ms; SWORDS_RES static around 0 to +1 V for body.
+- Slow filter sweep / "movement": SWORDS_FREQ as a TRI or SIN LFO,
+  period 3000-8000 ms, min_v -2 V to max_v +2 V. Pair with a static or
+  AR VCA so each gate still sounds shaped.
+- Tremolo: VCA as a SIN LFO, period 200-500 ms, min_v 1 V to max_v 5 V.
+- Shimmer/movement on Wavetable / Wave Terrain / Granular: LFO on TIMBRE
+  or HARMONICS at 1000-4000 ms across a 1-2 V window.
+- Drone/sustained: leave VCA static at 5 V; rely on Plaits' internal LPG
   via TRIG (the user handles patching).
 - Drum engines (21-23, Bass Drum / Snare / Hi-Hat) have their own internal
-  envelope and disable Plaits' LPG — use VCA static at 5 V or a short release
-  of ~200-500 ms; don't double-envelope.
+  envelope and disable Plaits' LPG — use VCA static at 5 V or a short
+  release of ~200-500 ms. Don't put an LFO on VCA for drum engines.
+
+LFOs are best used on ONE channel at a time within a patch — pair an
+LFO channel with 2-3 static and 1-2 enveloped channels to keep the
+sound coherent. Don't envelope and LFO the same channel.
 
 # Plaits engine table
 
@@ -394,9 +426,16 @@ class GenerateRequest(BaseModel):
 
 
 class MacroPayload(BaseModel):
-    v: float
-    rise_ms: int
-    fall_ms: int
+    # All fields optional — three modes share the same envelope object:
+    # static / AR (`v`, `rise_ms`, `fall_ms`) and LFO (`shape`, `period_ms`,
+    # `min_v`, `max_v`). The firmware decides which mode based on `shape`.
+    v: float | None = None
+    rise_ms: int | None = None
+    fall_ms: int | None = None
+    shape: str | None = None
+    period_ms: int | None = None
+    min_v: float | None = None
+    max_v: float | None = None
 
 
 class PatchPayload(BaseModel):

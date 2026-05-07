@@ -119,10 +119,17 @@
   // --- Bank rendering ---
   function fmtMacro(label, m) {
     if (!m) return `${label}: —`;
+    if (m.shape && m.shape !== 'NONE') {
+      const lo = m.min_v ?? 0;
+      const hi = m.max_v ?? 0;
+      const sign = (v) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)}`;
+      return `${label}: ${m.shape} LFO ${m.period_ms} ms · ${sign(lo)}…${sign(hi)} V`;
+    }
     const env = (m.rise_ms || m.fall_ms)
       ? ` · env ${m.rise_ms}/${m.fall_ms} ms`
       : '';
-    return `${label}: ${m.v >= 0 ? '+' : '−'}${Math.abs(m.v).toFixed(2)} V${env}`;
+    const v = m.v ?? 0;
+    return `${label}: ${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(2)} V${env}`;
   }
 
   function renderBank(bank, activeSlot = 0) {

@@ -226,9 +226,16 @@ const CvCal CV_CAL[6] = {
 };
 constexpr int N_CV = 6;
 
-// PatchChannel — describes one CV's behaviour in a patch.
-//   cycle == 0 (none): rise=fall=0 → pure hold; otherwise gated envelope
-//   cycle != 0: free-running LFO (v2 — for now renderer treats as static)
+// PatchChannel — describes one CV's behaviour in a patch. Three modes
+// distinguished by `cycle`:
+//   cycle == CYCLE_NONE && rise_ms == 0 && fall_ms == 0 → STATIC at hold_v.
+//   cycle == CYCLE_NONE && (rise_ms || fall_ms)         → gated AR envelope:
+//     idle 0 V, rise to hold_v over rise_ms, fall to 0 V over fall_ms.
+//   cycle != CYCLE_NONE                                 → free-running LFO:
+//     hold_v  = upper bound (max V), base_v = lower bound (min V),
+//     rise_ms = period in ms, fall_ms unused. Shape = `cycle` enum.
+// `base_v` is at the END of the struct so positional aggregate-initialisers
+// like `{2.5f, 0, 0, CYCLE_NONE}` still compile (base_v zero-fills).
 enum CycleShape : uint8_t {
   CYCLE_NONE = 0,
   CYCLE_TRI  = 1,
@@ -239,10 +246,11 @@ enum CycleShape : uint8_t {
 };
 
 struct PatchChannel {
-  float    hold_v;     // peak voltage
-  uint16_t rise_ms;    // 0 → instant
-  uint16_t fall_ms;    // 0 → instant
-  uint8_t  cycle;      // CycleShape — v1 only renders CYCLE_NONE
+  float    hold_v;
+  uint16_t rise_ms;
+  uint16_t fall_ms;
+  uint8_t  cycle;
+  float    base_v;     // LFO lower bound; ignored when cycle == CYCLE_NONE
 };
 
 struct Patch {
@@ -320,11 +328,13 @@ int plaits_voltage_to_model(float v) {
 // Runtime state for each CV channel — recomputed every tick from the
 // loaded patch + the gate state.
 struct ChannelState {
-  uint8_t  mode;            // 0 = static, 1 = envelope
-  float    hold_v;          // patch's hold voltage
-  uint16_t rise_ms;
-  uint16_t fall_ms;
-  // Envelope dynamics
+  uint8_t  mode;            // 0 = static, 1 = AR envelope, 2 = LFO
+  float    hold_v;          // patch's hold voltage / LFO upper bound
+  float    base_v;          // LFO lower bound (mode == 2 only; ignored otherwise)
+  uint16_t rise_ms;         // AR attack OR (mode == 2) LFO period in ms
+  uint16_t fall_ms;         // AR release (unused for LFO)
+  uint8_t  cycle;           // CycleShape — selects LFO waveform when mode == 2
+  // Envelope dynamics (mode == 1) and LFO phase clock (mode == 2)
   enum Phase { PH_IDLE = 0, PH_RISING, PH_HOLDING, PH_FALLING };
   uint8_t  phase;
   uint32_t phase_start_ms;
@@ -388,11 +398,15 @@ void patch_apply(const Patch& p) {
       st.phase_start_v  = 0.0f;
       cv_set_voltage(i, 0.0f);
     } else {
-      // v2: LFO. For now, render as static at hold_v.
-      st.mode = 0;
+      // Free-running LFO. hold_v = upper bound, base_v = lower bound,
+      // rise_ms = period, cycle = waveform shape. Ignores gate.
+      st.mode = 2;
+      st.cycle = pc.cycle;
+      st.base_v = pc.base_v;
       st.phase = ChannelState::PH_IDLE;
-      st.current_v = pc.hold_v;
-      cv_set_voltage(i, pc.hold_v);
+      st.phase_start_ms = now_ms;
+      st.current_v = pc.base_v;
+      cv_set_voltage(i, pc.base_v);
     }
   }
 
@@ -429,54 +443,72 @@ void envelope_tick(uint32_t now_ms) {
 
   for (int i = 0; i < N_CV; i++) {
     ChannelState& st = chan_state[i];
-    if (st.mode != 1) continue;  // static channels handled at patch_apply
-
-    // Edge handling
-    if (edge) {
-      if (gate_now) {
-        // Gate on → start rising from current value to hold_v
-        st.phase = ChannelState::PH_RISING;
-        st.phase_start_ms = now_ms;
-        st.phase_start_v  = st.current_v;
-      } else {
-        // Gate off → start falling from current value to 0 V
-        st.phase = ChannelState::PH_FALLING;
-        st.phase_start_ms = now_ms;
-        st.phase_start_v  = st.current_v;
-      }
-    }
+    if (st.mode != 1 && st.mode != 2) continue;  // mode 0 = static, written at patch_apply
 
     float target_v = st.current_v;
-    const uint32_t elapsed = now_ms - st.phase_start_ms;
 
-    switch (st.phase) {
-      case ChannelState::PH_RISING: {
-        if (st.rise_ms == 0 || elapsed >= st.rise_ms) {
+    if (st.mode == 2) {
+      // Free-running LFO. rise_ms = period; cycle selects shape; output
+      // ranges between base_v and hold_v. Gate edges are ignored.
+      const uint32_t period = (st.rise_ms > 0) ? st.rise_ms : 1000;
+      const float t = (float)((now_ms - st.phase_start_ms) % period) / (float)period;
+      float shape;
+      switch (st.cycle) {
+        case CYCLE_TRI:  shape = 1.0f - 2.0f * fabsf(t - 0.5f); break;          // 0→1→0
+        case CYCLE_SIN:  shape = 0.5f + 0.5f * sinf(6.28318530f * t); break;     // 0.5→1→0→0.5
+        case CYCLE_SQR:  shape = (t < 0.5f) ? 0.0f : 1.0f; break;
+        case CYCLE_SAW:  shape = t; break;                                       // 0→1
+        case CYCLE_RAMP: shape = 1.0f - t; break;                                // 1→0
+        default:         shape = 0.5f;
+      }
+      target_v = st.base_v + (st.hold_v - st.base_v) * shape;
+
+    } else {
+      // mode == 1 — gated AR envelope.
+      if (edge) {
+        if (gate_now) {
+          // Gate on → start rising from current value to hold_v
+          st.phase = ChannelState::PH_RISING;
+          st.phase_start_ms = now_ms;
+          st.phase_start_v  = st.current_v;
+        } else {
+          // Gate off → start falling from current value to 0 V
+          st.phase = ChannelState::PH_FALLING;
+          st.phase_start_ms = now_ms;
+          st.phase_start_v  = st.current_v;
+        }
+      }
+
+      const uint32_t elapsed = now_ms - st.phase_start_ms;
+      switch (st.phase) {
+        case ChannelState::PH_RISING: {
+          if (st.rise_ms == 0 || elapsed >= st.rise_ms) {
+            target_v = st.hold_v;
+            st.phase = ChannelState::PH_HOLDING;
+          } else {
+            const float t = (float)elapsed / (float)st.rise_ms;
+            target_v = st.phase_start_v + t * (st.hold_v - st.phase_start_v);
+          }
+          break;
+        }
+        case ChannelState::PH_HOLDING:
           target_v = st.hold_v;
-          st.phase = ChannelState::PH_HOLDING;
-        } else {
-          const float t = (float)elapsed / (float)st.rise_ms;
-          target_v = st.phase_start_v + t * (st.hold_v - st.phase_start_v);
+          break;
+        case ChannelState::PH_FALLING: {
+          if (st.fall_ms == 0 || elapsed >= st.fall_ms) {
+            target_v = 0.0f;
+            st.phase = ChannelState::PH_IDLE;
+          } else {
+            const float t = (float)elapsed / (float)st.fall_ms;
+            target_v = st.phase_start_v + t * (0.0f - st.phase_start_v);
+          }
+          break;
         }
-        break;
-      }
-      case ChannelState::PH_HOLDING:
-        target_v = st.hold_v;
-        break;
-      case ChannelState::PH_FALLING: {
-        if (st.fall_ms == 0 || elapsed >= st.fall_ms) {
+        case ChannelState::PH_IDLE:
+        default:
           target_v = 0.0f;
-          st.phase = ChannelState::PH_IDLE;
-        } else {
-          const float t = (float)elapsed / (float)st.fall_ms;
-          target_v = st.phase_start_v + t * (0.0f - st.phase_start_v);
-        }
-        break;
+          break;
       }
-      case ChannelState::PH_IDLE:
-      default:
-        target_v = 0.0f;
-        break;
     }
 
     if (target_v != st.current_v) {
@@ -721,16 +753,30 @@ void setup_web_server() {
       }
 
       auto load_chan = [&](JsonVariant n, PatchChannel& c) {
+        c.cycle  = CYCLE_NONE;
+        c.base_v = 0.0f;
+        c.rise_ms = 0;
+        c.fall_ms = 0;
         if (n.is<JsonObject>()) {
-          c.hold_v   = n["v"]       | 0.0f;
-          c.rise_ms  = n["rise_ms"] | 0;
-          c.fall_ms  = n["fall_ms"] | 0;
+          const char* shape = n["shape"] | (const char*)nullptr;
+          if (shape && strcmp(shape, "NONE") != 0) {
+            // LFO mode: hold_v = upper, base_v = lower, rise_ms = period.
+            if      (strcmp(shape, "TRI")  == 0) c.cycle = CYCLE_TRI;
+            else if (strcmp(shape, "SIN")  == 0) c.cycle = CYCLE_SIN;
+            else if (strcmp(shape, "SQR")  == 0) c.cycle = CYCLE_SQR;
+            else if (strcmp(shape, "SAW")  == 0) c.cycle = CYCLE_SAW;
+            else if (strcmp(shape, "RAMP") == 0) c.cycle = CYCLE_RAMP;
+            c.hold_v  = n["max_v"]     | 0.0f;
+            c.base_v  = n["min_v"]     | 0.0f;
+            c.rise_ms = n["period_ms"] | 1000;
+          } else {
+            c.hold_v  = n["v"]       | 0.0f;
+            c.rise_ms = n["rise_ms"] | 0;
+            c.fall_ms = n["fall_ms"] | 0;
+          }
         } else {
-          c.hold_v   = n.as<float>();
-          c.rise_ms  = 0;
-          c.fall_ms  = 0;
+          c.hold_v = n.as<float>();
         }
-        c.cycle = CYCLE_NONE;
       };
 
       const char* needed[] = {"model","timbre","harmonics","swords_freq","swords_res","vca"};
@@ -869,20 +915,34 @@ void setup_web_server() {
         }
       }
 
-      // Helper: pull { v, rise_ms, fall_ms } from a JSON node into a PatchChannel.
-      // Tolerates a bare number for v (treats it as a static channel).
+      // Helper: pull a channel object into a PatchChannel. Three modes:
+      // bare number → static; { v, rise_ms, fall_ms } → AR; { shape,
+      // period_ms, min_v, max_v } → LFO.
       auto load_chan = [&](const char* key, PatchChannel& c) {
         JsonVariant n = doc[key];
+        c.cycle  = CYCLE_NONE;
+        c.base_v = 0.0f;
+        c.rise_ms = 0;
+        c.fall_ms = 0;
         if (n.is<JsonObject>()) {
-          c.hold_v   = n["v"]       | 0.0f;
-          c.rise_ms  = n["rise_ms"] | 0;
-          c.fall_ms  = n["fall_ms"] | 0;
+          const char* shape = n["shape"] | (const char*)nullptr;
+          if (shape && strcmp(shape, "NONE") != 0) {
+            if      (strcmp(shape, "TRI")  == 0) c.cycle = CYCLE_TRI;
+            else if (strcmp(shape, "SIN")  == 0) c.cycle = CYCLE_SIN;
+            else if (strcmp(shape, "SQR")  == 0) c.cycle = CYCLE_SQR;
+            else if (strcmp(shape, "SAW")  == 0) c.cycle = CYCLE_SAW;
+            else if (strcmp(shape, "RAMP") == 0) c.cycle = CYCLE_RAMP;
+            c.hold_v  = n["max_v"]     | 0.0f;
+            c.base_v  = n["min_v"]     | 0.0f;
+            c.rise_ms = n["period_ms"] | 1000;
+          } else {
+            c.hold_v  = n["v"]       | 0.0f;
+            c.rise_ms = n["rise_ms"] | 0;
+            c.fall_ms = n["fall_ms"] | 0;
+          }
         } else {
-          c.hold_v   = n.as<float>();
-          c.rise_ms  = 0;
-          c.fall_ms  = 0;
+          c.hold_v = n.as<float>();
         }
-        c.cycle = CYCLE_NONE;
       };
 
       Patch p = {};
