@@ -138,7 +138,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `ksoloti-elements.bin` from the [Releases](https://github.com/Eight4aWish/eurorack_modules/releases) page.
+Download `ksoloti-elements.bin` from the [latest Ksoloti Elements release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/ksoloti-elements-v1.0).
 
 ### Step 2: Install dfu-util
 
