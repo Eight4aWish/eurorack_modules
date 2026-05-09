@@ -1,5 +1,7 @@
 # Eurorack Firmware Monorepo
 
+Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWish/eurorack_electronics) — analog breadboard layouts, drum-voice schematics, and a layout visualiser.
+
 ## Build
 
 PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w_oc`).
