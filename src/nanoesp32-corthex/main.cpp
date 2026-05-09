@@ -20,7 +20,7 @@
 //   CV5 (MCP3 Vout A) = 2.5 V
 //   CV6 (MCP3 Vout B) = 3.0 V
 //
-// Pin map per docs/AI_MODULES_HARDWARE.md §3:
+// Pin map per docs/NANOESP32_CORTHEX_HARDWARE.md §3:
 //   master : btn D12, LED D10
 //   ch 1   : btn D8,  LED D7
 //   ch 2   : btn A2,  LED A3      (A2 = GPIO3 strapping pin — see note)

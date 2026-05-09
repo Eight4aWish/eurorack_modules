@@ -117,7 +117,7 @@ See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
 
 A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + T03 patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
 
-- **Hardware**: Arduino Nano ESP32 (NORA-W106 / ESP32-S3, 1M-context-class flash). Six CV outputs through 3× MCP4822 + bipolar shift, audio listening tap on A0/A1, clock input on D9, 7 panel buttons + LEDs. Full schematic and panel layout in [docs/AI_MODULES_HARDWARE.md](docs/AI_MODULES_HARDWARE.md).
+- **Hardware**: Arduino Nano ESP32 (NORA-W106 / ESP32-S3, 1M-context-class flash). Six CV outputs through 3× MCP4822 + bipolar shift, audio listening tap on A0/A1, clock input on D9, 7 panel buttons + LEDs. Full schematic and panel layout in [docs/NANOESP32_CORTHEX_HARDWARE.md](docs/NANOESP32_CORTHEX_HARDWARE.md).
 - **Three web pages** (all served by the firmware, on the module's LAN address):
   - `/` — diagnostics: live telemetry, panel buttons, audio level, gate input, CV output voltages, system info, four sample patches with trigger/release.
   - `/plaits` — Plaits-only control: 24-engine picker organised by bank (orange / green / red), three macro sliders for Timbre / Harmonics / Morph, per-engine OUT / AUX / macro reference text from the v1.2 manual, internal-LPG envelope explainer.

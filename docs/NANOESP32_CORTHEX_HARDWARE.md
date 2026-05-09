@@ -1,4 +1,4 @@
-# AI Modules — Shared Hardware Design
+# CortHex (nanoesp32-corthex) — Hardware Design
 
 Two firmwares share one PCB:
 - **Surprise Machine** — on-device VAE generates clock-locked 1-bar phrases; hold-to-keep, all-six-held = like.

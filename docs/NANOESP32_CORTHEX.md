@@ -5,7 +5,7 @@ module's WiFi address, calibrates and drives six CV outputs to a Plaits +
 Swords + T03 voice, and lets an LLM-generated 6-patch "bank" be
 auditioned via the panel buttons.
 
-Hardware spec, panel layout, and bring-up history: [AI_MODULES_HARDWARE.md](AI_MODULES_HARDWARE.md).
+Hardware spec, panel layout, and bring-up history: [NANOESP32_CORTHEX_HARDWARE.md](NANOESP32_CORTHEX_HARDWARE.md).
 
 ## Quick start
 
