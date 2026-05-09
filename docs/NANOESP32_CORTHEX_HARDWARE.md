@@ -1,12 +1,8 @@
 # CortHex (nanoesp32-corthex) — Hardware Design
 
-Two firmwares share one PCB:
-- **Surprise Machine** — on-device VAE generates clock-locked 1-bar phrases; hold-to-keep, all-six-held = like.
-- **LLM module** — cloud LLM (Anthropic API) drives closed-loop sound exploration via tool calls; web UI over WiFi.
+The CortHex hardware is a single 10HP Eurorack module that hosts the [`nanoesp32-corthex`](../src/nanoesp32-corthex/) firmware. The current firmware drives an LLM-controlled patch-exploration UI (cloud LLM via Anthropic API, closed-loop sound exploration through tool calls, web UI over WiFi). The hardware was specified to also support an eventual on-device "Surprise Machine" mode (VAE-driven 1-bar phrase generation, hold-to-keep / all-six-held = like) as a future firmware feature on the same board.
 
-Hardware is identical. Software is the only differentiator.
-
-This doc is the canonical hardware spec. Both design briefings (`surprise-machine-briefing.md`, `llm-eurorack-module-design.md`) defer to it where they conflict.
+This doc is the canonical hardware spec — pin maps, panel layout, power, and analog conditioning. For firmware behaviour see [NANOESP32_CORTHEX.md](NANOESP32_CORTHEX.md).
 
 ---
 
