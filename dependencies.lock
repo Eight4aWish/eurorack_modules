@@ -9,6 +9,42 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.0.3
+  docwilco/esp_abl_link:
+    component_hash: dc4b33474c3d80f8d1d8260ddf4d9136f0ab0bc66d84f984554ac691983da2e8
+    dependencies:
+    - name: espressif/asio
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.32.0'
+    - name: idf
+      require: private
+      version: '>=5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32
+    - esp32s3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h2
+    - esp32p4
+    version: 4.0.0~3-beta4
+  espressif/asio:
+    component_hash: 3cf486ada17eca189ad68be1e8c5dfe757df5baa6dfd42c97872f950d559ae74
+    dependencies:
+    - name: espressif/sock_utils
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^0.1
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.32.0~2
   espressif/cbor:
     component_hash: dad9ca860963e930366510a10b422b3125a4fb27b979712ed65efcbcd742de50
     dependencies:
@@ -311,6 +347,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.4.6
+  espressif/sock_utils:
+    component_hash: 8188e758451f5cdf2b8d11205237986dd85760662f325132d1cd173fc081c988
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.1.0
   idf:
     source:
       type: idf
@@ -327,6 +373,7 @@ dependencies:
     version: 1.22.1
 direct_dependencies:
 - chmorgan/esp-libhelix-mp3
+- docwilco/esp_abl_link
 - espressif/cbor
 - espressif/esp-dsp
 - espressif/esp-modbus
@@ -345,6 +392,6 @@ direct_dependencies:
 - espressif/rmaker_common
 - idf
 - joltwallet/littlefs
-manifest_hash: 5bf89e7dd0ab3452a9daa1d8772af70abf4fb9b22fdc3fd59e39a10bc5fd375f
+manifest_hash: b360c67958b692291725128b10ce7943c783706be664555ba245ddc8039254dc
 target: esp32
 version: 2.0.0

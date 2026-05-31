@@ -1,4 +1,4 @@
-// ESP32 Clk/Link — Phase 1 (OFF + INTERNAL modes; LINK stubbed)
+// ESP32 Clk/Link — Phase 2 (OFF + INTERNAL + LINK modes)
 //
 // Hardware: same as the previous esp32oscclk module — ESP32-Dev driving an
 // MCP4728 quad DAC at 0x60. Output stages are non-inverting unipolar with
@@ -14,17 +14,18 @@
 //   OFF:      all jacks at 0 V
 //   INTERNAL: pot sets BPM (40..300), A clocks, B fires reset on entry and
 //             on any external rising edge into the CV input
-//   LINK:     not yet implemented — outputs idle, LED slow-blinks to
-//             indicate the un-built feature
-//
-// Phase 1 keeps the scheduler in the main loop (no timer ISR yet). At the
-// current PPQN=1 and 40..300 BPM range, the period is 200 ms..1.5 s and
-// loop latency is well under 1 ms, so this is more than precise enough.
+//   LINK:     sync to an Ableton Link network — A clocks on the beat (PPQN=1),
+//             B fires reset on each bar boundary, C drives a manual CV from
+//             the pot. Falls back to LED indication if WiFi/Link unavailable.
 
 #include <Arduino.h>
 #include <Wire.h>
+#include <WiFi.h>
 #include <Adafruit_MCP4728.h>
+#include "abl_link.h"
+#include "esp_timer.h"
 #include "esp32-clklink/pins.h"
+#include "secrets.h"
 
 // --- DAC ------------------------------------------------------------------
 Adafruit_MCP4728 mcp;
@@ -54,10 +55,9 @@ static Mode read_mode() {
 constexpr unsigned long PULSE_WIDTH_US = 10000;  // 10 ms per pulse
 
 static unsigned long next_clock_us  = 0;  // when A should next go high
-static unsigned long clock_end_us   = 0;  // when A should go low (after pulse)
+static unsigned long clock_end_us   = 0;
 static bool          clock_active   = false;
-
-static unsigned long reset_end_us   = 0;  // when B should go low (after pulse)
+static unsigned long reset_end_us   = 0;
 static bool          reset_active   = false;
 
 static int   last_bpm   = 0;
@@ -76,8 +76,8 @@ static unsigned long period_us_for_bpm(float bpm) {
 }
 
 // --- Reset trigger detection (external CV-in) -----------------------------
-constexpr int CV_HIGH_THRESH = 2000;  // ADC counts (>~1.6 V at GPIO)
-constexpr int CV_LOW_THRESH  = 500;   // hysteresis lower bound
+constexpr int CV_HIGH_THRESH = 2000;
+constexpr int CV_LOW_THRESH  = 500;
 static bool cv_high_state = false;
 
 static bool external_reset_rising_edge() {
@@ -116,6 +116,87 @@ static void update_pulse_decay(unsigned long now) {
     }
 }
 
+// --- WiFi + Link ----------------------------------------------------------
+constexpr double LINK_INITIAL_TEMPO = 120.0;
+constexpr double LINK_QUANTUM       = 4.0;  // beats per bar
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 8000;
+
+static struct abl_link        link_handle    = {nullptr};
+static abl_link_session_state link_state     = {nullptr};
+static bool                   link_initialised = false;
+static bool                   link_enabled   = false;
+static double                 last_link_beat = -1.0;  // -1 means "no prior beat"
+
+// Map pot 0..4095 to DAC value (0..4095) for Channel C CV output.
+// CW on the pot reads ADC near 0, which we want to be max CV. Invert.
+static uint16_t pot_to_cv_dac(int pot) {
+    if (pot < 0) pot = 0;
+    if (pot > 4095) pot = 4095;
+    return (uint16_t)(4095 - pot);
+}
+
+static bool wifi_is_connected() {
+    return WiFi.status() == WL_CONNECTED;
+}
+
+static void wifi_begin_nonblocking() {
+    if (WiFi.status() == WL_CONNECTED || WiFi.status() == WL_IDLE_STATUS) {
+        return;
+    }
+    Serial.printf("WiFi: connecting to %s...\n", WIFI_SSID);
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+}
+
+static void link_init() {
+    if (link_initialised) return;
+    link_handle = abl_link_create(LINK_INITIAL_TEMPO);
+    link_state  = abl_link_create_session_state();
+    link_initialised = true;
+    Serial.println("Link: instance created");
+}
+
+static void link_set_enabled(bool on) {
+    if (!link_initialised || link_enabled == on) return;
+    abl_link_enable(link_handle, on);
+    link_enabled = on;
+    last_link_beat = -1.0;  // resync on next enable
+    Serial.printf("Link: %s\n", on ? "enabled" : "disabled");
+}
+
+// Tick the Link sync: capture state, detect beat boundaries, fire pulses.
+// Called every loop iteration when in LINK mode and WiFi is up.
+static void link_tick(unsigned long now_us) {
+    if (!link_initialised || !link_enabled) return;
+
+    abl_link_capture_audio_session_state(link_handle, link_state);
+    int64_t  link_time_us = esp_timer_get_time();
+    double   beat  = abl_link_beat_at_time(link_state, link_time_us, LINK_QUANTUM);
+
+    if (last_link_beat < 0.0) {
+        last_link_beat = beat;
+        return;
+    }
+
+    // Crossed an integer beat boundary?
+    int last_int = (int)floor(last_link_beat);
+    int beat_int = (int)floor(beat);
+    if (beat_int > last_int) {
+        fire_clock_pulse(now_us);
+        // Quantum-aligned beat 0 -> bar boundary -> reset pulse.
+        int bar_pos = ((beat_int % (int)LINK_QUANTUM) + (int)LINK_QUANTUM) % (int)LINK_QUANTUM;
+        if (bar_pos == 0) {
+            fire_reset_pulse(now_us);
+        }
+    }
+    last_link_beat = beat;
+}
+
+static size_t link_peer_count() {
+    if (!link_initialised) return 0;
+    return abl_link_num_peers(link_handle);
+}
+
 // --- LED status -----------------------------------------------------------
 static void update_led(Mode mode, unsigned long now_ms) {
     switch (mode) {
@@ -123,11 +204,19 @@ static void update_led(Mode mode, unsigned long now_ms) {
             digitalWrite(PIN_LED, LOW);
             break;
         case MODE_INTERNAL:
-            digitalWrite(PIN_LED, HIGH);  // solid = clocking
+            digitalWrite(PIN_LED, HIGH);
             break;
         case MODE_LINK:
-            // Slow heartbeat to signal "feature stubbed, not active".
-            digitalWrite(PIN_LED, (now_ms / 500) & 1);
+            if (!wifi_is_connected()) {
+                // Fast blink (5 Hz) — WiFi not connected.
+                digitalWrite(PIN_LED, (now_ms / 100) & 1);
+            } else if (link_peer_count() == 0) {
+                // Medium blink (2 Hz) — WiFi up, no Link peers yet.
+                digitalWrite(PIN_LED, (now_ms / 250) & 1);
+            } else {
+                // Solid — locked to a Link session.
+                digitalWrite(PIN_LED, HIGH);
+            }
             break;
     }
 }
@@ -135,7 +224,8 @@ static void update_led(Mode mode, unsigned long now_ms) {
 // --- Setup ----------------------------------------------------------------
 void setup() {
     Serial.begin(115200);
-    Serial.println("ESP32 Clk/Link (Phase 1: INTERNAL only)");
+    delay(50);
+    Serial.println("\nESP32 Clk/Link (Phase 2)");
 
     Wire.begin();
     Wire.setClock(1000000);
@@ -150,13 +240,28 @@ void setup() {
     pinMode(PIN_LED, OUTPUT);
     pinMode(PIN_CV_RESET, INPUT);
 
-    // All channels start at jack-low.
     dac_write(MCP4728_CHANNEL_A, clock_low);
     dac_write(MCP4728_CHANNEL_B, clock_low);
     dac_write(MCP4728_CHANNEL_C, clock_low);
     dac_write(MCP4728_CHANNEL_D, clock_low);
 
     next_clock_us = micros();
+
+    // Kick off WiFi connection in the background; check status as we go.
+    wifi_begin_nonblocking();
+    uint32_t t0 = millis();
+    while (!wifi_is_connected() && (millis() - t0) < WIFI_CONNECT_TIMEOUT_MS) {
+        delay(100);
+    }
+    if (wifi_is_connected()) {
+        Serial.printf("WiFi: connected, IP %s\n", WiFi.localIP().toString().c_str());
+    } else {
+        Serial.println("WiFi: timed out; LINK mode will retry later");
+    }
+
+    // Always create the Link instance — it costs little and lets us enable
+    // it the instant the switch flips to LINK without setup latency.
+    link_init();
 }
 
 // --- Loop -----------------------------------------------------------------
@@ -166,9 +271,7 @@ void loop() {
     unsigned long now_us = micros();
     unsigned long now_ms = millis();
 
-    // Mode transition handling.
     if (mode != prev_mode) {
-        // Make sure outputs drop when leaving an active mode.
         dac_write(MCP4728_CHANNEL_A, clock_low);
         dac_write(MCP4728_CHANNEL_B, clock_low);
         dac_write(MCP4728_CHANNEL_C, clock_low);
@@ -176,34 +279,48 @@ void loop() {
         reset_active = false;
 
         if (mode == MODE_INTERNAL) {
-            // Fire reset on entry, then start clocking at "now + period".
             fire_reset_pulse(now_us);
             current_bpm = bpm_from_pot(analogRead(PIN_POT));
             next_clock_us = now_us + period_us_for_bpm(current_bpm);
+            link_set_enabled(false);
+        } else if (mode == MODE_LINK) {
+            // Late WiFi retry if we missed the initial window.
+            if (!wifi_is_connected()) wifi_begin_nonblocking();
+            link_set_enabled(true);
+            fire_reset_pulse(now_us);  // also send a reset on LINK entry
+        } else {
+            link_set_enabled(false);
         }
         prev_mode = mode;
     }
 
     if (mode == MODE_INTERNAL) {
-        // Update BPM from pot only when it changes appreciably, to avoid
-        // jitter from analog read noise affecting the period mid-tick.
         int pot = analogRead(PIN_POT);
-        int pot_quantised = pot & ~0x1F;  // ignore noise in the low 5 bits
+        int pot_quantised = pot & ~0x1F;
         if (pot_quantised != last_bpm) {
             current_bpm = bpm_from_pot(pot);
             last_bpm = pot_quantised;
         }
-
-        // External reset trigger realigns the clock to "next pulse at now".
         if (external_reset_rising_edge()) {
             fire_reset_pulse(now_us);
-            next_clock_us = now_us;  // fire the first tick immediately
+            next_clock_us = now_us;
         }
-
-        // Schedule clock pulse if due.
         if ((long)(now_us - next_clock_us) >= 0) {
             fire_clock_pulse(now_us);
             next_clock_us += period_us_for_bpm(current_bpm);
+        }
+    } else if (mode == MODE_LINK) {
+        if (external_reset_rising_edge()) {
+            fire_reset_pulse(now_us);
+            last_link_beat = -1.0;  // resync next tick
+        }
+        link_tick(now_us);
+        // Channel C: pot -> manual CV. Inverted so CW = high CV.
+        static uint16_t last_c_dac = 0xFFFF;
+        uint16_t c_dac = pot_to_cv_dac(analogRead(PIN_POT));
+        if (c_dac != last_c_dac) {
+            dac_write(MCP4728_CHANNEL_C, c_dac);
+            last_c_dac = c_dac;
         }
     }
 

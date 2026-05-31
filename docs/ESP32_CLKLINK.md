@@ -5,23 +5,24 @@ A re-purpose of the ESP32-Dev + MCP4728 hardware that previously ran
 switch:
 
 - **OFF** — all jacks idle at 0 V
-- **INTERNAL** — pot sets BPM, Channel A clocks, Channel B fires reset on
-  mode entry and on any external CV trigger
-- **LINK** — *(Phase 2, not yet implemented)* sync to an Ableton Link
-  network, output clock and bar-reset, pot drives Channel C as a manual
-  CV utility
+- **INTERNAL** — pot sets BPM (40–300), Channel A clocks, Channel B fires
+  reset on mode entry and on any external CV trigger
+- **LINK** — sync to an Ableton Link network on the same WiFi LAN.
+  Channel A pulses on each beat, Channel B fires a reset pulse on each
+  bar boundary, and Channel C outputs the pot value as a manual CV utility.
 
 ## Channel map
 
 | DAC channel | Function |
 |---|---|
 | A | Clock (0 V idle, +5 V trigger pulses, 10 ms wide) |
-| B | Reset (one-shot on mode entry, external CV trigger, or Link bar boundary) |
+| B | Reset (mode entry, external CV trigger, or Link bar boundary) |
 | C | Manual CV from pot (LINK mode only; 0 V idle in OFF/INTERNAL) |
 | D | unused (not wired) |
 
 DAC values are calibrated to the non-inverting unipolar gain-2 output
 stage: `clock_low = 0` (jack 0 V) and `clock_high = 2048` (jack +5 V).
+Channel C uses the full DAC range so the pot maps to 0–10 V at the jack.
 
 ## Pins
 
@@ -37,9 +38,9 @@ stage: `clock_low = 0` (jack 0 V) and `clock_high = 2048` (jack +5 V).
 
 The CV input is a Eurorack trigger input. The firmware detects a rising
 edge (ADC > 2000 → trigger fires; hysteresis at < 500 to re-arm), fires
-a reset pulse on Channel B, and realigns Channel A so the next clock
-tick coincides with the reset. Works in INTERNAL mode in Phase 1; will
-also work in LINK mode in Phase 2.
+a reset pulse on Channel B, and in INTERNAL mode realigns Channel A so
+the next clock tick coincides with the reset. In LINK mode the trigger
+forces a re-sync to the Link beat phase on the next tick.
 
 ## Status LED
 
@@ -47,7 +48,23 @@ also work in LINK mode in Phase 2.
 |---|---|
 | OFF | off |
 | INTERNAL | solid (clocking) |
-| LINK (Phase 1 stub) | slow heartbeat (~1 Hz) — feature not yet built |
+| LINK, WiFi connecting | fast blink (~5 Hz) |
+| LINK, WiFi up but no peers | medium blink (~2 Hz) |
+| LINK, locked to session | solid |
+
+## LINK mode
+
+- **Quantum**: 4 beats per bar (Channel B fires a reset every 4 beats).
+- **PPQN**: 1 (one Channel A pulse per quarter-note beat).
+- **Initial tempo**: 120 BPM at boot — overridden once the Link session
+  agrees on a tempo with peers.
+- **Pot → Channel C**: the pot value is mirrored on Channel C as a free
+  manual CV (0–10 V across the sweep, CW = higher).
+- **WiFi creds**: read from `include/shared/secrets.h` (gitignored). The
+  template `include/shared/secrets.h.example` shows the expected macros
+  (`WIFI_SSID`, `WIFI_PASS`).
+- **Task pinning**: Link runs on core 1 (`CONFIG_LINK_ESP_TASK_CORE_ID=1`)
+  to avoid contention with WiFi on core 0.
 
 ## Build & flash
 
@@ -60,6 +77,10 @@ pio device monitor -b 115200
 PlatformIO sometimes auto-picks the wrong serial port (e.g. macOS Bluetooth
 serial). Pass `--upload-port` explicitly.
 
+The first build downloads the pioarduino fork (IDF 5.5 + Arduino 3.x) and
+the `docwilco/esp_abl_link` IDF component plus its `asio` dependency — that
+takes a few minutes. Subsequent builds are quick.
+
 ## INTERNAL mode tuning
 
 Constants at the top of [src/esp32-clklink/main.cpp](../src/esp32-clklink/main.cpp):
@@ -69,22 +90,29 @@ Constants at the top of [src/esp32-clklink/main.cpp](../src/esp32-clklink/main.c
 - `bpm_from_pot()` — pot 0..4095 → BPM 40..300 by default (CW = fast)
 - `CV_HIGH_THRESH` / `CV_LOW_THRESH` — Schmitt thresholds for the external
   reset trigger input
+- `LINK_INITIAL_TEMPO` — Link starting BPM before session sync (120)
+- `LINK_QUANTUM` — beats per bar (4)
 
-## Phase 1 scheduler
+## Architecture notes
 
-Pulse timing is currently driven from a polling loop using `micros()`.
-At PPQN = 1 and 40..300 BPM, the clock period is 200 ms..1.5 s and main
-loop latency is well under 1 ms — the resulting jitter is inaudible and
-well below sequencer input tolerances. A hardware-timer-ISR scheduler is
-on the Phase 2 roadmap, primarily because Link sync benefits from
-sample-accurate beat scheduling.
+- The clock scheduler is in the main loop, using `micros()` for timing.
+  At PPQN=1 and 40..300 BPM the period is 200 ms..1.5 s; main-loop latency
+  is well under 1 ms, so the jitter is inaudible. A hardware-timer ISR
+  scheduler may be worth the complexity if you push PPQN higher.
+- Beat detection in LINK mode uses `abl_link_beat_at_time()` to read the
+  fractional beat position, then triggers a Channel A pulse on each
+  integer-beat crossing.
+- The env uses `framework = arduino, espidf` (Arduino-as-IDF-component)
+  via the `pioarduino/platform-espressif32` fork because the official
+  PlatformIO espressif32 platform doesn't ship IDF 5.5, which the Link
+  component requires.
 
-## Roadmap — Phase 2
+## Known risks / things to confirm
 
-- WiFi connection (creds in `include/shared/secrets.h`, gitignored)
-- Ableton Link client (library integration is the unresolved piece; see
-  `docs/PROTON_SIGNAL_ROUTING.md` for unrelated context — for Link, the
-  candidate path is either ESP-IDF framework switch or vendoring the
-  official `Ableton/link` header-only library with custom platform glue)
-- Channel C as manual CV utility from the pot in LINK mode
-- Status LED feedback for WiFi / Link peer state
+- **Router multicast**: Link uses UDP multicast (224.76.78.75 / port
+  20808). If your router blocks multicast on the test network (some
+  consumer routers do on guest SSIDs), peers won't discover each other
+  even though WiFi is up.
+- **Beat→trigger jitter**: capturing the audio session state from the
+  main loop adds ~1 ms of quantization. Acceptable for clock/trigger
+  outputs at this PPQN. For audio-rate gates we'd want a timer-ISR path.

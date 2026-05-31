@@ -4,9 +4,14 @@
 # Arduino-as-IDF-component requires 1000 Hz tick rate.
 CONFIG_FREERTOS_HZ=1000
 
-# Ableton Link's ASIO uses C++ exceptions.
+# Ableton Link's ASIO uses C++ exceptions and RTTI (typeinfo for
+# std::error_category lives behind RTTI).
 CONFIG_COMPILER_CXX_EXCEPTIONS=y
+CONFIG_COMPILER_CXX_RTTI=y
 
 # Make the Arduino framework provide app_main() that calls our setup()/loop().
 # Without this we get "undefined reference to app_main" at link time.
 CONFIG_AUTOSTART_ARDUINO=y
+
+# Pin Link's task to core 1 to avoid contention with the WiFi task on core 0.
+CONFIG_LINK_ESP_TASK_CORE_ID=1
