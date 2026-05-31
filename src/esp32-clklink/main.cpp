@@ -1,8 +1,7 @@
-// ESP32 Clk/Link — Phase 2 (OFF + INTERNAL + LINK modes)
+// ESP32 Clk/Link — Eurorack clock + reset + manual CV with Ableton Link sync.
 //
-// Hardware: same as the previous esp32oscclk module — ESP32-Dev driving an
-// MCP4728 quad DAC at 0x60. Output stages are non-inverting unipolar with
-// gain ~2: DAC 0 -> 0 V at jack, DAC 2048 -> +5 V.
+// Hardware: ESP32-Dev driving an MCP4728 quad DAC at 0x60. Output stages are
+// non-inverting unipolar with gain ~2: DAC 0 -> 0 V at jack, DAC 2048 -> +5 V.
 //
 // Channels:
 //   A: clock pulses (INTERNAL or LINK)

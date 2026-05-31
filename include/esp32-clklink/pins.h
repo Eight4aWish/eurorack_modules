@@ -1,8 +1,4 @@
 // Pin assignments for the ESP32 Clk/Link module.
-//
-// The hardware is shared with the previous esp32oscclk firmware; only the
-// CV-in role changes (was pitch CV for the oscillator; now an external
-// reset trigger input that fires the reset pulse on Channel B).
 
 #pragma once
 

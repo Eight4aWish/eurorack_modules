@@ -1,8 +1,8 @@
 # ESP32 Clk/Link
 
-A re-purpose of the ESP32-Dev + MCP4728 hardware that previously ran
-`esp32oscclk`. The module provides three modes selected by an ON-OFF-ON
-switch:
+An ESP32-Dev + MCP4728 Eurorack utility that generates clocks and reset
+triggers, optionally synced to an Ableton Link network. The module
+provides three modes selected by an ON-OFF-ON switch:
 
 - **OFF** — all jacks idle at 0 V
 - **INTERNAL** — pot sets BPM (40–300), Channel A clocks, Channel B fires

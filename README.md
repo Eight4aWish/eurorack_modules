@@ -89,29 +89,25 @@ pio run -e daisy-mfx -t upload   # DFU
 
 See `docs/DAISY_MFX.md` for patch details and CV/tap behavior.
 
-## ESP32 Dev — `esp32oscclk`
+## ESP32 Clk/Link — `esp32-clklink`
 
-This target provides a simple dual-function utility on ESP32 with an MCP4728 quad DAC: a quantized oscillator (Channel C) and a clock generator (Channels A/B). Mode is selected via two input thresholds.
+This target turns an ESP32-Dev + MCP4728 board into a Eurorack clock and reset generator that can run standalone or sync to an Ableton Link network on the same WiFi. ON-OFF-ON switch picks OFF / INTERNAL / LINK.
 
 - Features:
-	- Oscillator mode: Select waveform via pot (Sine, Triangle, Saw, Square); frequency from CV input through a lookup table of musical notes; ~10.25 kHz update rate with 512-sample wavetable.
-	- Clock mode: Pot maps to delay (5–250 ms). Channel B pulses every tick; Channel A pulses every 8th tick.
-	- I2C at up to 1 MHz; initial DAC state forces low on all clock channels.
-
-- Hardware mapping (from firmware):
-	- ADC inputs: `pot=GPIO32`, `cv=GPIO33`, `switchUp=GPIO35`, `switchDown=GPIO34` (input-only pins).
-	- MCP4728 channels: `A` and `B` used for clocks, `C` for oscillator output.
+	- INTERNAL mode: pot sets BPM (40–300), Channel A clocks, Channel B fires reset on entry and on any external CV trigger.
+	- LINK mode: Channel A pulses on each beat (PPQN=1), Channel B fires reset on each bar boundary (quantum=4), Channel C tracks the pot as a manual CV (0–10 V).
+	- WiFi credentials in `include/shared/secrets.h` (gitignored — copy `include/shared/secrets.h.example`).
 
 - Build & Upload:
 
 ```sh
-# ESP32 Dev (esp32oscclk)
-pio run -e esp32dev
-pio run -e esp32dev -t upload
+# ESP32 Clk/Link
+pio run -e esp32-clklink
+pio run -e esp32-clklink -t upload
 pio device monitor -b 115200
 ```
 
-See `docs/ESP32_OSCCLK.md` for behavior, pin notes, and tuning.
+See `docs/ESP32_CLKLINK.md` for the full channel map, LED status patterns, and tuning.
 
 ## AI Module (CortHex) — `nanoesp32-corthex`
 
