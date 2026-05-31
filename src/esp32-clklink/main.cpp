@@ -63,12 +63,12 @@ static bool          reset_active   = false;
 static int   last_bpm   = 0;
 static float current_bpm = 120.0f;
 
-// Map pot 0..4095 to BPM 50..200. Pot reads inverted at the GPIO (CCW = high
+// Map pot 0..4095 to BPM 40..300. Pot reads inverted at the GPIO (CCW = high
 // ADC value), so we negate to get CW = fast / CCW = slow at the panel.
 static float bpm_from_pot(int pot) {
     if (pot < 0) pot = 0;
     if (pot > 4095) pot = 4095;
-    return 200.0f - (pot / 4095.0f) * 150.0f;
+    return 300.0f - (pot / 4095.0f) * 260.0f;
 }
 
 static unsigned long period_us_for_bpm(float bpm) {
