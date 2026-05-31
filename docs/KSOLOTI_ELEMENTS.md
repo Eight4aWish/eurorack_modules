@@ -109,12 +109,24 @@ Single-page layout with six rows:
 ```
 S1 Mod E1 Con SE2 Cv       <- model, E1 param, CV config reminder
 ─────────────────────
-P1-4 Geo Brt Dmp Pos       <- resonator pots (always active)
+P1-4 Geo Brt Dmp Pos       <- resonator pots (P1 label tracks model)
 P5-8 Bow Blw Stk Spc       <- mode 1: levels (underlined when active)
 P5-8 BlT Flw Mal StT       <- mode 2: timbres (underlined when active)
 CvAD Flw Mal --- Gte       <- CV A-C assignments + gate (active CV underlined)
 S34 PyPge CvXY VO FM       <- button/CV reference (or active param + value)
 ```
+
+The **P1 label changes with the resonator model** (since P1's function changes
+across MOD/STR/CHD — see "Resonator Models" above):
+
+| Model | P1 label | Bottom-status name | Value display |
+|-------|----------|--------------------|---------------|
+| Modal | `Geo` | `Geom` | 0–100 |
+| String | `Dsp` | `Dispr` | 0–100 |
+| Chords | `Chd` | `Chord` | Chord name (e.g. `m7`, `M9`, `su4`) |
+
+In Chords mode, turning P1 shows the chord shape at the position of the pot
+(11 shapes: `Oct`, `m7`, `m`, `m9`, `m11`, `5`, `M11`, `M9`, `M`, `M7`, `su4`).
 
 The bottom line shows parameter name and 0-100 value when pots or E1 are being adjusted (up to two simultaneous controls), reverting to the static reference after 2 seconds.
 
@@ -150,10 +162,10 @@ Download `ksoloti-elements.bin` from the [latest Ksoloti Elements release](https
 
 ### Step 3: Put Big Genes in DFU mode
 
-1. Connect Big Genes to your computer via USB
-2. Hold the **BOOT0** button (small button on the Ksoloti Core board)
-3. While holding BOOT0, press and release **RESET**
-4. Release BOOT0
+1. Disconnect the USB-C cable from the **prog** socket
+2. Hold the **E1/S1** encoder button (push the left encoder shaft in)
+3. While holding E1/S1, plug the USB-C cable into the **prog** socket
+4. Release E1/S1
 
 The module's LEDs and screen will be off — this is normal. Your computer should now detect a DFU device.
 
@@ -175,7 +187,7 @@ You should see a progress bar. When it says "File downloaded successfully", the 
 
 ### Troubleshooting
 
-- **"No DFU capable USB device available"** — The board isn't in DFU mode. Repeat Step 3, making sure you hold BOOT0 *before* pressing RESET.
+- **"No DFU capable USB device available"** — The board isn't in DFU mode. Repeat Step 3, making sure you hold E1/S1 *before* connecting the USB-C cable to the prog socket.
 - **No sound** — Make sure POT5 (Bow), POT6 (Blow), or POT7 (Strike) is turned up in levels mode. At least one exciter level must be non-zero.
 - **To restore original Ksoloti firmware** — Flash the original `.bin` file from [ksoloti.github.io](https://ksoloti.github.io) using the same DFU process.
 
@@ -193,7 +205,7 @@ cd ../..
 # Build
 pio run -e ksoloti-elements
 
-# Flash via DFU (hold BOOT0 + reset to enter DFU mode)
+# Flash via DFU (hold E1/S1 while plugging USB-C into the prog socket to enter DFU mode)
 pio run -e ksoloti-elements -t upload
 ```
 

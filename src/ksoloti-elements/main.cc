@@ -141,6 +141,21 @@ static const char* cv_target_abbr[NUM_CV_TARGETS] = {
 
 static const char* model_names[] = { "Mod", "Str", "Chd" };
 
+// Per-model P1 labels: short for top row, long for bottom status.
+// Geometry pot reinterpreted per resonator model (voice.cc Process()):
+//   Modal:  physical body geometry
+//   String: string dispersion (stiffness)
+//   Chords: stepped selector across 11 chord shapes
+static const char* p1_label_short[3] = { "Geo", "Dsp", "Chd" };
+static const char* p1_label_long [3] = { "Geom", "Dispr", "Chord" };
+
+// Chord shapes, indexed by (int)(geometry * 10 + 0.5).
+// Matches the intervals in chords[][] at voice.cc:76.
+static const char* chord_name[11] = {
+    "Oct", "m7",  "m",   "m9", "m11",
+    "5",   "M11", "M9",  "M",  "M7",  "su4"
+};
+
 // Pitch note name from MIDI note number
 static void fmt_note(char* buf, float note)
 {
@@ -496,8 +511,10 @@ int main(void)
 
             oled_hline(0, 9, 128);
 
-            // Row 1 (y=11): "P1-4 Geo Brt Dmp Pos"
-            oled_str(0, 11, "P1-4 Geo Brt Dmp Pos");
+            // Row 1 (y=11): "P1-4 <P1> Brt Dmp Pos" — P1 label tracks resonator model
+            snprintf(line, sizeof(line), "P1-4 %s Brt Dmp Pos",
+                     p1_label_short[resonator_model]);
+            oled_str(0, 11, line);
 
             // Row 2 (y=21): "P5-8 Bow Blw Stk Spc"
             oled_str(0, 21, "P5-8 Bow Blw Stk Spc");
@@ -540,13 +557,29 @@ int main(void)
             }
 
             if (s0 >= 0) {
-                int v0 = (int)(ctrl_val[s0] * 100.0f + 0.5f);
+                // Format a single name+value fragment ("Geom    50" / "Chord  m7")
+                // into out. For P1 in CHD mode, show chord name instead of percent.
+                auto fmt_slot = [&](int idx, char* out, size_t outsz) {
+                    const char* nm = (idx == 0)
+                        ? p1_label_long[resonator_model]
+                        : names[idx];
+                    if (idx == 0 && resonator_model == 2) {
+                        int ci = (int)(ctrl_val[0] * 10.0f + 0.5f);
+                        if (ci < 0) ci = 0;
+                        if (ci > 10) ci = 10;
+                        snprintf(out, outsz, "%-6s %3s", nm, chord_name[ci]);
+                    } else {
+                        int v = (int)(ctrl_val[idx] * 100.0f + 0.5f);
+                        snprintf(out, outsz, "%-6s %3d", nm, v);
+                    }
+                };
+                char f0[12], f1[12];
+                fmt_slot(s0, f0, sizeof(f0));
                 if (s1 >= 0) {
-                    int v1 = (int)(ctrl_val[s1] * 100.0f + 0.5f);
-                    snprintf(line, sizeof(line), "%-6s %3d %-6s %3d",
-                             names[s0], v0, names[s1], v1);
+                    fmt_slot(s1, f1, sizeof(f1));
+                    snprintf(line, sizeof(line), "%s %s", f0, f1);
                 } else {
-                    snprintf(line, sizeof(line), "%-6s %3d", names[s0], v0);
+                    snprintf(line, sizeof(line), "%s", f0);
                 }
                 oled_str(0, 53, line);
             } else {
