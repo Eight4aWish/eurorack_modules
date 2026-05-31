@@ -9,8 +9,11 @@ Adafruit_MCP4728 mcp;
 // ===== Pins ===== (centralized in include/esp32oscclk/pins.h)
 
 // ===== Clock levels (12-bit DAC) =====
-const int clock_high = 1500;
-const int clock_low  = 0;
+// Channel output stages are non-inverting unipolar with gain ~2 (DAC range
+// 0..5V maps to jack 0..10V). Confirmed on scope: clock_low=2048 produced
+// +5V at the jack (DAC mid * 2 = jack mid).
+const int clock_high = 2048;  // DAC 2048 → ~+5V at jack (trigger pulse)
+const int clock_low  = 0;     // DAC 0    → ~0V at jack (idle baseline)
 
 // ===== ADC page update cadence (was for web; keep if you like for future use) =====
 const int UPDATE_INTERVAL_MS = 2000;
@@ -20,11 +23,13 @@ int potValue   = 0;
 int cvValue    = 2000;
 int switch1    = 0;   // down
 int switch2    = 0;   // up
-int counterb   = 1;
-int counterc   = 1;
 int delay_value= 125; // will be recalculated
-int value      = 0;
-int countera   = 0;
+
+// Clock-mode edge detection: fire a reset pulse on Channel B whenever the
+// hardware switch transitions OFF -> CLOCK ON, so downstream sequencers
+// restart in sync with the first tick of A.
+bool clock_mode_was_active = false;
+const int RESET_PULSE_MS   = 10;
 
 // ===== Range mapping =====
 struct RangeMapping {
@@ -95,16 +100,19 @@ WaveformType currentWaveform      = SINE;
 WaveformType lastSelectedWaveform = SINE;
 float        waveformFrequencyHz  = 1.0f;
 
-uint16_t waveformTable[WAVEFORM_TABLE_SIZE];
+// One pre-computed table per waveform — generated once in setup().
+// 4 waveforms * 512 entries * 2 bytes = 4 KB total. Eliminates the
+// per-switch regeneration delay/click in the audio loop.
+uint16_t waveformTables[NUM_WAVEFORMS][WAVEFORM_TABLE_SIZE];
 float    phase          = 0.0f;
 float    phaseIncrement = 0.0f;
 unsigned long lastUpdateMicros = 0;
 
-void populateWaveformTable(WaveformType type) {
+void populateWaveformTable(WaveformType type, uint16_t* table) {
   switch (type) {
     case SINE:
       for (int i = 0; i < WAVEFORM_TABLE_SIZE; i++) {
-        waveformTable[i] = (uint16_t)(((sin(2.0 * PI * (double)i / WAVEFORM_TABLE_SIZE) + 1.0) * 0.5) * 4095.0);
+        table[i] = (uint16_t)(((sin(2.0 * PI * (double)i / WAVEFORM_TABLE_SIZE) + 1.0) * 0.5) * 4095.0);
       }
       break;
     case TRIANGLE:
@@ -113,22 +121,22 @@ void populateWaveformTable(WaveformType type) {
                       ? (double)i / (double)(WAVEFORM_TABLE_SIZE / 2)
                       : 2.0 - ((double)i / (double)(WAVEFORM_TABLE_SIZE / 2));
         uint32_t v = (uint32_t)(val * 4095.0);
-        waveformTable[i] = (v > 4095) ? 4095 : (uint16_t)v;
+        table[i] = (v > 4095) ? 4095 : (uint16_t)v;
       }
-      waveformTable[0] = 0;
+      table[0] = 0;
       break;
     case SAWTOOTH_RISING:
       for (int i = 0; i < WAVEFORM_TABLE_SIZE; i++) {
-        waveformTable[i] = (uint16_t)((((double)i) / (WAVEFORM_TABLE_SIZE - 1)) * 4095.0);
+        table[i] = (uint16_t)((((double)i) / (WAVEFORM_TABLE_SIZE - 1)) * 4095.0);
       }
       break;
     case SQUARE_50:
       for (int i = 0; i < WAVEFORM_TABLE_SIZE; i++) {
-        waveformTable[i] = (i < WAVEFORM_TABLE_SIZE / 2) ? 0 : 4095;
+        table[i] = (i < WAVEFORM_TABLE_SIZE / 2) ? 0 : 4095;
       }
       break;
     default:
-      for (int i = 0; i < WAVEFORM_TABLE_SIZE; i++) waveformTable[i] = 2048;
+      for (int i = 0; i < WAVEFORM_TABLE_SIZE; i++) table[i] = 2048;
       break;
   }
 }
@@ -160,8 +168,10 @@ void setup() {
   mcp.setChannelValue(MCP4728_CHANNEL_B, clock_low);
   mcp.setChannelValue(MCP4728_CHANNEL_C, clock_low);
 
-  // Populate first waveform & phase increment
-  populateWaveformTable(currentWaveform);
+  // Pre-compute every waveform table once — no regeneration in the audio loop.
+  for (int t = 0; t < (int)NUM_WAVEFORMS; t++) {
+    populateWaveformTable((WaveformType)t, waveformTables[t]);
+  }
   lastSelectedWaveform = currentWaveform;
   phaseIncrement = (waveformFrequencyHz * (float)WAVEFORM_TABLE_SIZE) / TARGET_SAMPLE_RATE_HZ;
 
@@ -181,25 +191,44 @@ void loop() {
   delay_value = 250 - ((4096 - potValue) / 20);
   delay_value = constrain(delay_value, 5, 250);
 
-  // === OSC MODE (when switch1 > threshold) ===
-  if (switch1 > 500) {
-    // Waveform selection from pot
+  // Hardware ON-OFF-ON switch makes these mutually exclusive.
+  bool osc_mode   = (switch1 > 500);
+  bool clock_mode = (switch2 > 500);
+
+  // Rising edge of clock-mode entry: fire a single reset pulse on Channel B
+  // before the first clock tick on Channel A. B is only ever written here, so
+  // it's already at clock_low from the previous reset or boot init — no need
+  // to pre-baseline.
+  if (clock_mode && !clock_mode_was_active) {
+    mcp.setChannelValue(MCP4728_CHANNEL_B, clock_high);
+    delay(RESET_PULSE_MS);
+    mcp.setChannelValue(MCP4728_CHANNEL_B, clock_low);
+  }
+  clock_mode_was_active = clock_mode;
+
+  if (osc_mode) {
+    // Waveform selection from pot — just switch the active table pointer,
+    // no regeneration needed (all 4 tables live in RAM).
     int segmentSize = 4096 / (int)NUM_WAVEFORMS;
     WaveformType selectedWaveform = (WaveformType)(potValue / segmentSize);
     if (selectedWaveform >= NUM_WAVEFORMS) selectedWaveform = (WaveformType)((int)NUM_WAVEFORMS - 1);
 
     if (selectedWaveform != lastSelectedWaveform) {
       currentWaveform = selectedWaveform;
-      populateWaveformTable(currentWaveform);
       lastSelectedWaveform = currentWaveform;
       phase = 0.0f; // avoid clicks on waveform change
     }
 
-    // Frequency from CV (via your lookup table)
-    waveformFrequencyHz = getValueFromRange(cvValue);
-    phaseIncrement = (waveformFrequencyHz * (float)WAVEFORM_TABLE_SIZE) / TARGET_SAMPLE_RATE_HZ;
+    // Frequency from CV — recompute phaseIncrement only when the lookup
+    // bucket actually changes, so steady CV doesn't burn float math every loop.
+    float newFreq = getValueFromRange(cvValue);
+    if (newFreq != waveformFrequencyHz) {
+      waveformFrequencyHz = newFreq;
+      phaseIncrement = (waveformFrequencyHz * (float)WAVEFORM_TABLE_SIZE) / TARGET_SAMPLE_RATE_HZ;
+    }
 
-    // Timed DAC updates on Channel C
+    // Timed DAC updates on Channel C, with linear interpolation between
+    // neighbouring table entries to smooth out the stair-step at high freqs.
     unsigned long now = micros();
     if (now - lastUpdateMicros >= SAMPLE_PERIOD_US) {
       // keep schedule tight even if we overrun a bit
@@ -208,24 +237,20 @@ void loop() {
       phase += phaseIncrement;
       if (phase >= (float)WAVEFORM_TABLE_SIZE) phase -= (float)WAVEFORM_TABLE_SIZE;
 
-      uint16_t cvdacValue = waveformTable[(uint16_t)phase];
+      const uint16_t* table = waveformTables[currentWaveform];
+      uint16_t i0   = (uint16_t)phase;
+      uint16_t i1   = (i0 + 1) & (WAVEFORM_TABLE_SIZE - 1);  // power-of-2 wrap
+      float    frac = phase - (float)i0;
+      uint16_t cvdacValue = (uint16_t)(table[i0] * (1.0f - frac) + table[i1] * frac + 0.5f);
       (void)mcp.setChannelValue(MCP4728_CHANNEL_C, cvdacValue);
     }
-  }
-
-  // === CLOCK MODE (when switch2 > threshold) ===
-  if (switch2 > 500) {
-    mcp.setChannelValue(MCP4728_CHANNEL_B, clock_high);
-    if (counterc == 8) {
-      mcp.setChannelValue(MCP4728_CHANNEL_A, clock_high);
-      counterc = 0;
-    }
-    counterb++;
-    counterc++;
-    delay(delay_value / 8);
+  } else if (clock_mode) {
+    // Channel A = clock. Channel B stays low here; the reset fired on entry.
+    // Full period = 2 * delay_value ms (each half = delay_value).
+    mcp.setChannelValue(MCP4728_CHANNEL_A, clock_high);
+    delay(delay_value);
     mcp.setChannelValue(MCP4728_CHANNEL_A, clock_low);
-    mcp.setChannelValue(MCP4728_CHANNEL_B, clock_low);
-    delay(delay_value / 8);
+    delay(delay_value);
   }
 }
  
