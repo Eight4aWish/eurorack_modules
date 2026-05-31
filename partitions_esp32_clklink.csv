@@ -1,0 +1,10 @@
+# Custom partition table for esp32-clklink — 2 MB flash.
+# Bootloader occupies 0x0..0x9000. After that:
+#   nvs       0x09000  24 KB   (WiFi credentials, NVS storage)
+#   phy_init  0x0f000   4 KB
+#   factory   0x10000  1.9375 MB   (our app — IDF + Arduino + Link ≈ 1.5 MB)
+# Total used: 0x200000 = 2 MB.
+# Name,     Type, SubType, Offset,   Size,    Flags
+nvs,        data, nvs,     0x9000,   0x6000,
+phy_init,   data, phy,     0xf000,   0x1000,
+factory,    app,  factory, 0x10000,  0x1F0000,

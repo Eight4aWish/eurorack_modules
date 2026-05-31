@@ -15,3 +15,8 @@ CONFIG_AUTOSTART_ARDUINO=y
 
 # Pin Link's task to core 1 to avoid contention with the WiFi task on core 0.
 CONFIG_LINK_ESP_TASK_CORE_ID=1
+
+# This particular ESP32-Dev board has a 2 MB flash chip, not the more
+# common 4 MB. The bootloader-detected size must match or it refuses
+# to boot.
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y

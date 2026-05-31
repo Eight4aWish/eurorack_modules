@@ -21,9 +21,11 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <Adafruit_MCP4728.h>
 #include "abl_link.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "esp32-clklink/pins.h"
 #include "secrets.h"
 
@@ -254,7 +256,33 @@ void setup() {
         delay(100);
     }
     if (wifi_is_connected()) {
-        Serial.printf("WiFi: connected, IP %s\n", WiFi.localIP().toString().c_str());
+        // Disable modem sleep both via Arduino wrapper and the ESP-IDF API,
+        // since modem-sleep DTIM gaps cause Link's multicast discovery
+        // frames to be silently dropped.
+        WiFi.setSleep(false);
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
+        Serial.printf("WiFi: connected\n  SSID:   %s\n  IP:     %s\n"
+                      "  Mask:   %s\n  GW:     %s\n  MAC:    %s\n",
+                      WiFi.SSID().c_str(),
+                      WiFi.localIP().toString().c_str(),
+                      WiFi.subnetMask().toString().c_str(),
+                      WiFi.gatewayIP().toString().c_str(),
+                      WiFi.macAddress().c_str());
+
+        // Multicast TX self-test: send a single UDP packet to the Link
+        // discovery group. If a tcpdump on the Mac (`sudo tcpdump -i en0
+        // host 224.76.78.75`) sees this, the ESP32 can put multicast on
+        // the wire and the problem is downstream; if not, the issue is
+        // in our networking stack.
+        WiFiUDP udp;
+        if (udp.beginPacket(IPAddress(224, 76, 78, 75), 20808)) {
+            udp.print("clklink-mcast-test");
+            int sent = udp.endPacket();
+            Serial.printf("Multicast TX self-test: endPacket=%d\n", sent);
+        } else {
+            Serial.println("Multicast TX self-test: beginPacket FAILED");
+        }
     } else {
         Serial.println("WiFi: timed out; LINK mode will retry later");
     }
@@ -326,4 +354,20 @@ void loop() {
 
     update_pulse_decay(now_us);
     update_led(mode, now_ms);
+
+    // Once per second in LINK mode, log peer count + tempo so we can see
+    // whether discovery is making progress.
+    static unsigned long last_link_log_ms = 0;
+    if (mode == MODE_LINK && link_initialised && (now_ms - last_link_log_ms) > 1000) {
+        size_t peers = link_peer_count();
+        abl_link_capture_app_session_state(link_handle, link_state);
+        double tempo = abl_link_tempo(link_state);
+        Serial.printf("Link: peers=%u tempo=%.2f\n", (unsigned)peers, tempo);
+        last_link_log_ms = now_ms;
+    }
+
+    // Yield to FreeRTOS so the IDLE task on core 1 gets scheduled and the
+    // task watchdog stays happy. 1 ms is well below the clock jitter budget
+    // at PPQN=1 (period 200 ms - 1.5 s).
+    delay(1);
 }
