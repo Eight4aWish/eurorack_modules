@@ -1,0 +1,12 @@
+# Env-specific ESP-IDF config overrides for the esp32-clklink build.
+# Picked up automatically by pioarduino when building this env.
+
+# Arduino-as-IDF-component requires 1000 Hz tick rate.
+CONFIG_FREERTOS_HZ=1000
+
+# Ableton Link's ASIO uses C++ exceptions.
+CONFIG_COMPILER_CXX_EXCEPTIONS=y
+
+# Make the Arduino framework provide app_main() that calls our setup()/loop().
+# Without this we get "undefined reference to app_main" at link time.
+CONFIG_AUTOSTART_ARDUINO=y
