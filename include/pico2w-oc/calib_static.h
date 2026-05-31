@@ -6,7 +6,7 @@
 // using the macros in pins.h, so your per-channel coefficients can be keyed to
 // the actual MCP channels regardless of CV naming.
 
-#include "pico2w_oc/pins.h"
+#include "pico2w-oc/pins.h"
 // ADC formulas provided as: code = a + b * volts
 // DAC formulas provided as: volts = vOff + b * code (b negative)
 

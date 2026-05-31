@@ -4,14 +4,14 @@ Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWis
 
 ## Build
 
-PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w_oc`).
+PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w-oc`).
 
 ```sh
 # Build default env
 pio run
 
 # Build & upload Pico 2 W
-pio run -e pico2w_oc -t upload
+pio run -e pico2w-oc -t upload
 
 # Monitor serial
 pio device monitor -b 115200
@@ -38,7 +38,7 @@ pio run -e teensy41 -t upload
 
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, chord library details, and troubleshooting.
 
-## Pico 2 W — `pico2w_oc`
+## Pico 2 W — `pico2w-oc`
 
 This target implements a menu-driven multi-patch Eurorack utility on Raspberry Pi Pico 2 W with an SSD1306 OLED, ADS1115 ADC inputs, and an MCP4728 quad DAC for CV outputs.
 
@@ -50,15 +50,15 @@ This target implements a menu-driven multi-patch Eurorack utility on Raspberry P
 	- Consistent grid-based UI layout for readability on 128x64 OLED.
 
 - Hardware mapping:
-	- See `include/pico2w_oc/pins.h` for physical macros: `CV0_DA_CH..CV3_DA_CH`, `AD0_CH`, `AD1_CH`, `AD_EXT_CLOCK_CH`.
+	- See `include/pico2w-oc/pins.h` for physical macros: `CV0_DA_CH..CV3_DA_CH`, `AD0_CH`, `AD1_CH`, `AD_EXT_CLOCK_CH`.
 	- External clock is detected on rising edges on `AD_EXT_CLOCK_CH` in Clock/Env patches.
 
 - Build & Upload:
 
 ```sh
 # Pico 2 W
-pio run -e pico2w_oc
-pio run -e pico2w_oc -t upload
+pio run -e pico2w-oc
+pio run -e pico2w-oc -t upload
 pio device monitor -b 115200
 ```
 
