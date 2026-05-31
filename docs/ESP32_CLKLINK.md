@@ -66,14 +66,14 @@ Constants at the top of [src/esp32-clklink/main.cpp](../src/esp32-clklink/main.c
 
 - `clock_high` / `clock_low` — DAC values for +5 V / 0 V at the jack
 - `PULSE_WIDTH_US` — clock and reset pulse width (default 10 ms)
-- `bpm_from_pot()` — pot 0..4095 → BPM 40..300 by default
+- `bpm_from_pot()` — pot 0..4095 → BPM 50..200 by default (CW = fast)
 - `CV_HIGH_THRESH` / `CV_LOW_THRESH` — Schmitt thresholds for the external
   reset trigger input
 
 ## Phase 1 scheduler
 
 Pulse timing is currently driven from a polling loop using `micros()`.
-At PPQN = 1 and 40..300 BPM, the clock period is 200 ms..1.5 s and main
+At PPQN = 1 and 50..200 BPM, the clock period is 200 ms..1.5 s and main
 loop latency is well under 1 ms — the resulting jitter is inaudible and
 well below sequencer input tolerances. A hardware-timer-ISR scheduler is
 on the Phase 2 roadmap, primarily because Link sync benefits from
