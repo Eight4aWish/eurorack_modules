@@ -51,8 +51,9 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 
-// secrets.h is gitignored — copy secrets.h.example to secrets.h and fill in
-// your WiFi SSID/password and OTA password. See file for details.
+// secrets.h is gitignored — copy include/shared/secrets.h.example to
+// include/shared/secrets.h and fill in your WiFi/OTA credentials. Shared
+// across all WiFi-using envs (esp32-clklink, nanoesp32-corthex, ...).
 #include "secrets.h"
 
 // Web server + WebSocket for the diag page (port 80, files embedded in flash).

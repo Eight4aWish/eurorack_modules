@@ -19,6 +19,7 @@ build/
 /EuroPi
 
 # Per-developer WiFi / OTA credentials (use the .example file as a template)
+include/shared/secrets.h
 src/*/secrets.h
 
 # Python tools (tools/llm-proxy/) — virtualenv, byte-cache, build metadata
