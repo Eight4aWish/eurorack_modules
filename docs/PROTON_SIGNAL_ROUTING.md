@@ -1,292 +1,454 @@
 # Behringer Proton — Signal Routing Reference
 
-> **The Proton is NOT a Pro-One clone.** That's the Behringer **PRO-1** — a separate
-> desktop module sold from 2018. The Proton is an original Behringer design,
-> explicitly described as "Behringer cloning themselves" — a successor / expansion
-> of the Neutron. Dual VCOs (5 blendable waves + per-VCO sub-osc), wavefolder,
-> dual multimode VCFs, dual VCAs, 2× ADSR, 2× ASR (with loop / bounce / invert /
-> reverse), 2× LFO, 64-jack patchbay (40 in / 24 out), 68 panel controls. There
-> is no Pro-One-style "MOD MIX / DIRECT" routing switch — modulation is normalled
-> in parallel and overridden by patching.
+> **Source of truth:** *Behringer PROTON User Manual V0.0* (the version
+> shipped with the unit; SysEx Manufacturer ID `00 20 32`, Model ID `00 01 25`).
+> All page references in this document are to that PDF unless noted otherwise.
+>
+> **Lineage:** The Proton is in Behringer's Neutron family of semi-modular
+> Eurorack synths — not a Pro-One clone (that's the Behringer **PRO-1**, a
+> separate desktop product). The lineage is explicit in the firmware itself:
+> the ASR retrigger setting offers two modes named *"Neutron"* (default —
+> new notes retrigger the ASRs) and *"Proton"* (notes don't retrigger ASRs
+> while at least one note is held). See §15 of the manual.
 
-## 1. Block diagram (default normalled path)
+## 1. Block diagram
 
-```
-                    [MIDI / USB]
-                         |
-                    keyboard CV (1V/oct) + gate
-                         |
-        +----------------+----------------+
-        |                                 |
-   [VCO 1]                            [VCO 2]
-   - Tune (±13 st)                    - Tune
-   - Range (32/16/8 ft)               - Range
-   - Shape (5: tone-mod/pulse/        - Shape
-            saw/tri/sine; switch      - PW
-            or blend mode)            - Sub-mix
-   - PW                               |
-   - Sub-mix (main vs. sub)       sub-osc 2 ──→ Sum-Out (default if no Sum A/B)
-   |                                  |
-   sub-osc 1 ──→ Sum-Out              |
-        |                             |
-        +-------- Osc Mix knob -------+
-                         |
-                    [Osc Mix]            ← (also tapped to OSC 1 / OSC 2 / OSC MIX OUT jacks)
-                         |
-                + ─── [Noise Gen] (Noise Level knob, mixed into VCF input bus)
-                |        ext-in (Ext Level knob attenuates ext-in path)
-                |
-                v
-                  [Wavefolder]
-                  - Folds, Symmetry
-                  - Mode: AM | ½ | 1 | BP
-                         |
-            +────────────+────────────+
-            |                         |
-        [VCF 1]                   [VCF 2]
-        Mode: LPF/BPF/HPF         Mode: LPF/BPF/HPF
-        Freq, Reso                Freq, Reso
-        Mod Depth (LFO1)          Mod Depth (LFO2)
-        Env Depth (ADSR1)         Env Depth (ADSR1)
-        Key, Soft                 Key, Soft
-            |                         |
-            +-- Filter Mix knob ──────+──── (tap) ──→ [VCA 2]
-            |    (CCW = VCF1, CW = VCF2)              Bias
-            |                                         CV: ADSR2
-        [VCA 1]                                          |
-        Bias                                       [VCA 2 OUT jack]
-        CV: ADSR2
-            |
-        [Main Out / Phones]
-```
-
-Always-on modulation web (parallel; user can only override by patching the destination jack):
+Default normalled signal flow when no patch cables are inserted:
 
 ```
-LFO1  ─(Mod Depth1)─→ VCF1 freq
-LFO2  ─(Mod Depth2)─→ VCF2 freq
-ADSR1 ─(Env Depth1)─→ VCF1 freq
-ADSR1 ─(Env Depth2)─→ VCF2 freq
-ADSR2 ─────────────→ VCA1 CV, VCA2 CV   (hardwired; Bias adds offset)
-KbdCV ─(Key btn)───→ VCF1 / VCF2 tracking
-KbdCV ─(always)────→ VCO1, VCO2, sub-oscs
+                       [MIDI / USB / kbd CV] ──── 1 V/oct ───┐
+                                                             ▼
+   ┌────────────[VCO 1]─────────┬─────────────[VCO 2]────────┐
+   │  Tune (±13 st)             │   Tune                     │
+   │  Range (32/16/8 ft)        │   Range                    │
+   │  Shape (5 waves +          │   Shape                    │
+   │   sub-osc) +               │   PW                       │
+   │   Sub-Mix                  │   Sub-Mix                  │
+   └──────────────┬─────────────┴─────────────┬──────────────┘
+                  │                           │
+                  └────── Osc Mix knob ───────┘
+                              │
+                              ▼
+                          [Osc Mix]   ── (taps to OSC1 / OSC2 / OSC MIX OUT)
+                              │
+                              │  + Noise Level (white noise)
+                              │  + Ext Level   (front Ext In + rear input)
+                              ▼
+                       [Wavefolder] (modes: AM, ½, 1, BP)
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+          [VCF 1]                          [VCF 2]
+          (LPF/BPF/HPF)                   (LPF/BPF/HPF)
+                 │                                   │
+            ┌────┴────┬─── Filter Mix knob ──┬───────┘
+            │         (CCW=VCF1 … CW=VCF2)   │
+            ▼                                ▼
+         [VCA 1]                          [VCA 2]
+         Bias                             Bias
+         CV: ADSR 2                       CV: ADSR 2
+            │                                │
+            ▼                                ▼
+       Main Out / Phones              VCA 2 OUT jack
 ```
 
-Filters are **always parallel.** There is no series / parallel switch. The
-Filter Mix knob is a crossfader between the two parallel outputs into VCA1.
-VCA2 is normalled directly off VCF2 ([manuals.plus](https://manuals.plus/behringer/proton-analog-paraphonic-semi-modular-synthesizer-manual)):
-> "VCA 1 receives the output of the filter mix, and VCA 2 receives the output of VCF 2."
+VCA 1 also has its own out jack (does **not** break the main-out connection,
+per §6). VCA 2 is fed straight from VCF 2, **not** from the Filter Mix —
+useful for stereo splits, surprising for mono use.
 
-## 2. CV input table (40 IN jacks)
+### Always-on modulation (no cables patched)
 
-All `−5 V to +5 V` inputs are bipolar around 0 V. Audio inputs are AC-coupled
-module-level (~10 Vpp). Inserting a plug breaks the normal where indicated.
+| Source | Destination | Depth knob | Notes |
+|--------|-------------|-----------|-------|
+| LFO 1 | VCF 1 freq | Mod Depth 1 | normalled |
+| LFO 2 | VCF 2 freq | Mod Depth 2 | normalled |
+| ADSR 1 | VCF 1 freq | Env Depth 1 | normalled, additive with LFO 1 |
+| ADSR 1 | VCF 2 freq | Env Depth 2 | normalled, additive with LFO 2 |
+| ADSR 2 | VCA 1 gain | (no knob — Bias adds offset) | normalled |
+| ADSR 2 | VCA 2 gain | (no knob — Bias adds offset) | normalled |
+| Kbd CV | VCO 1 pitch | always 1 V/oct | normalled |
+| Kbd CV | VCO 2 pitch | always 1 V/oct | normalled |
+| Kbd CV | VCF 1 / VCF 2 cutoff | binary (Key btn) | full 1 V/oct tracking when enabled |
+| Velocity / Mod Wheel / Aftertouch | VCF 1 / 2 freq | secondary depth | one source per VCF, set via VCF Mode long-press; 0 by default (§5.5, §15) |
 
-| #  | Jack                | Range            | Semantic                                                        | Normalled From            | Insert overrides? |
-|---:|---------------------|------------------|-----------------------------------------------------------------|---------------------------|-------------------|
-|  1 | OSC 1 CV            | −5..+5 V         | Pitch (1 V/oct, sums with kbd)                                  | Internal MIDI/kbd CV      | Sums              |
-|  2 | OSC 2 CV            | −5..+5 V         | Pitch (1 V/oct, sums with kbd)                                  | MIDI/kbd CV               | Sums              |
-|  3 | OSC 1+2 CV          | −5..+5 V         | Pitch to both                                                   | —                         | Sums              |
-|  4 | OSC 1 PW            | −5..+5 V         | Pulse-width modulation                                          | Panel PW knob             | Sums              |
-|  5 | OSC 2 PW            | −5..+5 V         | Pulse-width modulation                                          | Panel PW knob             | Sums              |
-|  6 | OSC 1 Shape         | −5..+5 V         | Sweeps shape (or blends if blend mode)                          | Panel Shape               | Sums              |
-|  7 | OSC 2 Shape         | −5..+5 V         | Sweeps shape                                                    | Panel Shape               | Sums              |
-|  8 | Wavefolder Audio In | audio            | Replaces Osc Mix into wavefolder                                | Internal Osc Mix          | **Yes**           |
-|  9 | Folds CV            | −5..+5 V         | Folds amount                                                    | Panel Folds               | Sums              |
-| 10 | Symmetry CV         | −5..+5 V         | Asymmetry                                                       | Panel Symmetry            | Sums              |
-| 11 | VCF 1 Audio In      | audio            | Replaces wavefolder feed                                        | Wavefolder out            | **Yes**           |
-| 12 | VCF 1 Freq CV       | −5..+5 V         | Cutoff modulation                                               | LFO1·ModDepth1 + ADSR1·EnvDepth1 | Sums w/ internals (open Q1) |
-| 13 | VCF 1 Reso CV       | −5..+5 V         | Resonance                                                       | Panel Reso                | Sums              |
-| 14 | VCF 2 Audio In      | audio            | Replaces wavefolder feed                                        | Wavefolder out            | **Yes**           |
-| 15 | VCF 2 Freq CV       | −5..+5 V         | Cutoff modulation                                               | LFO2·ModDepth2 + ADSR1·EnvDepth2 | Sums (open Q1)    |
-| 16 | VCF 2 Reso CV       | −5..+5 V         | Resonance                                                       | Panel Reso                | Sums              |
-| 17 | VCA 1 Audio In      | audio            | Replaces filter-mix feed                                        | Filter Mix                | **Yes**           |
-| 18 | VCA 1 CV            | −5..+5 V (0..+5 usable) | Gain control                                              | ADSR2                     | **Yes** — replaces ADSR2 normal; sums with Bias |
-| 19 | VCA 2 Audio In      | audio            | Replaces VCF2 feed                                              | VCF 2 out                 | **Yes**           |
-| 20 | VCA 2 CV            | −5..+5 V (0..+5 usable) | Gain control                                              | ADSR2                     | **Yes** — sums w/ Bias |
-| 21 | Ext In              | audio            | External audio into filter feed (Ext Level attenuates)          | Rear-panel jack mirror    | Duplicate of rear |
-| 22 | Out (In)            | audio            | Direct to main out, bypassing internal flow; not affected by Ext Level | —                | **Yes** — overrides VCA1 to main out |
-| 23 | LFO 1 Trig          | gate             | Resets LFO1 cycle if 1-Shot or Retrig enabled                   | —                         | —                 |
-| 24 | LFO 2 Trig          | gate             | Resets LFO2 cycle if 1-Shot or Retrig enabled                   | —                         | —                 |
-| 25 | LFO 1 Rate CV       | −5..+5 V         | Exp rate mod                                                    | Panel Rate                | Sums              |
-| 26 | LFO 2 Rate CV       | −5..+5 V         | Exp rate mod                                                    | Panel Rate                | Sums              |
-| 27 | LFO 1 Shape CV      | −5..+5 V         | Sweeps LFO1 wave (blend or switch)                              | Panel selector            | Sums              |
-| 28 | LFO 2 Shape CV      | −5..+5 V         | Sweeps LFO2 wave                                                | Panel selector            | Sums              |
-| 29 | ADSR 1 Gate         | gate             | Triggers ADSR1                                                  | Internal MIDI gate (open Q3) | **Yes**         |
-| 30 | ADSR 2 Gate         | gate             | Triggers ADSR2                                                  | MIDI gate                 | **Yes**           |
-| 31 | ASR 1 Gate          | gate             | Triggers ASR1                                                   | MIDI gate (open Q3)       | **Yes**           |
-| 32 | ASR 2 Gate          | gate             | Triggers ASR2                                                   | MIDI gate (open Q3)       | **Yes**           |
-| 33 | Atten 1 In          | −5..+5 V         | Source for Atten 1                                              | ADSR1                     | **Yes**           |
-| 34 | Atten 2 In          | −5..+5 V         | Source for Atten 2                                              | LFO1 bipolar              | **Yes**           |
-| 35 | Mult In             | any              | Splits to Mult 1 + Mult 2                                       | —                         | —                 |
-| 36 | CV Mix In 1         | −5..+5 V         | Source A for CV Mix                                             | LFO1                      | **Yes**           |
-| 37 | CV Mix In 2         | −5..+5 V         | Source B for CV Mix                                             | LFO2                      | **Yes**           |
-| 38 | Assign In           | −5..+5 V         | Routed to user-selected target (none / OSC1 / OSC2 / OSC1+2 / VCF1 / VCF2 / VCF1+2) with depth 0–100% | — | — |
-| 39 | Sum A               | −5..+5 V         | Sums with Sum B                                                 | sub-osc 1                 | **Yes**           |
-| 40 | Sum B               | −5..+5 V         | Sums with Sum A                                                 | sub-osc 2                 | **Yes**           |
+## 2. Patched-CV precedence — important
 
-### 24 OUT jacks
+Per **§5.5 of the manual**, patching a `VCF n Freq CV` jack **replaces** the
+internal LFO source rather than summing with it:
 
-OSC1, OSC2, OSC MIX, WAVEFOLDER, VCF1, VCF2, VCF MIX, VCA1, VCA2, MULT1, MULT2,
-ATTEN1, ATTEN2, CV MIX, SUM, ADSR1, ADSR2, ASR1, ASR2, LFO1 UNI (0..+5 V),
-LFO1 BI (−5..+5 V), LFO2 UNI, LFO2 BI, ASSIGN OUT (selectable source: OSC1 CV /
-OSC2 CV / velocity / mod wheel / aftertouch).
+> *"When link is not in use then VCF 1 is modulated by LFO 1 **or** a source
+> patched via the patchbay; and VCF 2 by LFO 2 or a source patched via the
+> patchbay."*
 
-## 3. Switch / mode table
+Mod Depth and Env Depth knobs always scale the active source:
 
-| Switch                       | Section    | Positions                                            | Effect                                                                                                  | Overrides patched CV?                                              |
-|------------------------------|------------|------------------------------------------------------|---------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|
-| Range (per VCO)              | Osc        | 32′ / 16′ / 8′                                       | Octave; long-press → secondary (sub-osc waveform via LFO encoder; blend toggle via Para)                | No                                                                 |
-| Shape (per VCO)              | Osc        | 5-pos rotary: tone-mod/pulse/saw/tri/sine            | Discrete or blended morph                                                                               | No (Shape CV jack always sums)                                     |
-| Sync btn                     | Osc        | momentary toggle                                     | Hard-syncs Osc 2 to Osc 1; long-press → mono priority / Assign-Out source                              | n/a                                                                |
-| Para btn                     | Osc        | toggle                                               | Paraphonic split: MIDI note 1 → VCO1, note 2 → VCO2                                                     | Disables global kbd-CV summing into both VCOs; each VCO tracks its own note |
-| Wavefolder Mode              | Folder     | AM / ½ / 1 / BP                                      | AM: Sym disabled, Folds = AM amount; ½: half-strength; 1: full; BP: bypass                              | No (BP nulls panel knobs only — open Q4 re: jacks)                 |
-| VCF Mode (per VCF)           | Filter     | LPF / BPF / HPF                                      | Filter type; long-press → secondary mod source (none / velocity / modwheel / aftertouch) + depth        | No                                                                 |
-| Link btn                     | Filter     | off / Red / White                                    | off: independent; Red: VCF2 mod source = VCF1 mod source (replaces, not sums); White: inverted copy     | **Yes** — VCF2 internal normal is replaced (open Q5 re: patched-jack precedence) |
-| Soft btn                     | Filter     | off / VCF1 / VCF2 / both                             | Softens resonance saturation                                                                            | No                                                                 |
-| Key btn                      | Filter     | off / VCF1 / VCF2 / both                             | Enables 1 V/oct kbd tracking on selected VCF(s)                                                         | No                                                                 |
-| Shift btn                    | LFO/ASR    | toggles Red ↔ White                                  | Selects which LFO (or ASR) the shared encoder/buttons act on                                            | n/a                                                                |
-| 1-Shot btn                   | LFO1       | toggle                                               | LFO1 trig jack resets cycle once; long-press → secondary (sync enable / blend / key-track depth)        | No                                                                 |
-| Retrig btn                   | LFO2       | toggle                                               | LFO2 trig jack resets; long-press → LFO2 secondary                                                      | No                                                                 |
-| Sync btn (LFO)               | LFO        | toggle (per-LFO via Shift)                           | Locks LFO to MIDI clock (must be enabled in secondary first)                                            | n/a                                                                |
-| F/S btn                      | ADSR       | toggle (per-ADSR via Shift)                          | Fast/Slow time range. Fast: A 300 µs–7 s, D 2.4 ms–20 s, R 1.5 ms–24 s. Slow: A→42 s, D→~116 s, R→~120 s | n/a                                                                |
-| Retrig btn                   | ADSR       | toggle                                               | Re-triggers envelope on each new note (legato off)                                                      | n/a                                                                |
-| Loop / Bounce / Sustain / Invert / Reverse / Retrig | ASR | shared via Shift                            | Loop: cycles A→R; Bounce: A→R→A→R; Sustain: holds peak; Invert: flip polarity (0..−10 V); Reverse: swap A↔R; Retrig: fresh cycle | n/a                                                                |
+- With nothing patched into `VCF 1 Freq CV`: Mod Depth 1 scales LFO 1.
+- With something patched into `VCF 1 Freq CV`: Mod Depth 1 scales **the patched signal** (LFO 1 is overridden).
+- Env Depth 1 always scales **ADSR 1**, regardless of what's at the Freq CV jack — ADSR 1 has its own independent path into the cutoff.
 
-## 4. Pot table
+This is the opposite of what I previously inferred from third-party
+write-ups. **For a patch-maker the rule is: the Freq CV jack is the LFO/external
+input — it's a single mod source per filter, with Mod Depth as the attenuator.**
 
-| Pot                  | Section  | Range                | Scales                                                                            | CV-summable?                                                                  |
-|----------------------|----------|----------------------|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| Tune (per VCO)       | Osc      | ±13 st               | Coarse pitch                                                                      | + OSC n CV jack                                                               |
-| Pulse Width (per VCO)| Osc      | ~10–90% duty         | Pulse waveform width                                                              | + PW jack                                                                     |
-| Sub-Mix (per VCO)    | Osc      | CCW = sub … CW = main | Crossfade sub vs. main                                                            | No                                                                            |
-| Osc Mix              | Osc      | CCW = VCO1 … CW = VCO2 | VCO crossfade into Osc Mix bus                                                    | No                                                                            |
-| Folds                | Folder   | 0–max                | Wavefold drive (in AM = amplitude attenuator on input)                            | + Folds CV                                                                    |
-| Symmetry             | Folder   | bipolar feel         | Asymmetric fold offset (no effect in AM/BP)                                       | + Sym CV                                                                      |
-| Freq (per VCF)       | Filter   | ~10 Hz–15 kHz        | Cutoff                                                                            | + Freq CV jack + ADSR1·EnvDepth + LFOn·ModDepth                               |
-| Reso (per VCF)       | Filter   | 0 → self-osc         | Resonance                                                                         | + Reso CV                                                                     |
-| Mod Depth (per VCF)  | Filter   | 0 → +5 V scale       | Attenuates **internal LFO** path into VCF (NOT the patched Freq CV)               | Scales internal normal only — open Q1                                         |
-| Env Depth (per VCF)  | Filter   | 0 → full             | Attenuates **internal ADSR1** path into VCF                                       | Same — open Q1                                                                |
-| Filter Mix           | Filter   | CCW = VCF1 … CW = VCF2 | Crossfade VCF1/VCF2 into VCA1 (post-VCF)                                          | No                                                                            |
-| Noise Level          | Filter   | 0 → osc-mix-level    | White-noise mixed into filter input bus                                           | No                                                                            |
-| Bias (per VCA)       | VCA      | CCW … CW             | DC offset gain (CCW = fully CV-controlled, CW = fully open)                       | + VCA CV jack — open Q2 (clip behaviour)                                      |
-| Ext Level            | Ext      | 0 → unity            | Gain on rear/front Ext In (does NOT affect Out (In) jack)                         | n/a                                                                           |
-| Volume               | Output   | 0 → max              | Main out (headphone level claimed independent — open Q6)                          | n/a                                                                           |
-| Atk/Dec/Sus/Rel (per ADSR) | ADSR | per F/S range      | Envelope segments                                                                 | n/a                                                                           |
-| Atk/Rel (per ASR, shared)  | ASR  | 0–8 s / 0–31 s     | Envelope segments                                                                 | n/a                                                                           |
-| Rate (per LFO)       | LFO      | 0.01–200 Hz          | Frequency                                                                         | + Rate CV                                                                     |
-| Depth (per LFO)      | LFO      | 0 → +5 V             | LFO output amplitude                                                              | n/a                                                                           |
-| LFO encoder          | LFO/secondary | continuous      | Secondary-panel value entry (sub waveform, secondary mod source, depths, etc.)    | n/a                                                                           |
-| Atten 1 / Atten 2    | Util     | −1× … 0 … +1×        | Attenuverter; centre is mute                                                      | n/a                                                                           |
-| CV Mix               | Util     | CCW = src1 … CW = src2 | Crossfader between CV Mix In 1 / In 2                                             | n/a                                                                           |
-| Portamento           | Glide    | off → long           | MIDI-only glide between successive notes                                          | n/a                                                                           |
+## 3. CV inputs (40 jacks; §12)
 
-## 5. Modulation matrix (panel-accessible)
+Voltages are −5 V to +5 V unless stated. "Override" means inserting a plug
+breaks the listed normal.
 
-`norm` = active without any patch cable. Triple = (source, destination, depth control).
+### Oscillators (§12.1) — 7 jacks
 
-| Source                | Destination                        | Depth                                          | Notes                                                              |
-|-----------------------|------------------------------------|------------------------------------------------|--------------------------------------------------------------------|
-| LFO1                  | VCF1 freq                          | Mod Depth 1                                    | norm; defeated only by patching VCF1 Freq CV (open Q1)             |
-| LFO2                  | VCF2 freq                          | Mod Depth 2                                    | norm; same                                                         |
-| LFO1                  | VCF2 freq                          | Mod Depth 2                                    | engaged by **Link** Red; replaces LFO2                             |
-| LFO1 (inverted)       | VCF2 freq                          | Mod Depth 2                                    | engaged by **Link** White                                          |
-| ADSR1                 | VCF1 freq                          | Env Depth 1                                    | norm; additive with LFO1                                           |
-| ADSR1                 | VCF2 freq                          | Env Depth 2                                    | norm                                                               |
-| ADSR2                 | VCA1 gain                          | (none — fixed)                                 | norm; offset by VCA1 Bias                                          |
-| ADSR2                 | VCA2 gain                          | (none)                                         | norm; offset by VCA2 Bias                                          |
-| Kbd CV                | VCO1 pitch                         | always 1 V/oct                                 | norm; +OSC1 CV jack additive                                       |
-| Kbd CV                | VCO2 pitch                         | always 1 V/oct                                 | norm; +OSC2 CV jack                                                |
-| Kbd CV                | VCF1 cutoff                        | full or 0 (Key btn)                            | binary tracking — open Q7 (depth coefficient)                      |
-| Kbd CV                | VCF2 cutoff                        | full or 0 (Key btn)                            | binary tracking                                                    |
-| Kbd CV                | LFO1 rate                          | LFO1 key-track depth (0–100%)                  | secondary-panel                                                    |
-| Kbd CV                | LFO2 rate                          | LFO2 key-track depth (0–100%)                  | secondary-panel                                                    |
-| Velocity / ModWheel / AT | VCF1 freq                       | secondary depth                                | one source per VCF, set via VCF Mode long-press                    |
-| Velocity / ModWheel / AT | VCF2 freq                       | secondary depth                                | same                                                               |
-| Assign In jack        | OSC1 / OSC2 / OSC1+2 / VCF1 / VCF2 / VCF1+2 (one) | Assign depth 0–100%               | secondary via Wavefolder Mode long-press                           |
-| Atten 1 in (or default ADSR1) | Atten 1 out → patch          | Atten 1 knob                                   | utility — output is patched, not normalled to a destination        |
-| Atten 2 in (or default LFO1 bi) | Atten 2 out → patch        | Atten 2 knob                                   | utility                                                            |
-| CV Mix In 1+In 2 (or default LFO1+LFO2) | CV Mix Out → patch  | CV Mix crossfade                               | utility                                                            |
-| Sum A+Sum B (or default sub1+sub2) | Sum Out → patch          | (no knob; pure sum)                            | utility                                                            |
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| OSC 1 CV | −5..+5 V | 1 V/oct pitch | MIDI / kbd | Sums with kbd CV |
+| OSC 2 CV | −5..+5 V | 1 V/oct pitch | MIDI / kbd | Sums |
+| OSC 1+2 CV | −5..+5 V | 1 V/oct pitch to both | — | Sums into both |
+| PW 1 | −5..+5 V | Pulse-width mod, VCO 1 | Width 1 knob | Sums |
+| PW 2 | −5..+5 V | Pulse-width mod, VCO 2 | Width 2 knob | Sums |
+| Shape 1 | −5..+5 V | Sweeps shape (or blends in blend mode) | Shape 1 knob | Sums |
+| Shape 2 | −5..+5 V | Sweeps shape | Shape 2 knob | Sums |
 
-**Implications for a patch maker.** Three "always-on" mod paths the user cannot
-disable from the panel: `ADSR2 → VCA` (defeat by patching VCA n CV with
-something else, or by setting Bias to fully open), and the two `LFO → VCF`
-normals (defeat by patching VCFn Freq CV — pending open Q1). Mod Depth and Env
-Depth knobs scale only the internal normal, so a patch generator should treat
-them as scalars on `LFOn` and `ADSR1` respectively, and treat any patched VCFn
-Freq CV as a separate additive bus.
+### Wavefolder (§12.2) — 3 jacks
 
-## 6. Pitfalls / gotchas for programmatic patches
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| WF In | audio | Wavefolder audio input | Osc Mix | **Override** — replaces internal Osc Mix feed |
+| WF Folds | −5..+5 V | Folds amount | Folds knob | Sums |
+| WF Sym | −5..+5 V | Asymmetric folding | Sym knob | Sums (no effect in AM or BP modes — §4.1, §4.3) |
 
-- **Filter is always parallel.** No series mode unless you patch VCF1 OUT → VCF2 audio in (which then overrides VCF2's wavefolder feed).
-- **Filter Mix is post-VCF.** Both filters always run; the knob just blends their outputs into VCA1.
-- **VCA2 is a side-chain off VCF2,** bypassing Filter Mix — useful for stereo, surprising for mono.
-- **ADSR2 is hardwired to both VCAs.**
-- **ADSR1 is hardwired to both VCFs,** scaled per-filter by Env Depth.
-- **Wavefolder BP mode** mutes folder processing but the audio still flows through the path.
-- **`Out (In)` jack** overrides the entire internal path to the main output — useful for inserting external FX returns.
-- **Sum jack defaults to sub-osc 1 + sub-osc 2** when nothing is patched into Sum A/B.
-- **Atten 1 default = ADSR1, Atten 2 default = LFO1 bipolar.** Free attenuated copies even with no input patched.
-- **Assign In = single destination at a time.**
-- **Paraphonic mode** breaks the "kbd CV → both VCOs" mental model; OSC1+2 CV jack still sums.
-- **Link button replaces (not sums) VCF2's mod source.** Manual: "VCF 2 will be modulated by the VCF 1 modulation source rather than that of VCF 2."
-- **LFO Trig jacks do nothing** unless 1-Shot (LFO1) or Retrig (LFO2) is enabled.
+### Filters (§12.3) — 6 jacks
 
-## 7. Open questions / required experiments
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| VCF 1 In | audio | VCF 1 audio input | Wavefolder out | **Override** — replaces wavefolder feed |
+| VCF 1 Freq | −5..+5 V | Cutoff modulation | LFO 1 | **Replaces** LFO 1 source (per §5.5). Sums with ADSR 1·EnvDepth 1 and panel Freq knob. |
+| VCF 1 Reso | −5..+5 V | Resonance | Reso 1 knob | Sums |
+| VCF 2 In | audio | VCF 2 audio input | Wavefolder out | **Override** |
+| VCF 2 Freq | −5..+5 V | Cutoff modulation | LFO 2 | **Replaces** LFO 2 source |
+| VCF 2 Reso | −5..+5 V | Resonance | Reso 2 knob | Sums |
 
-### Q1 — Does Mod Depth / Env Depth scale only the internal normal, or all sources at the Freq CV jack?
+### VCAs (§12.4) — 4 jacks
 
-Patch +1 V DC into VCF1 Freq CV. VCF1 LPF, Reso 0, sine osc through (BP wavefolder) → VCF1. Sweep **Mod Depth 1**: if cutoff moves, the knob also scales the patched CV (sums with internal). If cutoff is unchanged, Mod Depth scales only the internal normal. Repeat for Env Depth 1 while gating ADSR1. **Expected**: Mod / Env Depth scale only the internal source.
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| VCA 1 In | audio | VCA 1 audio input | Filter Mix | **Override** |
+| VCA 1 CV | −5..+5 V | Gain control | ADSR 2 | **Override** — replaces ADSR 2; sums with Bias 1 |
+| VCA 2 In | audio | VCA 2 audio input | VCF 2 out | **Override** |
+| VCA 2 CV | −5..+5 V | Gain control | ADSR 2 | **Override** — sums with Bias 2 |
 
-### Q2 — VCA Bias + CV summing: linear add or saturate?
+Bias knob: CCW = VCA fully under CV control (closed at 0 V); CW = VCA forced
+fully open regardless of CV (§6).
 
-Patch ADSR2 into VCA1 CV (replacing the internal normal). Sine through VCA1 audio. Bias = 0: shape follows envelope. Bias = noon: scope VCA1 OUT vs ADSR2 OUT — does the floor lift linearly (additive) or does the peak clip (saturating sum)? **Expected**: linear additive up to a clip ceiling.
+### External audio (§12.5) — 2 jacks
 
-### Q3 — Are ADSR1, ADSR2, ASR1, ASR2 auto-gated by MIDI note-on with no patch?
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| Ext In | audio | Sums external audio into the filter feed; level set by Ext Level knob | Rear Input jack | Duplicate of rear (3.5 mm vs. 6.35 mm TS) |
+| Out (In) | audio | Direct to main output, **bypassing the entire internal path** | — | **Override** — replaces VCA 1 → main out. Not affected by Ext Level (§4 / §12.5). |
 
-No cables. Send a MIDI note. Scope all four envelope OUT jacks. Are all four firing on the same gate? **Expected**: yes (semi-modular convention), but the manual is silent.
+### LFOs (§12.6) — 6 jacks
 
-### Q4 — Wavefolder BP mode: do the Folds CV / Sym CV jacks still respond?
+| Jack | Range | Function | Insert behaviour |
+|------|-------|----------|-------------------|
+| LFO 1 Trig | gate | Resets LFO 1 cycle if 1-Shot is on (and/or retrigger) | — |
+| LFO 2 Trig | gate | Resets LFO 2 cycle if Retrig is on (and/or 1-shot) | — |
+| LFO 1 Rate | −5..+5 V | Exp rate mod | Sums with Rate 1 knob |
+| LFO 2 Rate | −5..+5 V | Exp rate mod | Sums with Rate 2 knob |
+| LFO 1 Shape | −5..+5 V | Sweeps LFO 1 wave (in blend mode) or steps through | Sums with shape selection |
+| LFO 2 Shape | −5..+5 V | Sweeps LFO 2 wave | Sums |
 
-Mode = BP. Patch a slow LFO into Folds CV. Listen. Silent → true bypass; modulating → BP only nulls the panel knobs.
+LFO Trig jacks are silent unless the relevant LFO has 1-Shot or Retrig
+enabled (§9.5, §9.7).
 
-### Q5 — Link button + patched VCF2 Freq CV: which wins?
+### Envelopes (§12.7) — 4 jacks
 
-Engage Link Red. Patch a slow square LFO into VCF2 Freq CV jack. If VCF2 cutoff follows the patched LFO → patch wins; if it follows VCF1's source → Link wins. Try Link White (inverted) for clarity. **Expected**: patch wins (typical semi-modular precedence).
+| Jack | Range | Function | Normalled from | Insert behaviour |
+|------|-------|----------|----------------|-------------------|
+| ADSR 1 gate | gate | Triggers ADSR 1 | MIDI gate | **Override** — replaces MIDI gate |
+| ADSR 2 gate | gate | Triggers ADSR 2 | MIDI gate | **Override** |
+| ASR 1 gate | gate | Triggers ASR 1 | MIDI gate | **Override** |
+| ASR 2 gate | gate | Triggers ASR 2 | MIDI gate | **Override** |
 
-### Q6 — Headphone level: independent of Volume knob?
+### Utilities (§12.8 – §12.12) — 8 jacks
 
-Trivial knob test. Manual claims independent; cross-checks contradict.
+| Jack | Range | Function | Normalled from |
+|------|-------|----------|----------------|
+| Atten 1 In | −5..+5 V | Source for Attenuverter 1 (output → Out patchbay) | ADSR 1 |
+| Atten 2 In | −5..+5 V | Source for Attenuverter 2 | LFO 1 (bipolar) |
+| Mult In | any | Splits to two outputs (Mult 1 / Mult 2 in Out patchbay) | — |
+| CV Mix In 1 | −5..+5 V | Source A for the CV crossfader | LFO 1 |
+| CV Mix In 2 | −5..+5 V | Source B for the CV crossfader | LFO 2 |
+| Assign In | −5..+5 V | Routed to a user-selected destination at depth 0–100% (None / Osc 1 / Osc 2 / Osc 1&2 / VCF 1 / VCF 2 / VCF 1&2) | — |
+| Sum A | −5..+5 V | One input of the Sum utility | sub-osc 1 |
+| Sum B | −5..+5 V | Other input of the Sum utility | sub-osc 2 |
 
-### Q7 — Filter keyboard tracking depth: 100% 1 V/oct or partial?
+Attenuverters: panel knob = ±1× with mute at centre. Patching either
+attenuverter's IN replaces its default normal (ADSR 1 / LFO 1).
 
-Self-oscillate VCF1 (Reso max, no audio in). Key btn on. Tune VCF1 to a known pitch at C2. Play C3 — exactly one octave shift = 100% tracking; less = partial coefficient (50% common on Roland-style designs).
+## 4. Out jacks (24; §13)
 
-### Q8 — Assign In depth: linear scalar to ±5 V?
+| Jack | What it carries | Notes |
+|------|----------------|-------|
+| OSC 1, OSC 2, OSC MIX | VCO outputs | Tap before wavefolder |
+| WF | Wavefolder output | Post-wavefolder, pre-VCF |
+| VCF 1, VCF 2, VCF MIX | Filter outputs | VCF MIX is post Filter-Mix knob |
+| VCA 1, VCA 2 | Final amplitude-shaped audio | Tap does **not** break main out (§6) |
+| MULT 1, MULT 2 | Splits of MULT IN | If no MULT IN cable, sources can be set in SynthTribe |
+| ATT 1, ATT 2 | Attenuverter outputs | Default sources: ADSR 1 / LFO 1 (bipolar) |
+| CV MIX | Crossfaded sum of CV Mix In 1 / In 2 | Default: LFO 1 / LFO 2 |
+| SUM | Sum A + Sum B | Default: sub-osc 1 + sub-osc 2 |
+| ADSR 1, ADSR 2, ASR 1, ASR 2 | Envelope CV outputs | Available even when internally normalled |
+| LFO 1 UNI, LFO 1 BI, LFO 2 UNI, LFO 2 BI | LFO outputs | UNI = 0..+5 V; BI = −5..+5 V |
+| ASSIGN OUT | User-selectable: OSC 1 CV / OSC 2 CV / velocity / mod wheel / aftertouch | Source set via second-panel (§15) or SynthTribe |
 
-Patch +5 V DC into Assign In, dest = OSC1. Depth 100% → measure pitch shift. Compare to OSC1 CV jack with same +5 V (5 octaves at 1 V/oct). Equal → linear scalar to a ±5 V internal bus. Less → smaller internal range.
+## 5. Switches & buttons
 
-### Q9 — VCF mode (LPF / BPF / HPF) consistency
+### Oscillator section (§3)
 
-Sweep cutoff with white noise on each mode; capture spectrum in a DAW analyzer. Compare slope and resonance peak height per mode. **Expected**: same slope (~12 dB/oct), Soft btn affects resonance compression equally.
+| Control | Type | Effect |
+|---------|------|--------|
+| Range 1, Range 2 | 3-LED button | 32′ / 16′ / 8′ octave (cycles 8 → 32 then "free" 10-octave with all three LEDs lit). Long-press = secondary functions (sub-osc shape via LFO encoder; switched-vs-blended via Para; tuning enable/disable via Sync; linear vs exp FM via Wave Mode/F/S; MIDI control disable via Env Retrig). |
+| Para | toggle | Paraphonic mode: MIDI note 1 → VCO 1, note 2 → VCO 2 (§3.6). |
+| Sync | toggle | Hard-syncs VCO 2 to VCO 1. Long-press = note priority for both mono and paraphonic modes; selects Assign-Out source; toggles Polychain / MIDI clock fwd / ASR retrigger mode. |
 
-### Q10 — Auto-calibration drift after warm-up
+### Wavefolder section (§4)
 
-After power-up auto-cal, hold C4 every 5 min for 30 min, feed OSC MIX OUT to a tuner, log cents. > 10¢ drift @ 30 min argues for a re-cal trigger before serious work.
+| Control | Type | Positions | Notes |
+|---------|------|-----------|-------|
+| Mode | 4-pos LED rotary | AM / ½ / 1 / BP | AM: Sym disabled, Folds = AM amount. BP: bypass — but **Folds CV / Sym CV jacks: behaviour in BP not specified in manual** (open question). |
+
+### Filter section (§5)
+
+| Control | Type | Effect |
+|---------|------|--------|
+| VCF n Mode | 3-pos cycling button | LPF / BPF / HPF. Long-press = secondary mod source (none / velocity / mod wheel / aftertouch) — picked via LFO encoder, depth via LFO Shift + encoder. |
+| Link | tri-state (off / Red / White) | Off: independent. Red: VCF 2 mod source = VCF 1's. White: inverse of VCF 1 (§5.4). Replaces VCF 2's normal (LFO 2). |
+| Soft | tri-state | Softens resonance saturation on selected filter(s). LEDs: red = VCF 1 only, white = VCF 2 only, both = both. |
+| Key | tri-state | Enables 1 V/oct kbd tracking on selected filter(s). |
+
+### Envelope sections (§8, §10)
+
+| Control | Effect |
+|---------|--------|
+| F/S (ADSR) | Fast vs Slow time range. Per-ADSR, selected via Shift. |
+| Retrig (ADSR) | New MIDI notes restart envelope cycle. **MIDI-only.** Off = legato. |
+| Loop / Bounce / Sust / Inv / Rev / Retrig (ASR) | All shared between ASR 1 / ASR 2 via the LFO Shift button. Loop: cycles A→R while gate held. Bounce: A→R→A→R. Sustain: holds at peak. Invert: 0→+10 V becomes 0→−10 V. Reverse: A and R swap. Retrig: every new gate restarts. ASR retrigger mode is configurable: **"Neutron"** (new notes retrigger) or **"Proton"** (held notes block retrigger) — §15. |
+
+### LFO section (§9)
+
+| Control | Effect |
+|---------|--------|
+| Shift | Selects which LFO (Red = LFO 1, White = LFO 2) the shared encoder + buttons act on. Also selects which ASR is acted on by the ASR buttons. |
+| 1-Shot (LFO 1) | LFO 1 trig jack resets cycle. Long-press = LFO 1 secondary (sync enable, blend toggle, key-track depth, key-track base note). |
+| Retrig (LFO 2) | Same as 1-Shot but for LFO 2; also LFO 2's secondary access. |
+| Sync | Locks selected LFO to MIDI clock (must be enabled in secondary first). |
+
+### LEDs (red vs white, §2)
+
+> *"Throughout your Proton a red LED indicates that the first of any dual
+> item is being controlled where controls are shared, with a white LED
+> indicating that the second is under control."*
+
+So: Red = VCO 1 / VCF 1 / LFO 1 / ADSR 1 / ASR 1; White = the second of each pair.
+
+## 6. Pots & knobs (per-section ranges from manual)
+
+### VCOs
+
+| Knob | Range |
+|------|-------|
+| Tune n | ±13 semitones |
+| Width n | 10 % to 90 % duty (square / tone-mod waves only) |
+| Sub Mix n | CCW = sub osc only … CW = main only |
+| Osc Mix | CCW = VCO 1 only … CW = VCO 2 only |
+
+VCO frequency range: **0.7 Hz – 50 kHz**, controllable from MIDI or
+external CV in **−5 V to +5 V** range (§3 intro).
+
+### Wavefolder, filters, VCAs
+
+| Knob | Range |
+|------|-------|
+| Folds | 0 (silence) → max folding |
+| Sym | bipolar; no effect in AM / BP |
+| Freq n | **10 Hz – 15 kHz** (§5.2) |
+| Reso n | 0 → self-oscillation |
+| Mod Depth n | scales **the active mod source** (LFO n, or whatever's patched into VCF n Freq CV — §5.5) |
+| Env Depth n | scales ADSR 1's contribution to VCF n |
+| Filter Mix | CCW = VCF 1 only … CW = VCF 2 only (into VCA 1) |
+| Noise Level | 0 → equal to oscillator mix level |
+| Bias n | CCW = VCA fully CV-controlled … CW = VCA forced fully open |
+
+### Levels
+
+| Knob | Notes |
+|------|-------|
+| Main Vol | Main 6.35 mm output level |
+| Ext Level | External-input attenuator into the filter feed (does **not** affect Out (In) jack) |
+| Phones | Independent of Main Vol — separate dedicated control on the rear |
+
+### Envelopes
+
+| Knob | Fast range | Slow range |
+|------|-----------|-----------|
+| ADSR Atk | 300 µs → 7 s | up to 42 s |
+| ADSR Dec | 2.4 ms → 20 s | up to 1 min 56 s |
+| ADSR Sus | 0 (no sustain) → full | — |
+| ADSR Rel | 1.5 ms → 24 s | up to 2 min |
+| ASR Atk | 0 ms → 8 s | (no F/S) |
+| ASR Rel | 0 ms → 31 s | (no F/S) |
+
+> **Warning** (§8.4): "if Sustain is fully CCW then Release will not function" — a quirk to bake into a patch generator.
+
+### LFOs
+
+| Knob | Range |
+|------|-------|
+| Rate n | **0.01 Hz – 200 Hz** (§9.1) |
+| Depth n | 0 → full amplitude |
+
+### Utilities
+
+| Knob | Effect |
+|------|--------|
+| CV Mix | Crossfader between CV Mix In 1 / In 2 (default LFO 1 / LFO 2) |
+| Portamento | Glide time, MIDI-only |
+| Atten 1 / 2 | ±1× attenuverter; centre = mute |
+
+## 7. Modulation matrix (panel-accessible)
+
+Triple = (source, destination, depth control). "Norm" = active without any patch.
+
+| Source | Destination | Depth | Notes |
+|--------|-------------|-------|-------|
+| LFO 1 | VCF 1 freq | Mod Depth 1 | norm; **defeated** if anything is patched into VCF 1 Freq CV |
+| LFO 2 | VCF 2 freq | Mod Depth 2 | norm; **defeated** by VCF 2 Freq CV patch |
+| LFO 1 (or inv) | VCF 2 freq | Mod Depth 2 | engaged by Link Red / White; replaces LFO 2 |
+| ADSR 1 | VCF 1 freq | Env Depth 1 | norm; sums with the active LFO/patch path |
+| ADSR 1 | VCF 2 freq | Env Depth 2 | norm |
+| ADSR 2 | VCA 1 gain | (no knob — Bias adds offset; defeat by patching VCA 1 CV) | norm |
+| ADSR 2 | VCA 2 gain | (Bias adds offset; defeat by patching VCA 2 CV) | norm |
+| Kbd CV | VCO 1, VCO 2, Sub osc 1, Sub osc 2 | always 1 V/oct | norm; OSC n CV jack adds |
+| Kbd CV | VCF 1 / 2 cutoff | binary (Key btn) | full 1 V/oct when on |
+| Kbd CV | LFO 1 / 2 rate | LFO key-track depth (0–100 %) | secondary panel; base note configurable |
+| Velocity / Mod Wheel / Aftertouch | VCF 1 freq | secondary VCF 1 mod depth | one source per VCF |
+| Velocity / Mod Wheel / Aftertouch | VCF 2 freq | secondary VCF 2 mod depth | one source per VCF |
+| Assign In jack | OSC 1 / OSC 2 / OSC 1&2 / VCF 1 / VCF 2 / VCF 1&2 (one) | Assign In depth 0–100 % | secondary panel |
+| Atten 1 in (or default ADSR 1) | Atten 1 OUT → patch | Atten 1 knob | utility |
+| Atten 2 in (or default LFO 1 bi) | Atten 2 OUT → patch | Atten 2 knob | utility |
+
+## 8. Implications for a patch generator
+
+- **Three "always-on" mod paths** the panel cannot disable: ADSR 2 → both VCAs, LFO n → VCF n. All defeated **only** by patching the destination's CV jack. A generator should treat the Bias knob as a "force-VCA-open" override and the Mod Depth knob as the LFO/external-mod attenuator.
+- **Patched freq CV replaces, not sums.** Treat each VCF Freq CV jack as a single-source slot scaled by Mod Depth — *not* as an additive bus on top of the LFO.
+- **Filters are normally parallel.** Series mode requires a patch cable: patch VCF 1 OUT → VCF 2 IN. The Filter Mix knob then has limited effect (output of VCF 2 — which is now post-VCF 1 — into VCA 1). VCA 2 still gets its feed from the VCF 2 OUT tap.
+- **VCA 2 is NOT downstream of Filter Mix.** It taps directly off VCF 2. For mono use, route everything through VCA 1 (which receives Filter Mix). For stereo, send VCF 1 → VCA 1 and VCF 2 → VCA 2 (which is the default normalled state).
+- **Drum-style patches:** use the ASR envelopes for VCAs (with Loop / Bounce shape) rather than ADSR 2, by patching ASR n OUT → VCA n CV. ADSR 2 then frees up for percussion-shape on the filters.
+- **Key-tracking on filters is binary** (on/off via the Key button). 1 V/oct is implied; manual doesn't quote a coefficient — but the SysEx surface (§20) doesn't expose a per-cent depth either, so this should be safe to assume as full tracking. Worth a one-octave bench check before relying on it for self-oscillation tuning.
+- **Envelope retrigger requires MIDI** (§8.6). CV/gate triggers don't restart held notes — they just gate.
+- **Sustain = 0 disables Release** (§8.4) — important corner case for fade-out patches.
+- **MIDI clock forwarding** is configurable via the second panel (§15): off by default, can be enabled. Useful for daisy-chained tempo-locked patches.
+- **Polychain support** (§17 / §18) is built in — multiple Protons can divide voices over MIDI. Out of scope for a patch generator on a single unit, but relevant context.
+- **Linear FM** (§15: Osc 1 Range + Wave Mode) on each VCO is selectable. The default is exponential — a generator that wants clean through-zero-style FM should explicitly enable linear FM for the carrier.
+- **Auto-calibration** is built-in: hold Osc Para + ASR Retrig for 2 s (§15). Worth scheduling at the start of a session — VCOs drift.
+- **Factory restore**: hold Osc Para + Osc Sync at power-up (§16).
+
+## 9. SysEx surface (§20) — for future remote control
+
+The Proton accepts System Exclusive messages for almost every parameter
+and setting. Format:
+
+```
+F0  00 20 32  00 01 25  00  0x74  0x10  <SSPKT>  <Value>  F7
+   |Manuf ID  |Model ID  |Dev | PKT | SPKT | sub-spkt | param | end
+```
+
+Notable parameter SSPKTs (full table is on pp. 32–35 of the manual):
+
+| SSPKT | Parameter | Range | Notes |
+|-------|-----------|-------|-------|
+| 0x0F | Polychain enable | 0/1 | |
+| 0x13 | Mono key priority | 0/1/2 | low/high/last |
+| 0x14 | Paraphonic key priority | 0/1/2 | |
+| 0x17 / 0x18 | Assign Out 1 / 2 source | 0..4 | OSC1 CV / OSC2 CV / velocity / mod wheel / aftertouch |
+| 0x19 / 0x1A | Min / max MIDI note | 0x0C – 0x60 | C0..C7 |
+| 0x1B | Mute out-of-range notes | 0/1 | |
+| 0x1D | MIDI clock forward | 0/1 | |
+| 0x1E | Assign In destination | 0..6 | None/Osc1/Osc2/Osc1&2/VCF1/VCF2/VCF1&2 |
+| 0x1F | Assign In depth | 0..0x65 (= 0..100 %) | |
+| 0x21 | Local control on/off | 0/1 | "second panel enabled / disabled" |
+| 0x23 | VCF link | 0/1/2 | none / Red / White |
+| 0x24 / 0x25 | VCF Soft / Key | 0..3 | per-filter or both |
+| 0x26 / 0x2A | VCF 1 / 2 mode | 0/1/2 | HPF/BPF/LPF |
+| 0x27 / 0x2B | VCF 1 / 2 secondary mod source | 0..3 | none / velocity / mod wheel / aftertouch |
+| 0x28 / 0x2C | VCF 1 / 2 secondary mod depth | 0..0xFC | |
+| 0x30 / 0x3A | LFO 1 / 2 shape | 0..4 | sine/triangle/saw/square/ramp |
+| 0x31 / 0x3B | LFO blend / switched | 0/1 | |
+| 0x32 / 0x3C | LFO 1-shot | 0/1 | |
+| 0x33 / 0x3D | LFO retrig | 0/1 | |
+| 0x36 / 0x40 | LFO MIDI clock sync | 0/1 | |
+| 0x44 | Wavefolder mode | 0..3 | AM / ½ / 1 / BP |
+| 0x46 | Osc Sync | 0/1 | |
+| 0x47 | Paraphony | 0/1 | mono / paraphonic |
+| 0x49 | Sub osc shape | 0..3 | pulse / saw / triangle / sine (no ramp option) |
+| 0x4A / 0x56 | Osc 1 / 2 range | 0..3 | 8' / 16' / 32' / free |
+| 0x50 / 0x5C | Osc 1 / 2 linear FM | 0/1 | |
+| 0x55 / 0x61 | Osc 1 / 2 portamento | 0..0x18 | semitones of glide |
+| 0x63 | Envelope F/S | 0/1 | fast/slow |
+| 0x64 | Envelope retrigger | 0/1 | |
+| 0x65 | Envelope retrigger mode | 0/1 | **Neutron** / **Proton** |
+| 0x67 – 0x74 | ASR 1 / 2 each: loop, bounce, sustain, inverse, reverse, retrigger, decay | 0/1 | |
+
+Reset-all SysEx: `F0 00 20 32 00 01 25 00 7D F7`.
+
+This is the surface a remote patch-maker would target — every voicing and
+secondary-panel choice has a SysEx parameter. (Per-knob continuous values
+like Freq / Reso / Cutoff aren't in this table — they're either real-pot
+analog or accessed via MIDI CC, which the manual lists at §19 as **only**
+Mod Wheel CC #1 and Sustain CC #64.)
+
+## 10. Open questions / required experiments
+
+Down to four since the manual settled most of the prior ambiguities.
+
+### Q1 — Wavefolder BP mode + Folds CV / Sym CV jacks
+
+Mode = BP. Patch a slow LFO into Folds CV. Listen. Silent → Folds CV is
+disabled in BP. Audible → BP only nulls the panel knob; CV jacks still work.
+Manual says BP "passes the incoming waveform unaltered" but doesn't
+disambiguate whether the Folds-CV summing junction is upstream or downstream
+of the bypass node.
+
+### Q2 — Link button precedence over a patched VCF 2 Freq CV
+
+Engage Link Red. Patch a slow square LFO into VCF 2 Freq CV jack. Per §5.5
+the Freq-CV patch *replaces* the LFO 2 normal, but the Link button rerouted
+that LFO 2 normal to LFO 1's source — so does Link still apply when LFO 2 is
+already overridden? Expected: patch wins (single-source slot, last-wins),
+but worth confirming with a scope.
+
+### Q3 — VCF Key tracking depth
+
+Self-oscillate VCF 1 (Reso max, no audio in). Key on. Tune VCF 1 to a
+known pitch at C2. Play C3 — exact octave shift = full 1 V/oct tracking;
+less = partial coefficient. The manual gives no per-cent setting (no SysEx
+parameter for it either), so this should be 100 % — but worth a single
+bench measurement.
+
+### Q4 — Filter resonance softening: does Soft also affect self-oscillation pitch?
+
+Self-oscillate. Engage Soft (red for VCF 1). Compare frequency and amplitude
+to Soft-off. Manual only describes the *resonance saturation* feel, but
+softening could shift the self-osc pitch slightly. Capture in a tuner.
+
+---
 
 ## Sources
 
-- Behringer Proton user manual (extract via [manuals.plus](https://manuals.plus/behringer/proton-analog-paraphonic-semi-modular-synthesizer-manual)) — primary
-- [Behringer product page](https://www.behringer.com/product.html?modelCode=0718-AAO)
-- [Synthtopia 2024-07 spec rundown](https://www.synthtopia.com/content/2024/07/17/behringer-proton-official-specs-intro-video-is-it-their-best-analog-monosynth-yet/)
-- [Synthtopia 2024-09 hands-on review](https://www.synthtopia.com/content/2024/09/23/behringer-proton-synthesizer-hands-on-review/)
-- [Synthanatomy 2025-05 firmware 1.0.3](https://synthanatomy.com/2025/05/behringer-proton-neutron-semi-modular-analog-synthesizer-on-steroids.html)
-- [MusicTech feature](https://musictech.com/news/gear/behringer-proton-semi-modular-clones-itself-neutron-wave-morphing/)
-- [SonicLAB review post](https://sonicstate.com/news/2025/06/05/soniclab-berhinger-original-proton-synth/)
-- [Modwiggler thread t=259428](https://modwiggler.com/forum/viewtopic.php?t=259428) (and pages 2–4)
-- [Synthmagazine — XNBeatsMusic Patchbay piece](https://synthmagazine.com/xnbeatsmusics-behringer-proton-the-patchbay-pandemonium/)
-
-For comparison only — not the Proton — Behringer **PRO-1** = the Pro-One clone:
-[Sonicstate 2018](https://sonicstate.com/news/2018/03/15/behringers-pro-one-clone-revealed/),
-[Synthanatomy 2019](https://synthanatomy.com/2019/10/behringers-sequential-pro-1-clone-in-eurorack-is-ready-for-pre-order.html).
+- **Behringer PROTON User Manual V0.0** (PDF supplied locally, sections referenced inline).
+- **Behringer Neutron** — see `docs/NEUTRON_SIGNAL_ROUTING.md`. The firmware's
+  *"Neutron mode"* / *"Proton mode"* labels in §15 (ASR retrigger) acknowledge
+  the lineage, but architecturally the two units are different (Neutron =
+  single VCF + LFO, two ADSRs, BBD delay, overdrive, 32 IN; Proton = dual VCF
+  + dual LFO, two ADSR + two ASR, wavefolder, no delay, 40 IN). **Do not
+  infer Proton routing or normals from Neutron behaviour** — the first round
+  of docs in this repo made that mistake and got several details wrong.
