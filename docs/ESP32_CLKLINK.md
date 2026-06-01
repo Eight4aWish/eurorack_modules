@@ -15,10 +15,10 @@ provides three modes selected by an ON-OFF-ON switch:
 
 | DAC channel | Function |
 |---|---|
-| A | Clock (0 V idle, +5 V trigger pulses, 10 ms wide) |
-| B | Reset (mode entry, external CV trigger, or Link bar boundary) |
+| A | Clock (0 V idle, +5 V trigger pulses, 10 ms wide; gated by Link play state in LINK) |
+| B | Reset (mode entry, external CV trigger, Link bar boundary, Link transport-start edge) |
 | C | Manual CV from pot (LINK mode only; 0 V idle in OFF/INTERNAL) |
-| D | unused (not wired) |
+| D | Run gate (LINK mode only: +5 V while Link reports playing, 0 V stopped) |
 
 DAC values are calibrated to the non-inverting unipolar gain-2 output
 stage: `clock_low = 0` (jack 0 V) and `clock_high = 2048` (jack +5 V).
@@ -58,13 +58,19 @@ forces a re-sync to the Link beat phase on the next tick.
 - **PPQN**: 1 (one Channel A pulse per quarter-note beat).
 - **Initial tempo**: 120 BPM at boot — overridden once the Link session
   agrees on a tempo with peers.
+- **Start/stop sync**: enabled. When any peer (Live, Move, …) presses
+  play, Channel A starts emitting clocks and Channel D goes to +5 V
+  (run gate). When any peer presses stop, A stops emitting and D drops
+  back to 0 V. The play-rising edge also fires a reset on B so
+  downstream sequencers restart at step 1.
 - **Pot → Channel C**: the pot value is mirrored on Channel C as a free
   manual CV (0–10 V across the sweep, CW = higher).
 - **WiFi creds**: read from `include/shared/secrets.h` (gitignored). The
   template `include/shared/secrets.h.example` shows the expected macros
   (`WIFI_SSID`, `WIFI_PASS`).
-- **Task pinning**: Link runs on core 1 (`CONFIG_LINK_ESP_TASK_CORE_ID=1`)
-  to avoid contention with WiFi on core 0.
+- **Task pinning**: Link runs without core affinity
+  (`CONFIG_LINK_ESP_TASK_CORE_ID=-1`); FreeRTOS schedules it on whichever
+  core has headroom.
 
 ## Build & flash
 

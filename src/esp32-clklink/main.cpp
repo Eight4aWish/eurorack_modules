@@ -10,10 +10,11 @@
 // non-inverting unipolar with gain ~2: DAC 0 -> 0 V at jack, DAC 2048 -> +5 V.
 //
 // Channels:
-//   A: clock pulses (INTERNAL or LINK)
-//   B: reset pulse (mode entry + external CV trigger; bar boundary in LINK)
+//   A: clock pulses (INTERNAL or LINK; gated by Link play state in LINK)
+//   B: reset pulse (mode entry + external CV trigger; bar boundary in LINK;
+//      also fires on Link transport start so downstream sequencers restart)
 //   C: manual CV from pot (LINK mode only; idles at 0 V otherwise)
-//   D: unused / not wired
+//   D: run gate in LINK mode (+5 V while Link reports playing, 0 V stopped)
 //
 // Modes (ON-OFF-ON switch):
 //   OFF:      all jacks at 0 V
@@ -133,6 +134,7 @@ static abl_link_session_state link_state     = {nullptr};
 static bool                   link_initialised = false;
 static bool                   link_enabled   = false;
 static double                 last_link_beat = -1.0;  // -1 means "no prior beat"
+static bool                   link_is_playing_prev = false;
 
 // Map pot 0..4095 to DAC value (0..4095) for Channel C CV output.
 // CW on the pot reads ADC near 0, which we want to be max CV. Invert.
@@ -159,38 +161,59 @@ static void link_init() {
     if (link_initialised) return;
     link_handle = abl_link_create(LINK_INITIAL_TEMPO);
     link_state  = abl_link_create_session_state();
+    // Opt in to start/stop sync — without this we'd never see is_playing
+    // change across the Link session.
+    abl_link_enable_start_stop_sync(link_handle, true);
     link_initialised = true;
-    Serial.println("Link: instance created");
+    Serial.println("Link: instance created (start/stop sync on)");
 }
 
 static void link_set_enabled(bool on) {
     if (!link_initialised || link_enabled == on) return;
     abl_link_enable(link_handle, on);
     link_enabled = on;
-    last_link_beat = -1.0;  // resync on next enable
+    last_link_beat = -1.0;            // resync on next enable
+    link_is_playing_prev = false;     // re-evaluate transport state from scratch
     Serial.printf("Link: %s\n", on ? "enabled" : "disabled");
 }
 
-// Tick the Link sync: capture state, detect beat boundaries, fire pulses.
-// Called every loop iteration when in LINK mode and WiFi is up.
+// Tick the Link sync: capture state, detect transport edges and beat
+// boundaries, fire pulses. Called every loop iteration when in LINK mode.
+//
+// Channel A only emits clock pulses while Link reports playing. Channel D
+// mirrors the play state as a high/low run gate. On the play rising edge
+// we also fire a reset on B so downstream sequencers restart at step 1.
 static void link_tick(unsigned long now_us) {
     if (!link_initialised || !link_enabled) return;
 
     abl_link_capture_audio_session_state(link_handle, link_state);
-    int64_t  link_time_us = esp_timer_get_time();
-    double   beat  = abl_link_beat_at_time(link_state, link_time_us, LINK_QUANTUM);
+    int64_t link_time_us = esp_timer_get_time();
+    bool    is_playing   = abl_link_is_playing(link_state);
 
+    // Transport edge handling.
+    if (is_playing != link_is_playing_prev) {
+        if (is_playing) {
+            fire_reset_pulse(now_us);
+            dac_write(MCP4728_CHANNEL_D, clock_high);
+            last_link_beat = -1.0;  // resync beat phase at new start
+        } else {
+            dac_write(MCP4728_CHANNEL_D, clock_low);
+        }
+        link_is_playing_prev = is_playing;
+    }
+
+    // Stopped sessions don't produce clocks — leave A quiet.
+    if (!is_playing) return;
+
+    double beat = abl_link_beat_at_time(link_state, link_time_us, LINK_QUANTUM);
     if (last_link_beat < 0.0) {
         last_link_beat = beat;
         return;
     }
-
-    // Crossed an integer beat boundary?
     int last_int = (int)floor(last_link_beat);
     int beat_int = (int)floor(beat);
     if (beat_int > last_int) {
         fire_clock_pulse(now_us);
-        // Quantum-aligned beat 0 -> bar boundary -> reset pulse.
         int bar_pos = ((beat_int % (int)LINK_QUANTUM) + (int)LINK_QUANTUM) % (int)LINK_QUANTUM;
         if (bar_pos == 0) {
             fire_reset_pulse(now_us);
@@ -308,6 +331,7 @@ void loop() {
         dac_write(MCP4728_CHANNEL_A, clock_low);
         dac_write(MCP4728_CHANNEL_B, clock_low);
         dac_write(MCP4728_CHANNEL_C, clock_low);
+        dac_write(MCP4728_CHANNEL_D, clock_low);  // drops the LINK run gate
         clock_active = false;
         reset_active = false;
 
@@ -367,7 +391,9 @@ void loop() {
         size_t peers = link_peer_count();
         abl_link_capture_app_session_state(link_handle, link_state);
         double tempo = abl_link_tempo(link_state);
-        Serial.printf("Link: peers=%u tempo=%.2f\n", (unsigned)peers, tempo);
+        bool   playing = abl_link_is_playing(link_state);
+        Serial.printf("Link: peers=%u tempo=%.2f playing=%d\n",
+                      (unsigned)peers, tempo, playing ? 1 : 0);
         last_link_log_ms = now_ms;
     }
 
