@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 David Baghurst
+
 /*  DaisyMFX — Simplified (2 banks: Reverb x4, Delay x4)
     Kept: CV tap, wet fade on patch change, shimmer warm-up, OLED sleep, CV takeover.
     Removed: Banks C/D (Mods/Utils) and all related DSP/state/UI.

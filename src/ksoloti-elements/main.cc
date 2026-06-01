@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 David Baghurst
+//
+// Application code that drives Mutable Instruments Elements
+// (MIT, Copyright 2014 Émilie Gillet) on the Ksoloti Big Genes board.
+// The Elements DSP sources under third_party/eurorack/ retain their
+// original MIT headers.
+//
 // main.cc — Ksoloti Big Genes: Mutable Instruments Elements
 //
 // Elements DSP running on STM32F429 + ADAU1961 codec at 32 kHz.

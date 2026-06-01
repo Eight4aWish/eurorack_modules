@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 David Baghurst
+
 #include <Arduino.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>

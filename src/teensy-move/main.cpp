@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 David Baghurst
+//
 // Teensy Move V2 — Optimized for rock-solid MIDI timing
 // Changes from V1:
 // - Reduced OLED refresh rate (150ms vs 80ms)

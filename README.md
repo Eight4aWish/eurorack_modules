@@ -194,24 +194,19 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 - expander I/O: `libs/expander_io` — 74HC595 expander driver (`Expander595`) and MCP4822 helper (`Mcp4822Expander`). See `libs/expander_io/README.md` for API and wiring.
 
-## Third-Party Licenses
+## Credits & Licenses
 
-### Mutable Instruments Eurorack Modules
+Original work in this repository is **MIT-licensed** — see [`LICENSE`](LICENSE).
+The exception is the [`esp32-clklink`](src/esp32-clklink/) module, which
+links against the Ableton Link library and is therefore distributed as
+**GPL-2.0-or-later** — see [`LICENSE.esp32-clklink`](LICENSE.esp32-clklink).
 
-`third_party/eurorack/` and `third_party/eurorack/stmlib/` are by [Emilie Gillet](https://github.com/pichenettes) and released under the **MIT License**:
+The full list of third-party code each module depends on, with licenses,
+is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 
-> Copyright 2012-2015 Emilie Gillet.
->
-> Permission is hereby granted, free of charge, to any person obtaining a copy
-> of this software and associated documentation files (the "Software"), to deal
-> in the Software without restriction, including without limitation the rights
-> to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-> copies of the Software, and to permit persons to whom the Software is
-> furnished to do so, subject to the following conditions:
->
-> The above copyright notice and this permission notice shall be included in
-> all copies or substantial portions of the Software.
-
-The full license text is in `third_party/eurorack/stmlib/LICENSE`.
-
-The `ksoloti-elements` firmware applies a local patch (`patches/ksoloti-elements-resonator-resolution.patch`) that reduces the resonator resolution for performance on the STM32F429. The original source is unmodified in the submodule.
+- **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32-clklink` work. This is what triggers the GPL on that module.
+- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti-elements` ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti-elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
+- **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32-clklink` and `nanoesp32-corthex`.
+- **DaisyDuino** (MIT, Electrosmith) — for `daisy-mfx`.
+- **Teensyduino** (MIT, PJRC) — for `teensy-chaos` and `teensy-move`.
+- **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).
