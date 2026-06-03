@@ -79,75 +79,145 @@ timeout-to-off.
 | Xiao pad | GPIO | Strapping? | Function | Notes |
 |---|---|---|---|---|
 | D0 | GPIO1 | no | Link switch | momentary, INPUT_PULLUP, debounce C3 |
-| D1 | GPIO0 | **boot** | unused | leave floating |
-| D2 | GPIO25 | **strapping** | unused | leave floating |
-| D3 | GPIO7 | **strapping** | unused | leave floating |
-| D4 | GPIO23 | no | CLK_OUT → U2.1 | drives 74HCT14 ch.1 |
-| D5 | GPIO24 | no | RST_OUT → U2.3 | drives 74HCT14 ch.2 |
-| D6 | GPIO11 | no | RUN_OUT → U2.5 | drives 74HCT14 ch.3 |
-| D7 | GPIO12 | no | RED_LED → U2.9 | drives 74HCT14 ch.4 |
-| D8 | GPIO8 | no | BLUE_LED → U2.11 | drives 74HCT14 ch.5 |
+| D1 | GPIO0 | boot | unused | leave floating (Xiao internal pull-up handles boot) |
+| D2 | GPIO25 | strapping | unused | leave floating |
+| D3 | GPIO7 | strapping | unused | leave floating |
+| D4 | GPIO23 | no | CLK_OUT → U2.1 | drives 74HCT14 ch.1, external pull-up R10 |
+| D5 | GPIO24 | no | RST_OUT → U2.3 | drives 74HCT14 ch.2, external pull-up R11 |
+| D6 | GPIO11 | no | RUN_OUT → U2.5 | drives 74HCT14 ch.3, external pull-up R12 |
+| D7 | GPIO12 | no | RED_LED → U2.9 | drives 74HCT14 ch.4, external pull-up R13 |
+| D8 | GPIO8 | no | BLUE_LED → U2.11 | drives 74HCT14 ch.5, external pull-up R14 |
 | D9 | GPIO9 | no | Capture switch | momentary, INPUT_PULLUP, debounce C2 |
-| D10 | GPIO10 | no | RESET_IN ← U2.12 | reads 74HCT14 ch.6 output |
+| D10 | GPIO10 | no | RESET_IN ← U2.12 (via R8/R9 divider) | reads 74HCT14 ch.6 output |
 
 All other Xiao GPIOs are reserved internally (USB-JTAG, SPI flash,
 battery sense, onboard LED) and not accessible on the breakout.
 
 ## 74HCT14 channel allocation
 
-| Channel | Input net | Output net | Direction |
-|---|---|---|---|
-| 1 (pins 1/2) | CLK_OUT (D4) | → R2 1 kΩ → J1 tip (Clock Out) | output |
-| 2 (pins 3/4) | RST_OUT (D5) | → R3 1 kΩ → J2 tip (Reset Out) | output |
-| 3 (pins 5/6) | RUN_OUT (D6) | → R4 1 kΩ → J4 tip (Running Out) | output |
-| 4 (pins 9/8) | RED_LED (D7) | → R5 330 Ω → LED1 (Red) | LED driver |
-| 5 (pins 11/10) | BLUE_LED (D8) | → R6 220 Ω → LED2 (Blue) | LED driver |
-| 6 (pins 13/12) | J3 tip via R7 10 kΩ (Reset In) | → R8 1 kΩ → D10 | input buffer |
+| Channel | Input pin | Input net | Output pin | Output net |
+|---|---|---|---|---|
+| 1 | 1 | CLK_OUT (D4) | 2 | → R2 1 kΩ → J1 Clock Out tip |
+| 2 | 3 | RST_OUT (D5) | 4 | → R3 1 kΩ → J2 Reset Out tip |
+| 3 | 5 | RUN_OUT (D6) | 6 | → R4 1 kΩ → J4 Running Out tip |
+| 4 | 9 | RED_LED (D7) | 8 | → R5 1 kΩ → LED1 (Red) |
+| 5 | 11 | BLUE_LED (D8) | 10 | → R6 1 kΩ → LED2 (Blue) |
+| 6 | 13 | J3 Reset In tip via R7 10 kΩ | 12 | → R8/R9 divider → D10 |
 
-74HC**T**14 is critical, not 74HC14. The HCT variant has TTL-compatible
-input thresholds (Vih ≈ 2.0 V), so the C5's 3.3 V GPIO outputs drive
-the 5 V chip reliably.
+All six channels are used — no unused inputs to tie off. 74HC**T**14 is
+required (not 74HC14): the HCT variant has TTL-compatible input
+thresholds (Vih ≈ 2.0 V), so the C5's 3.3 V GPIO outputs drive the 5 V
+chip reliably.
 
-## Netlist summary
+## Reset input path — voltage protection in detail
 
-See [the previous final netlist in the chat history](#) for the
-full per-pin connections. The key facts:
+The Reset In path bridges three voltage domains: the Eurorack jack
+(could be patched with ±12 V), the 74HCT14 (operating at 5 V), and
+the C5 GPIO (3.3 V max). Two resistors handle the two boundaries.
+
+```
+J3 (Reset In jack)
+0 V idle, +5 V trigger nominal, up to ±12 V if mispatched
+                │
+                ▼
+            R7 = 10 kΩ              ← protects the 74HCT14 input from
+                │                     over-voltage at the jack
+                ▼
+U2 pin 13 (74HCT14 channel 6 input)
+Internal ESD clamps to +5 V rail (documented, ±20 mA continuous OK).
+At +12 V on the jack: clamp current = (12 − 5.7) / 10 kΩ = 0.63 mA   ✓
+                │
+                │  Schmitt-trigger thresholds: Vil_max 0.8 V,
+                │  Vih_min 2.0 V, ~1.2 V hysteresis — clean edges
+                │  on any noisy / slow trigger input.
+                ▼
+U2 pin 12 (74HCT14 channel 6 output, 0 / +5 V swing, INVERTED)
+                │
+                ▼
+            R8 = 10 kΩ              ← upper leg of voltage divider
+                │
+                ├──► C5 D10 GPIO
+                │
+            R9 = 15 kΩ              ← lower leg of voltage divider
+                │                     also serves as pull-down so the
+                ▼                     GPIO has a defined LOW state
+              GND
+
+Divider ratio: 15 / (10 + 15) = 0.6
+GPIO sees: 5 V × 0.6 = 3.0 V when 74HCT14 output is HIGH
+           0 V        when 74HCT14 output is LOW
+```
+
+`R8/R9` form a *real* voltage divider — no reliance on the C5's ESD
+clamp diodes for active circuit protection. 3.0 V is comfortably below
+the C5's 3.3 V max input and comfortably above its ~1.6 V Vih
+threshold.
+
+The 74HCT14 inverts: a HIGH jack voltage produces a LOW signal at the
+C5 GPIO. Firmware convention is **"GPIO LOW = signal active"** for
+both the inputs and the outputs in this design.
+
+## Boot-safe output state
+
+Between power-up and the first `digitalWrite` in `setup()` (a window
+of perhaps 50 ms), the C5's GPIOs are floating high-impedance inputs.
+Without external pull-ups, the 74HCT14 inputs would float and the
+outputs would be unpredictable — possibly emitting a brief glitch on
+every jack at boot.
+
+**R10–R14** are 10 kΩ pull-ups from each GPIO-to-74HCT14 net to the
++3V3 rail. They hold the 74HCT14 inputs HIGH during the boot window,
+so the chip's outputs are LOW: jacks idle at 0 V, LEDs off. Once the
+firmware starts driving the GPIOs explicitly, the pull-ups are
+overpowered (10 kΩ vs the C5's ~25 Ω output impedance, easily).
+
+The firmware should still drive output mode HIGH as the *very first
+operation* in `setup()` to minimise the glitch window.
+
+## Netlist
 
 ```
 COMPONENTS
 
 U1  Seeed Studio XIAO ESP32-C5
-U2  74HCT14 hex inverting Schmitt trigger, 5 V powered
+U2  74HCT14 hex inverting Schmitt trigger, +5 V powered
 
-R2  1 kΩ      Clock output protection
-R3  1 kΩ      Reset output protection
-R4  1 kΩ      Running output protection
-R5  330 Ω     Red LED current limit
-R6  220 Ω     Blue LED current limit
-R7  10 kΩ     Reset-in series protection (clamps via U2 input ESD)
-R8  1 kΩ      Reset-in level-shift to C5 (clamps via C5 GPIO ESD)
+R2   1 kΩ       Clock output short-circuit protection (U2.2 → J1 tip)
+R3   1 kΩ       Reset output short-circuit protection (U2.4 → J2 tip)
+R4   1 kΩ       Running output short-circuit protection (U2.6 → J4 tip)
+R5   1 kΩ       Red LED current limit, ~2.5 mA actual (U2.8 → LED1.A)
+R6   1 kΩ       Blue LED current limit, ~1.5 mA actual (U2.10 → LED2.A)
+R7   10 kΩ      Reset-in series protection (J3 tip → U2.13)
+R8   10 kΩ      Reset-in voltage divider upper leg (U2.12 → D10)
+R9   15 kΩ      Reset-in voltage divider lower leg + pull-down (D10 → GND)
+R10  10 kΩ      Boot-safe pull-up (D4 → +3V3)
+R11  10 kΩ      Boot-safe pull-up (D5 → +3V3)
+R12  10 kΩ      Boot-safe pull-up (D6 → +3V3)
+R13  10 kΩ      Boot-safe pull-up (D7 → +3V3)
+R14  10 kΩ      Boot-safe pull-up (D8 → +3V3)
 
-C1  100 nF    74HCT14 VCC decoupling, close to U2 pin 14
-C2  100 nF    Capture-button debounce, D9 ↔ GND
-C3  100 nF    Link-switch debounce, D0 ↔ GND
+C1   100 nF     74HCT14 VCC decoupling, close to U2 pin 14
+C2   100 nF     Capture-button debounce, D9 ↔ GND
+C3   100 nF     Link-switch debounce, D0 ↔ GND
 
-LED1  3 mm red,  Vf ≈ 1.8 V
-LED2  3 mm blue, Vf ≈ 3.0 V
+LED1  3 mm red,  Vf ≈ 1.8 V   anode = R5 output, cathode = GND
+LED2  3 mm blue, Vf ≈ 3.0 V   anode = R6 output, cathode = GND
 
-SW1   6 mm momentary tactile  Capture
-SW2   6 mm momentary tactile  Link enable
+SW1   6 mm momentary tactile, NO   Capture
+SW2   6 mm momentary tactile, NO   Link enable
 
-J1   3.5 mm mono jack — Clock Out
-J2   3.5 mm mono jack — Reset Out
-J3   3.5 mm mono jack — Reset In
-J4   3.5 mm mono jack — Running Out
+J1   3.5 mm mono jack — Clock Out      tip = R2 out, sleeve = GND
+J2   3.5 mm mono jack — Reset Out      tip = R3 out, sleeve = GND
+J3   3.5 mm mono jack — Reset In       tip = R7 in,  sleeve = GND
+J4   3.5 mm mono jack — Running Out    tip = R4 out, sleeve = GND
 ```
 
-The Reset In path uses U2's spare 6th channel as a Schmitt-trigger
-input buffer. R7 (10 kΩ series) absorbs overvoltage up to roughly
-±12 V at the jack, clamped by U2's input ESD diodes. R8 (1 kΩ series)
-then shifts the 0/+5 V output down to a level the C5 GPIO can safely
-accept, relying on the C5's internal ESD clamp to absorb the residual.
+Resistor counts by value:
+- 1 kΩ × 5 (R2, R3, R4, R5, R6)
+- 10 kΩ × 7 (R7, R8, R10, R11, R12, R13, R14)
+- 15 kΩ × 1 (R9)
+
+All standard E12 values. Three distinct resistor values across 13 parts.
 
 ## Firmware notes
 
@@ -156,15 +226,17 @@ accept, relying on the C5's internal ESD clamp to absorb the residual.
   Idle (0 V at the jack, LED off) is GPIO **HIGH**. The Reset In path
   is also inverted: a +5 V trigger at the jack causes the C5 to read
   **LOW** on D10. Convention: "GPIO LOW = signal active" everywhere.
-- **Boot-safe outputs.** Drive all five output GPIOs HIGH in `setup()`
-  before `pinMode(OUTPUT)` to ensure the 74HCT14 outputs LOW and the
-  jacks idle at 0 V from the moment the chip wakes up.
+- **Boot-safe outputs in firmware too.** Drive all five output GPIOs
+  HIGH in `setup()` before `pinMode(OUTPUT)`. The external pull-ups
+  (R10–R14) hold the 74HCT14 inputs HIGH during the boot window, so
+  the chip's outputs idle at 0 V. The firmware's first job is to keep
+  it that way until it intentionally fires a pulse.
 - **Both buttons** use `INPUT_PULLUP`. The Link switch is edge-detected
   to toggle a `link_enabled` boolean (no NVS persistence — boots OFF).
-- **External reset trigger** is a rising edge on D10 (which is a falling
-  edge at the GPIO because of U2's inversion). On edge, fire a software
-  Reset pulse on J2 *and* realign the Link beat phase to "next pulse =
-  now."
+- **External reset trigger** is a rising edge at the jack, which
+  appears as a *falling* edge on D10 (because of U2's inversion). On
+  edge, fire a software Reset pulse on J2 *and* realign the Link beat
+  phase to "next pulse = now."
 - **Capture button** spawns a one-shot FreeRTOS task that runs the HTTP
   POST in the background. The main loop returns immediately so Link's
   beat ticking is not blocked by network round-trip latency.
@@ -195,3 +267,25 @@ ideas explicitly deferred:
 - **Bidirectional Link** — letting the module set tempo / transport.
   Requires a control surface (extra encoder/pot) that doesn't fit in
   4 HP.
+
+## Design audit history
+
+This document reflects corrections made on 2026-06-02 to an earlier
+draft. The corrections:
+
+1. **R8 became a real voltage divider** (10 kΩ + R9 15 kΩ to GND).
+   The previous design had R8 = 1 kΩ alone and relied on the C5's
+   internal ESD clamp diode to do the level shifting — a tolerated
+   hobbyist pattern but not properly engineered. The voltage divider
+   makes the level shift explicit.
+2. **LED current-limit resistors increased to 1 kΩ** (from 330 Ω red
+   / 220 Ω blue). The earlier values pushed the 74HCT14's output
+   current 2.5× over its recommended max of 4 mA. 1 kΩ keeps each
+   output within spec at ~2.5 mA actual, with LEDs visibly lit.
+3. **Boot-safe pull-ups (R10–R14) added** on each GPIO-to-74HCT14
+   net. The earlier design left the 74HCT14 inputs floating during
+   the C5's ~50 ms boot window, potentially producing a glitch pulse
+   on every jack.
+4. **Channel 6 of the 74HCT14 is now correctly documented** as the
+   Reset In path; the earlier netlist still labelled it as "unused,
+   tie to GND."
