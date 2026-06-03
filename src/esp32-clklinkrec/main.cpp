@@ -109,13 +109,21 @@ void loop() {
     if (button_down(PIN_SW_CAPTURE)) led_on(PIN_RED_LED);  else led_off(PIN_RED_LED);
     if (button_down(PIN_SW_LINK))    led_on(PIN_BLUE_LED); else led_off(PIN_BLUE_LED);
 
-    // External Reset In: rising edge at jack -> fire one Reset Out pulse.
+    // External Reset In: log BOTH edges so we can tell if the line is
+    // returning to idle between triggers. Active edge also flashes both
+    // LEDs and fires a Reset Out pulse.
     bool reset_in_now = reset_active(PIN_RESET_IN);
     if (reset_in_now && !reset_in_prev) {
-        Serial.println("[Reset In] external trigger -> firing Reset Out");
+        Serial.println("[Reset In] ACTIVE  -> firing Reset Out");
+        led_on(PIN_RED_LED);
+        led_on(PIN_BLUE_LED);
         assert_out(PIN_RST_OUT);
-        delay(80);
+        delay(120);
         release_out(PIN_RST_OUT);
+        led_off(PIN_RED_LED);
+        led_off(PIN_BLUE_LED);
+    } else if (!reset_in_now && reset_in_prev) {
+        Serial.println("[Reset In] released (line back to idle)");
     }
     reset_in_prev = reset_in_now;
 
