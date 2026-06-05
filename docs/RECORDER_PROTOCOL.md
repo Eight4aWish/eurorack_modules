@@ -1,15 +1,20 @@
 # Recorder Protocol
 
 The wire contract between the `esp32-clklinkrec` Eurorack module and
-the `seeed-recorder` Mac menu-bar app.
+the `seeed-recorder` Mac menu-bar app *over the HTTP/WiFi trigger
+path*. The same Mac app also accepts triggers from the `seeed-recorder`
+RP2040 module over USB-MIDI; that contract lives in
+[`~/GitHub/seeed-recorder/docs/DESIGN.md`](https://github.com/Eight4aWish/seeed-recorder/blob/main/docs/DESIGN.md).
+Both transports are first-class. The capture engine, buffer, and file
+output are shared.
 
-This document is the source of truth for both sides. When the protocol
-changes, edit here first and update both the firmware
+This document is the source of truth for the HTTP/WiFi side. When the
+protocol changes, edit here first and update both the firmware
 ([`src/esp32-clklinkrec/`](../src/esp32-clklinkrec/)) and the Mac app
-([`~/GitHub/seeed-recorder`](https://github.com/Eight4aWish/seeed-recorder))
+([`~/GitHub/seeed-recorder/mac-app/`](https://github.com/Eight4aWish/seeed-recorder/tree/main/mac-app))
 to match.
 
-**Protocol version: `1.0`**
+**Protocol version: `2.0`**
 
 ## Discovery
 
@@ -19,18 +24,35 @@ The Mac app advertises itself on the local network via mDNS (Bonjour).
 - **Service name** (default): `seeed-recorder`
 - **Port**: `8765`
 - **TXT records**:
-  - `version=1.0` — protocol version
-  - `app=seeed-recorder` — app identifier (for disambiguating from any
-    other `_recorder._tcp.local.` services that might appear)
+  - `version=2.0` — protocol version
+  - `app=seeed-recorder` — app identifier
+  - `link_peer=true|false` — whether the Mac is currently participating
+    in an Ableton Link session as a follower (informational)
 
-The firmware queries mDNS at startup and on every WiFi reconnect. If
-no `_recorder._tcp.local.` service is found, the firmware logs the
-failure to serial and the Capture button does nothing (red LED flashes
-briefly to indicate "no Mac available"). The mDNS resolver result is
-cached for the lifetime of the WiFi association.
+The firmware queries mDNS at startup and on every WiFi reconnect.
 
-The firmware does **not** support hardcoded IPs in `secrets.h`. If
-mDNS is unavailable on your network, the recorder won't be reachable.
+### mDNS fallback
+
+If mDNS resolution fails (some networks — guest VLANs, IoT-segregated
+WiFi, certain corporate environments — block multicast DNS), the
+firmware checks `secrets.h` for an optional `RECORDER_HOST` define:
+
+```c
+// secrets.h
+#define WIFI_SSID "studio"
+#define WIFI_PASS "..."
+// Optional. If defined AND mDNS doesn't resolve within 2 s, the
+// firmware uses this as the recorder address. Format is hostname:port
+// or ip:port. Port defaults to 8765 if omitted.
+#define RECORDER_HOST "macbook.local"
+```
+
+If both mDNS and the fallback fail, Capture button presses log to
+serial and briefly flash the red LED (200 ms), then the firmware
+returns to idle.
+
+The resolved address is cached for the lifetime of the WiFi
+association.
 
 ## Endpoints
 
@@ -39,27 +61,38 @@ All endpoints accept and return JSON unless noted. The base URL is
 
 ### `GET /healthz`
 
-Liveness probe. The firmware calls this once after mDNS resolves to
-verify the Mac app is reachable and the protocol version is
-compatible.
+Liveness probe. The firmware calls this once after the address
+resolves to verify the Mac app is reachable and the protocol version
+is compatible.
 
 **Response 200**:
 ```json
 {
   "ok": true,
-  "version": "1.0",
+  "version": "2.0",
   "app": "seeed-recorder",
-  "buffer_seconds": 60,
-  "audio_source": "BlackHole 2ch"
+  "buffer_seconds": 300,
+  "audio_source": "Focusrite Scarlett 16i6",
+  "channels_active": 8,
+  "link_peer": true,
+  "link_tempo": 120.0
 }
 ```
 
 - `version` — protocol version the app implements. If the firmware
-  sees a major version mismatch, it logs a warning but proceeds.
+  sees a major version mismatch it logs a warning but proceeds.
 - `buffer_seconds` — how many seconds of audio the app currently has
-  buffered and could potentially save.
+  buffered.
 - `audio_source` — display string for whichever audio device the app
-  is recording from. Informational only.
+  is recording from. Informational.
+- `channels_active` — count of channels currently configured for
+  capture (mono channels + stereo pairs counted as 2). Informational.
+- `link_peer` — whether the Mac app is currently joined to an
+  Ableton Link session. If `true`, captures will include tempo
+  information; if `false`, the BPM-in-filename and WAV-metadata
+  fields are omitted.
+- `link_tempo` — current tempo as a double, only present when
+  `link_peer` is `true`.
 
 **Response 503**:
 ```json
@@ -75,33 +108,32 @@ configured, permissions denied, etc.).
 
 ### `POST /capture`
 
-The Capture endpoint. Tells the app to save the contents of its
-ring buffer to disk.
+The Capture endpoint. Tells the app to save the last
+`buffer_seconds` of audio from its ring buffer to disk.
 
-**Request body** (optional):
-```json
-{
-  "label": "rack-session-01"
-}
-```
-
-- `label` — optional string used as a hint for the saved filename.
-  The app is free to sanitise or ignore it; if absent, the app picks
-  its own name based on timestamp.
-
-The firmware currently always sends an empty body. The `label` field
-is reserved for a future variant where the module knows something
-about session context.
+**Request body**: empty (`Content-Length: 0`). The firmware doesn't
+need to send anything — the Mac knows its own buffer state, tempo,
+and channel config.
 
 **Response 200** — capture succeeded:
 ```json
 {
   "ok": true,
-  "path": "/Users/me/Music/Recorder/2026-06-02-1843-rack-session-01.wav",
-  "duration_seconds": 60,
-  "size_bytes": 11289600
+  "files": [
+    "/Users/me/Music/Recorder/2026-06-05_18-43-12_120bpm_ch01-02.wav",
+    "/Users/me/Music/Recorder/2026-06-05_18-43-12_120bpm_ch03.wav",
+    "/Users/me/Music/Recorder/2026-06-05_18-43-12_120bpm_ch04.wav"
+  ],
+  "duration_seconds": 300,
+  "bpm": 120.0,
+  "link_playing": true
 }
 ```
+
+- `files` — list of files written (one per mono channel, one per
+  stereo pair). Order matches channel configuration in the app.
+- `bpm` and `link_playing` — only present when the Mac app was
+  joined to a Link session at capture time.
 
 **Response 503** — app couldn't capture:
 ```json
@@ -113,79 +145,144 @@ about session context.
 ```
 
 Other plausible `reason` values: `disk_full`, `permission_denied`,
-`no_audio_source`. The firmware treats any 5xx as "error, keep red
-LED solid"; the `reason` is logged to serial for debugging.
+`no_audio_source`, `capture_in_flight`. The firmware treats any 5xx
+as "error, keep red LED solid"; the `reason` is logged to serial
+for debugging.
+
+### Concurrent presses
+
+If a `POST /capture` arrives while the previous capture is still
+being extracted, the Mac returns **503 with `reason: "capture_in_flight"`**
+immediately. The firmware ignores the second press (red LED stays
+in its current state, no new request fires). Extraction usually
+completes within 2 s, so the contention window is small.
+
+## File output
+
+The HTTP capture path produces **identical output** to the USB-MIDI
+capture path. The two transports differ only in how the trigger event
+reaches the Mac app's capture engine.
+
+### Naming
+
+```
+YYYY-MM-DD_HH-MM-SS[_<bpm>bpm]_ch<NN>[-<NN>].wav
+```
+
+- Timestamp = wall-clock at the moment the Mac receives the trigger
+  (not the start of the captured window — that's `now - buffer_seconds`).
+- `<bpm>` segment included **only** when `link_peer` is true at
+  capture time. BPM rounded to nearest integer. When omitted, the
+  filename collapses to `YYYY-MM-DD_HH-MM-SS_ch<NN>.wav` — no
+  placeholder, no `nobpm_` token.
+- `ch<NN>` for mono channels. `ch<NN>-<MM>` for stereo pairs
+  (e.g. `ch01-02`).
+
+### Format
+
+- WAV, 32-bit float, sample rate matches the audio source.
+- Mono channels emit one WAV with one channel.
+- Stereo pairs emit one interleaved stereo WAV (Ableton-compatible —
+  no multichannel WAVs).
+- Per-channel configuration (mono / stereo L / stereo R / off) lives
+  in the Mac app's settings UI.
+
+### Metadata
+
+The Mac app embeds capture context into the WAV file itself using
+the LIST-INFO chunk family:
+
+- `ICMT` (comment) → `BPM=<n>; Link=<playing|stopped>; Source=<recorder_v2>`
+  (omitting the `BPM=` and `Link=` fields when `link_peer` is false)
+- `ICRD` (creation date) → ISO-8601 timestamp at trigger time
+- `ISFT` (software) → `seeed-recorder/<app_version>`
+
+DAWs like Ableton, Reaper, and Logic read these fields. Means
+tempo survives a file rename.
 
 ## Firmware behaviour
 
 | Event | Firmware action | Red LED |
 |---|---|---|
-| Capture button pressed | Spawn FreeRTOS task; task POSTs `/capture` | turns on |
-| `200 OK` received | Log path/duration to serial | turns off |
-| `5xx` received | Log reason to serial | stays on |
-| Network timeout (1.5 s) | Log timeout to serial | stays on |
-| mDNS resolution failure | Skip the POST entirely; log to serial | brief flash, then off |
-| Another press while in flight | Ignored; current request continues | unchanged |
+| Capture button pressed (idle state) | POST `/capture` on a FreeRTOS task; LED solid for duration | turns on |
+| `200 OK` received | Log files + duration + bpm to serial | turns off |
+| `503 capture_in_flight` | Treat as no-op (Mac already busy); log to serial | turns off |
+| Other `5xx` | Log reason to serial | stays on (error sticky) |
+| Network timeout (1.5 s) | Log timeout to serial | stays on (error sticky) |
+| Address resolution failure | Skip the POST; log to serial | brief 200 ms flash |
+| Capture button pressed while LED already on (in-flight) | Press is ignored | unchanged |
+| Capture button pressed while LED is error-sticky | Fires a new request; on `200 OK` the error sticky clears | depends on outcome |
 
-There is no automatic timeout that turns the red LED off after an
-error. The user clears the error indication by pressing Capture
-again on a subsequent successful round-trip. Persistent errors stay
-visible until the underlying issue is resolved.
+The "error sticky" LED state is cleared only by a subsequent
+successful capture round-trip. The user clears the error
+indication by pressing Capture again once the underlying issue is
+resolved.
 
 ## Mac app behaviour
 
 The app should:
 
 1. **Maintain a rolling audio buffer** of `buffer_seconds` worth of
-   incoming audio. Default 60 seconds; configurable in the app's
-   preferences.
+   incoming audio per channel. Default 5 minutes; configurable in the
+   app's preferences (range 30 s – 30 min).
 2. **Advertise the service via Bonjour** on whichever interface is
-   serving the local network, on TCP/8765.
-3. **Bind the HTTP server to the loopback or LAN interface**, never
-   to public interfaces. The protocol has no authentication; security
-   relies on the LAN being trusted.
+   serving the local network, on TCP/8765. Include the `link_peer`
+   TXT record.
+3. **Bind the HTTP server to LAN interfaces only**, never to public
+   interfaces. The protocol has no authentication; security relies
+   on the LAN being trusted.
 4. **Respond to `GET /healthz` even if there is no audio source** —
    that's how the firmware detects partial-failure states.
 5. **Persist captured files** to a user-configurable directory.
-   Default: `~/Music/Recorder/`. Filename convention:
-   `YYYY-MM-DD-HHMM[-label].wav`. WAV format, 16-bit, stereo, sample
-   rate matches the audio source.
+   Default: `~/Music/Recorder/`. Filename and format as documented
+   above.
+6. **Join the Ableton Link network as a follower** whenever the app
+   is running. The app must never propose its own tempo — it reads
+   `link_tempo` and `link_playing` purely to enrich captures. If no
+   other Link peer is on the LAN, `link_peer` resolves to `false`
+   and BPM information is omitted from filenames + metadata.
+7. **Expose a manual capture trigger** in the menu bar UI. Clicking
+   it has identical semantics to a `POST /capture` from the firmware,
+   so users can trigger captures without either module reachable
+   (e.g. for testing or when the rack is disconnected).
 
 ## Authentication & security
 
-**None** in `1.0`. The Mac binds only to LAN interfaces; the firmware
+**None** in `2.0`. The Mac binds only to LAN interfaces; the firmware
 assumes the local network is trusted. If the LAN cannot be trusted,
 the user should put the recorder on a dedicated subnet or VLAN.
 
-A future `2.0` could add a shared secret in the mDNS TXT record (or
-a `?token=` query parameter) for environments where this matters.
-
 ## Versioning
 
-- Increment the **minor** version (`1.0` → `1.1`) for additive,
+- Increment the **minor** version (`2.0` → `2.1`) for additive,
   backwards-compatible changes (new endpoints, new optional fields).
-- Increment the **major** version (`1.0` → `2.0`) for breaking
-  changes (renamed fields, removed endpoints, semantic shifts).
+- Increment the **major** version (`2.0` → `3.0`) for breaking
+  changes.
 
 The firmware logs a warning on major-version mismatch but does not
-refuse to operate; the assumption is that breaking changes are rare
-enough to fix on both sides in one go.
+refuse to operate.
 
 ## Open questions
 
-- **Multiple recorder targets**: should the firmware support more
-  than one `_recorder._tcp.local.` service on the LAN simultaneously,
-  fanning the Capture event to all of them? Currently it picks the
-  first one it resolves and sticks with it.
+- **Multiple recorder targets**: the firmware currently picks the
+  first `_recorder._tcp.local.` service it resolves. If you run two
+  Mac apps on the same LAN (e.g. desktop + laptop), the choice is
+  non-deterministic. Could add a TXT-record-based preference
+  ("primary recorder") in a future version.
 - **Status push from Mac → module**: useful for showing buffer-full
   warnings on the front panel, but adds a long-lived TCP connection
-  or WebSocket. Currently not in scope.
-- **Cross-platform**: the Mac app could in principle be ported to
-  Windows or Linux. The protocol is OS-agnostic; only the recording
-  half is Mac-specific.
+  or WebSocket. Out of scope for `2.0`.
 
 ## Changelog
 
+- **2.0** (2026-06-05) — file format aligned with seeed-recorder Mac
+  app: per-channel mono / stereo-pair 32-bit float WAVs (was
+  "16-bit stereo"). Filename includes BPM segment when the Mac app
+  is joined to a Link session. `RECORDER_HOST` fallback added when
+  mDNS is unavailable. Mac app joins Link as follower-only. Mac
+  menu bar exposes a manual capture trigger with identical
+  semantics. `503 capture_in_flight` introduced for concurrent
+  presses. Label segment dropped from filenames.
 - **1.0** (2026-06-02) — initial draft. Defines `GET /healthz` and
   `POST /capture`, mDNS discovery on `_recorder._tcp.local.`, error
   reporting via 5xx + `reason` codes.
