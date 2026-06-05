@@ -12,3 +12,11 @@ CONFIG_PARTITION_TABLE_FILENAME="partitions_esp32_clklinkrec.csv"
 CONFIG_BT_ENABLED=n
 CONFIG_IEEE802154_ENABLED=n
 CONFIG_OPENTHREAD_ENABLED=n
+
+# arduino-esp32's NetworkClientSecure is unconditionally pulled in via
+# HTTPClient. Its ssl_client.cpp skips every symbol when PSK ciphers
+# aren't enabled, producing linker errors at the final ELF stage even
+# though we never use HTTPS. Enable PSK so the symbols exist — the TLS
+# path itself is unused by this firmware.
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y

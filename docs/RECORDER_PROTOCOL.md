@@ -71,13 +71,18 @@ is compatible.
   "ok": true,
   "version": "2.0",
   "app": "seeed-recorder",
-  "buffer_seconds": 300,
-  "audio_source": "Focusrite Scarlett 16i6",
+  "buffer_seconds": 60,
+  "audio_source": "Focusrite Scarlett 16i16",
   "channels_active": 8,
   "link_peer": true,
   "link_tempo": 120.0
 }
 ```
+
+(Field values above are illustrative — `buffer_seconds` defaults to 60
+on the current Mac app build but is user-configurable; `link_peer` may
+be `false` and `link_tempo` absent if Link isn't active or the Mac
+hasn't integrated Link yet.)
 
 - `version` — protocol version the app implements. If the firmware
   sees a major version mismatch it logs a warning but proceeds.
@@ -233,9 +238,9 @@ The app should:
    on the LAN being trusted.
 4. **Respond to `GET /healthz` even if there is no audio source** —
    that's how the firmware detects partial-failure states.
-5. **Persist captured files** to a user-configurable directory.
-   Default: `~/Music/Recorder/`. Filename and format as documented
-   above.
+5. **Persist captured files** to a user-configurable directory chosen
+   by the user in the app's settings. Filename and format as
+   documented above.
 6. **Join the Ableton Link network as a follower** whenever the app
    is running. The app must never propose its own tempo — it reads
    `link_tempo` and `link_playing` purely to enrich captures. If no
@@ -272,6 +277,30 @@ refuse to operate.
 - **Status push from Mac → module**: useful for showing buffer-full
   warnings on the front panel, but adds a long-lived TCP connection
   or WebSocket. Out of scope for `2.0`.
+
+## Implementation status (2026-06-05)
+
+| Piece | Firmware (this repo) | Mac app (seeed-recorder) |
+|---|---|---|
+| `GET /healthz` | ✅ Called once after address resolution | ✅ Implemented |
+| `POST /capture` | ✅ Capture button on D9 fires it | ✅ Implemented |
+| mDNS discovery | ✅ `_recorder._tcp.local.` query | ✅ Bonjour advertisement |
+| mDNS fallback (`RECORDER_HOST`) | ✅ Including `.local` mDNS resolution | n/a |
+| 503 `capture_in_flight` | ✅ Treated as no-op | ✅ Returned when busy |
+| Concurrent presses ignored | ✅ Locally + via 503 | ✅ Locally |
+| LED state machine | ✅ Idle / in-flight / error-sticky / no-addr flash | ✅ MIDI vel 127/64/1 |
+| Manual menu-bar trigger | n/a | ✅ Implemented |
+| File output (per-channel WAV, stereo pairs) | n/a | ✅ Implemented |
+| WAV LIST-INFO metadata | n/a | ✅ Implemented |
+| BPM segment in filename | n/a (depends on Mac Link) | ⏳ Awaits Link integration |
+| Ableton Link follower on Mac | n/a | ⏳ **Not yet implemented** |
+| `link_peer` / `link_tempo` in `/healthz` | n/a | ⏳ Always `false` / absent |
+| `bpm` / `link_playing` in capture response | n/a | ⏳ Currently absent |
+
+Link integration on the Mac app is the last functional gap. The
+protocol explicitly allows `link_peer: false` and absent BPM fields,
+so the firmware doesn't need any change when Mac-side Link lands —
+filenames and metadata gain the BPM segment automatically.
 
 ## Changelog
 

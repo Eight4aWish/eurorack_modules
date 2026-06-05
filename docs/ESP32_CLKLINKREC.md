@@ -268,6 +268,56 @@ ideas explicitly deferred:
   Requires a control surface (extra encoder/pot) that doesn't fit in
   4 HP.
 
+## Distribution & user experience (forward-looking)
+
+The current "clone the repo, edit `secrets.h`, build with PlatformIO"
+workflow is fine while it's just the builder. If/when this module
+ends up in the hands of users who don't want a toolchain, the friction
+points are:
+
+1. **WiFi credentials.** Compiled into the binary today. Untenable for
+   any external distribution. Options:
+   - **SoftAP captive portal on first boot.** Module brings up its own
+     AP (e.g. `clklinkrec-setup-XXXX`), serves a tiny HTML form, the
+     user picks an SSID and types a password. Credentials persist in
+     NVS. Standard pattern in arduino-esp32 — WiFiManager and similar
+     libraries cover this; rolling it bespoke is also straightforward.
+     Cost: ~10–20 KB flash and a panel hint ("hold Capture at boot to
+     re-provision").
+   - **BLE provisioning.** ESP-IDF has an `esp_wifi_provisioning`
+     component (BLE or SoftAP backends) that pairs with a phone app.
+     More flash, less obvious UX, no companion app currently.
+   - **USB-CDC line-protocol provisioning.** Pipe a short SSID/pass
+     pair over the serial console. Quickest to implement, requires the
+     user to plug into a Mac/PC — fine for the "I bought a kit, now
+     setting it up at my bench" flow.
+2. **Recorder address.** Today: optional `RECORDER_HOST` in `secrets.h`
+   with mDNS preferred. For external users, same persistence story —
+   discovered or provisioned at runtime, persisted in NVS. The mDNS
+   path covers the common case; the manual-IP fallback is the escape
+   hatch for guest-VLAN-style networks.
+3. **Pre-built binaries.** GitHub Releases artefact per pioarduino
+   version, plus the matching `bootloader.bin`, `partitions.bin`,
+   `boot_app0.bin`. End user flashes via `esptool.py`, the official
+   Espressif WebFlasher (browser-based, no install), or a tiny
+   Mac/Windows GUI we ship. Espressif's WebFlasher is the lowest-effort
+   shippable.
+4. **First-run state machine.** Combined version of the above:
+   - Boot with no NVS credentials → SoftAP + captive portal
+   - Credentials saved → normal connect path, optionally fall back to
+     "press Capture for 5 s to re-provision" gesture
+   - Recorder address discovered automatically via mDNS; settable
+     manually in the captive portal as a power-user option
+5. **Firmware update path.** OTA over WiFi (HTTP-pull from a release
+   URL, or LAN-side push from a companion app). The `default_8MB.csv`
+   partition table already has two OTA app slots, so the firmware is
+   ready for it.
+
+None of this is in scope for the MVP. The current bench-tested
+firmware is the "I'm the developer, I'll edit secrets.h" flow and it
+works. The notes above exist so that future-us doesn't re-derive the
+landscape when the module starts ending up on other people's racks.
+
 ## Design audit history
 
 This document reflects corrections made on 2026-06-02 to an earlier
