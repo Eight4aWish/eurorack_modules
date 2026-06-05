@@ -276,33 +276,6 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.0.3
-  espressif/lan867x:
-    component_hash: 651c9d6e3d96acb08bd5066144b12a12e94df0a6241127a0538d8680689de2c4
-    dependencies:
-    - name: espressif/lan86xx_common
-      registry_url: https://components.espressif.com
-      require: private
-      version: '*'
-    - name: idf
-      require: private
-      version: '>=5.3'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    targets:
-    - esp32
-    - esp32p4
-    version: 2.0.0
-  espressif/lan86xx_common:
-    component_hash: 6dcb1be9f43ae940979bd628fa5bee278949b66c545e1fe2321e486102e81026
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=5.2'
-    source:
-      registry_url: https://components.espressif.com
-      type: service
-    version: 1.0.0
   espressif/libsodium:
     component_hash: 39c9dc77d81804d54a539c8f076faed165152be7720ddd0e721acb9daf4aa5af
     dependencies:
@@ -384,7 +357,6 @@ direct_dependencies:
 - espressif/esp_insights
 - espressif/esp_modem
 - espressif/esp_rainmaker
-- espressif/lan867x
 - espressif/libsodium
 - espressif/mdns
 - espressif/network_provisioning
@@ -393,5 +365,5 @@ direct_dependencies:
 - idf
 - joltwallet/littlefs
 manifest_hash: b360c67958b692291725128b10ce7943c783706be664555ba245ddc8039254dc
-target: esp32
+target: esp32c5
 version: 2.0.0

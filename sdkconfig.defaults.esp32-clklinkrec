@@ -1,0 +1,14 @@
+# sdkconfig overrides for the Xiao ESP32-C5 (8 MB flash). Without this,
+# the IDF defaults to 2 MB and the build refuses to proceed with a flash
+# size mismatch against the board file.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_esp32_clklinkrec.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions_esp32_clklinkrec.csv"
+
+# Compile out the unused Bluetooth / Zigbee / Thread stacks to keep the
+# binary small and the build fast — Ableton Link only needs WiFi.
+CONFIG_BT_ENABLED=n
+CONFIG_IEEE802154_ENABLED=n
+CONFIG_OPENTHREAD_ENABLED=n

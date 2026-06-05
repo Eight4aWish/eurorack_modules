@@ -1,32 +1,49 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2026 David Baghurst
 //
-// esp32-clklinkrec — WiFi diagnostic.
+// esp32-clklinkrec — Ableton Link → Eurorack clock/reset/run-gate
+//                    on the Seeed Xiao ESP32-C5.
 //
-// Goal: confirm the Xiao ESP32-C5 can associate to the studio WiFi on
-// 5 GHz before we start porting the Ableton Link layer. Prints SSID,
-// BSSID, channel, derived band, RSSI, PHY mode (incl. 802.11ax), and
-// IPv4 lease once associated. Re-prints on any change.
+// This module links against the Ableton Link library (GPL-2.0-or-later);
+// the firmware binary is therefore GPL-2.0-or-later. See LICENSE.esp32-clklink.
 //
-// LED semantics (at-a-glance band check from across the room):
-//   Blue blinking      — associating / not yet connected
-//   Blue solid         — connected on 2.4 GHz
-//   Blue + red solid   — connected on 5 GHz (target state)
-//   Red solid alone    — disconnected after previously associating
+// Behaviour:
+//   Boot: Link disabled. WiFi connects in the background; LEDs idle.
+//   Link button (D0): toggle Link enable on each press. When enabled the
+//                     instance joins the local Link session.
+//   Capture button (D9): logs only for now; Mac-side recorder POST is a
+//                        separate workstream.
+//   Reset In jack (D10): rising edge fires one Reset Out pulse and
+//                        re-syncs Link beat phase.
 //
-// Buttons + clock generator still live so the hardware test is not
-// regressed; the bring-up self-test is intentionally trimmed.
+// Link → Eurorack mapping (when enabled):
+//   Clock Out  — one pulse per beat (PPQN=1) while Link is playing
+//   Reset Out  — fires on transport start and on each bar boundary
+//   Run Out    — high while Link reports playing, low otherwise
 //
-// Requires include/esp32-clklinkrec/secrets.h — copy from secrets.h.example.
+// LED encoding (Blue = Link, Red = Capture):
+//   Blue off       — Link disabled
+//   Blue fast blink — Link enabled, WiFi not connected
+//   Blue slow blink — Link enabled, WiFi up, no peers yet
+//   Blue solid     — locked to at least one Link peer
+//   Red            — currently always off (reserved for Capture state)
+//
+// Outputs go through a 74HCT14 inverting Schmitt buffer, so "active" at
+// the jack/LED corresponds to GPIO LOW from this firmware.
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <esp_wifi.h>
+#include <esp_timer.h>
 #include <esp_chip_info.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <esp_idf_version.h>
 #include <esp_log.h>
+#include <math.h>
+#include <string.h>
+#include "abl_link.h"
 #include "esp32-clklinkrec/pins.h"
 #include "esp32-clklinkrec/secrets.h"
 
@@ -35,6 +52,7 @@ static inline void release_out(int p) { digitalWrite(p, HIGH); }
 static inline void led_on(int p)      { digitalWrite(p, LOW);  }
 static inline void led_off(int p)     { digitalWrite(p, HIGH); }
 static inline bool button_down(int p) { return digitalRead(p) == LOW; }
+static inline bool reset_in_active(int p) { return digitalRead(p) == LOW; }
 
 static const char* band_of(uint8_t channel) {
     if (channel >= 1 && channel <= 14)   return "2.4 GHz";
@@ -42,109 +60,188 @@ static const char* band_of(uint8_t channel) {
     return "?";
 }
 
-static const char* phy_str(const wifi_ap_record_t& ap) {
-    if (ap.phy_11ax) return "802.11ax (WiFi 6)";
-    if (ap.phy_11n)  return "802.11n";
-    if (ap.phy_11g)  return "802.11g";
-    if (ap.phy_11b)  return "802.11b";
-    return "?";
+// --- Link state -----------------------------------------------------------
+constexpr double   LINK_INITIAL_TEMPO = 120.0;
+constexpr double   LINK_QUANTUM       = 4.0;     // beats per bar
+constexpr uint32_t PULSE_WIDTH_US     = 10000;   // 10 ms per clock/reset pulse
+constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 8000;
+
+static struct abl_link        link_handle      = {nullptr};
+static abl_link_session_state link_state       = {nullptr};
+static bool                   link_initialised = false;
+static bool                   link_enabled     = false;
+static double                 last_link_beat   = -1.0;
+static bool                   link_is_playing_prev = false;
+
+// --- Output pulse scheduling ---------------------------------------------
+static unsigned long clock_end_us     = 0;
+static bool          clock_active     = false;
+static unsigned long reset_end_us     = 0;
+static bool          reset_out_active = false;
+
+static void fire_clock_pulse(unsigned long now_us) {
+    assert_out(PIN_CLK_OUT);
+    clock_end_us = now_us + PULSE_WIDTH_US;
+    clock_active = true;
 }
 
+static void fire_reset_pulse(unsigned long now_us) {
+    assert_out(PIN_RST_OUT);
+    reset_end_us     = now_us + PULSE_WIDTH_US;
+    reset_out_active = true;
+}
+
+static void update_pulse_decay(unsigned long now_us) {
+    if (clock_active && (long)(now_us - clock_end_us) >= 0) {
+        release_out(PIN_CLK_OUT);
+        clock_active = false;
+    }
+    if (reset_out_active && (long)(now_us - reset_end_us) >= 0) {
+        release_out(PIN_RST_OUT);
+        reset_out_active = false;
+    }
+}
+
+// --- Link wrappers --------------------------------------------------------
+static void link_init() {
+    if (link_initialised) return;
+    link_handle = abl_link_create(LINK_INITIAL_TEMPO);
+    link_state  = abl_link_create_session_state();
+    abl_link_enable_start_stop_sync(link_handle, true);
+    link_initialised = true;
+    Serial.println("[Link] instance created (start/stop sync on)");
+}
+
+static void link_set_enabled(bool on) {
+    if (!link_initialised || link_enabled == on) return;
+    abl_link_enable(link_handle, on);
+    link_enabled         = on;
+    last_link_beat       = -1.0;
+    link_is_playing_prev = false;
+    if (!on) {
+        // Drop the run gate immediately when Link is turned off.
+        release_out(PIN_RUN_OUT);
+    }
+    Serial.printf("[Link] %s\n", on ? "enabled" : "disabled");
+}
+
+static size_t link_peer_count() {
+    if (!link_initialised) return 0;
+    return abl_link_num_peers(link_handle);
+}
+
+// Per-loop Link tick: capture session state, detect transport edges,
+// detect beat-integer crossings, fire pulses.
+static void link_tick(unsigned long now_us) {
+    if (!link_initialised || !link_enabled) return;
+
+    abl_link_capture_audio_session_state(link_handle, link_state);
+    int64_t link_time_us = esp_timer_get_time();
+    bool    is_playing   = abl_link_is_playing(link_state);
+
+    // Transport edges drive the Run gate and a one-shot Reset.
+    if (is_playing != link_is_playing_prev) {
+        if (is_playing) {
+            fire_reset_pulse(now_us);
+            assert_out(PIN_RUN_OUT);   // run high while playing
+            last_link_beat = -1.0;
+        } else {
+            release_out(PIN_RUN_OUT);  // run low when stopped
+        }
+        link_is_playing_prev = is_playing;
+    }
+    if (!is_playing) return;
+
+    // Beat-integer crossings drive clock pulses; bar 0 also fires reset.
+    double beat = abl_link_beat_at_time(link_state, link_time_us, LINK_QUANTUM);
+    if (last_link_beat < 0.0) {
+        last_link_beat = beat;
+        return;
+    }
+    int last_int = (int)floor(last_link_beat);
+    int beat_int = (int)floor(beat);
+    if (beat_int > last_int) {
+        fire_clock_pulse(now_us);
+        int bar_pos = ((beat_int % (int)LINK_QUANTUM) + (int)LINK_QUANTUM) % (int)LINK_QUANTUM;
+        if (bar_pos == 0) {
+            fire_reset_pulse(now_us);
+        }
+    }
+    last_link_beat = beat;
+}
+
+// --- Buttons --------------------------------------------------------------
+static void poll_buttons() {
+    static bool link_prev    = false;
+    static bool capture_prev = false;
+    bool link_now    = button_down(PIN_SW_LINK);
+    bool capture_now = button_down(PIN_SW_CAPTURE);
+    if (link_now && !link_prev) {
+        link_set_enabled(!link_enabled);
+    }
+    if (capture_now && !capture_prev) {
+        Serial.println("[Capture] press (recorder POST not implemented yet)");
+    }
+    link_prev    = link_now;
+    capture_prev = capture_now;
+}
+
+static void poll_reset_in(unsigned long now_us) {
+    static bool prev = false;
+    bool now_active = reset_in_active(PIN_RESET_IN);
+    if (now_active && !prev) {
+        Serial.println("[Reset In] external trigger");
+        fire_reset_pulse(now_us);
+        last_link_beat = -1.0;
+    }
+    prev = now_active;
+}
+
+// --- LEDs -----------------------------------------------------------------
+static void update_link_leds(unsigned long now_ms) {
+    if (!link_enabled) {
+        led_off(PIN_BLUE_LED);
+    } else if (WiFi.status() != WL_CONNECTED) {
+        // Fast blink — WiFi not connected.
+        if ((now_ms / 100) & 1) led_on(PIN_BLUE_LED); else led_off(PIN_BLUE_LED);
+    } else if (link_peer_count() == 0) {
+        // Slow blink — WiFi up, waiting for peers.
+        if ((now_ms / 250) & 1) led_on(PIN_BLUE_LED); else led_off(PIN_BLUE_LED);
+    } else {
+        // Solid — locked to ≥1 peer.
+        led_on(PIN_BLUE_LED);
+    }
+    led_off(PIN_RED_LED);  // reserved for Capture state in a later commit
+}
+
+// --- Setup ----------------------------------------------------------------
 static void print_chip_info() {
     esp_chip_info_t info = {};
     esp_chip_info(&info);
-    const char* model = "?";
-    switch (info.model) {
-        case CHIP_ESP32:    model = "ESP32";    break;
-        case CHIP_ESP32S2:  model = "ESP32-S2"; break;
-        case CHIP_ESP32S3:  model = "ESP32-S3"; break;
-        case CHIP_ESP32C2:  model = "ESP32-C2"; break;
-        case CHIP_ESP32C3:  model = "ESP32-C3"; break;
-        case CHIP_ESP32C6:  model = "ESP32-C6"; break;
-        case CHIP_ESP32H2:  model = "ESP32-H2"; break;
-        case CHIP_ESP32C5:  model = "ESP32-C5"; break;
-        default: break;
-    }
-    Serial.printf("[Chip] %s rev %u, %u core(s), CPU %u MHz\n",
-                  model, (unsigned)info.revision, info.cores,
-                  (unsigned)(ESP.getCpuFreqMHz()));
-    Serial.printf("[Chip] features: %s%s%s%s%s\n",
-                  (info.features & CHIP_FEATURE_WIFI_BGN) ? "WiFi(b/g/n) " : "",
-                  (info.features & CHIP_FEATURE_BT)       ? "BT "         : "",
-                  (info.features & CHIP_FEATURE_BLE)      ? "BLE "        : "",
-                  (info.features & CHIP_FEATURE_EMB_FLASH)? "EmbFlash "   : "",
-                  (info.features & CHIP_FEATURE_EMB_PSRAM)? "EmbPSRAM"    : "");
-    Serial.printf("[Chip] IDF version: %s\n", esp_get_idf_version());
-    Serial.printf("[Heap] internal free: %u, total: %u\n",
+    Serial.printf("[Chip] ESP32-C5 rev %u, %u core(s), CPU %u MHz, IDF %s\n",
+                  (unsigned)info.revision, info.cores,
+                  (unsigned)ESP.getCpuFreqMHz(), esp_get_idf_version());
+    Serial.printf("[Heap] internal free: %u / %u\n",
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL));
-    Serial.printf("[Heap] PSRAM   free: %u, total: %u\n",
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                  (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
-    int8_t tx_dbm_q = 0;
-    if (esp_wifi_get_max_tx_power(&tx_dbm_q) == ESP_OK) {
-        Serial.printf("[WiFi] max TX power: %d (0.25 dBm units = %.2f dBm)\n",
-                      tx_dbm_q, tx_dbm_q * 0.25f);
-    }
-}
-
-static const char* wl_status_str(wl_status_t s) {
-    switch (s) {
-        case WL_IDLE_STATUS:     return "IDLE";
-        case WL_NO_SSID_AVAIL:   return "NO_SSID (router not seen)";
-        case WL_SCAN_COMPLETED:  return "SCAN_DONE";
-        case WL_CONNECTED:       return "CONNECTED";
-        case WL_CONNECT_FAILED:  return "CONNECT_FAILED (wrong password?)";
-        case WL_CONNECTION_LOST: return "LOST";
-        case WL_DISCONNECTED:    return "DISCONNECTED (still trying)";
-        default:                 return "?";
-    }
-}
-
-static void print_association() {
-    wifi_ap_record_t ap = {};
-    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) {
-        Serial.println("[WiFi] esp_wifi_sta_get_ap_info failed");
-        return;
-    }
-    char bssid[18];
-    snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x",
-             ap.bssid[0], ap.bssid[1], ap.bssid[2],
-             ap.bssid[3], ap.bssid[4], ap.bssid[5]);
-    Serial.printf("[WiFi] associated\n");
-    Serial.printf("       SSID    : %s\n", ap.ssid);
-    Serial.printf("       BSSID   : %s\n", bssid);
-    Serial.printf("       channel : %u  (band: %s)\n", ap.primary, band_of(ap.primary));
-    Serial.printf("       PHY     : %s\n", phy_str(ap));
-    Serial.printf("       RSSI    : %d dBm\n", ap.rssi);
-    Serial.printf("       IP      : %s\n", WiFi.localIP().toString().c_str());
-    Serial.printf("       gateway : %s\n", WiFi.gatewayIP().toString().c_str());
 }
 
 void setup() {
     Serial.begin(115200);
-    // USB-CDC needs the host to enumerate before any println shows up.
-    // Wait up to 3 s for that; if we run headless (no host attached) we
-    // still proceed.
     uint32_t t0 = millis();
     while (!Serial && millis() - t0 < 3000) { delay(10); }
     delay(100);
-    Serial.println("\n=== esp32-clklinkrec WiFi diagnostic ===");
+    Serial.println("\n=== esp32-clklinkrec (Link sync) ===");
 
-    // Route ESP-IDF log output to the USB CDC console so PHY/WiFi driver
-    // diagnostics are actually visible. Set verbose on the components
-    // that matter for RX-side troubleshooting.
     Serial.setDebugOutput(true);
-    esp_log_level_set("*",        ESP_LOG_INFO);
-    esp_log_level_set("wifi",     ESP_LOG_VERBOSE);
-    esp_log_level_set("wifi_init",ESP_LOG_VERBOSE);
-    esp_log_level_set("phy",      ESP_LOG_VERBOSE);
-    esp_log_level_set("phy_init", ESP_LOG_VERBOSE);
-    esp_log_level_set("net80211", ESP_LOG_VERBOSE);
-    esp_log_level_set("pp",       ESP_LOG_VERBOSE);
+    esp_log_level_set("*",         ESP_LOG_INFO);
+    esp_log_level_set("wifi",      ESP_LOG_WARN);
+    esp_log_level_set("wifi_init", ESP_LOG_WARN);
+    esp_log_level_set("phy_init",  ESP_LOG_WARN);
 
     print_chip_info();
 
+    // Outputs default to "released" (74HCT14 input HIGH → output LOW = inactive).
     pinMode(PIN_CLK_OUT,  OUTPUT); release_out(PIN_CLK_OUT);
     pinMode(PIN_RST_OUT,  OUTPUT); release_out(PIN_RST_OUT);
     pinMode(PIN_RUN_OUT,  OUTPUT); release_out(PIN_RUN_OUT);
@@ -154,147 +251,93 @@ void setup() {
     pinMode(PIN_SW_CAPTURE, INPUT_PULLUP);
     pinMode(PIN_RESET_IN,   INPUT);
 
+    // Country code: allows 2.4 GHz ch 12/13 and the UK-legal 5 GHz channels.
+    wifi_country_t gb = {};
+    memcpy(gb.cc, "GB", 2);
+    gb.cc[2]  = 0;
+    gb.schan  = 1;
+    gb.nchan  = 13;
+    gb.policy = WIFI_COUNTRY_POLICY_MANUAL;
+    esp_wifi_set_country(&gb);
+
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
-
-    // Force regulatory domain to GB so 2.4 GHz ch 12/13 and the UK 5 GHz
-    // bands are actually scanned. Default "01" worldwide code restricts
-    // 2.4 to ch 1-11 and blocks 5 GHz outright -- on a dual-band chip
-    // like the C5 that means a scan can come back empty even though the
-    // radio and antenna are fine.
-    {
-        wifi_country_t gb = {};
-        memcpy(gb.cc, "GB", 2);
-        gb.cc[2]       = 0;
-        gb.schan       = 1;
-        gb.nchan       = 13;            // UK permits ch 1..13 on 2.4 GHz
-        gb.policy      = WIFI_COUNTRY_POLICY_MANUAL;
-        esp_err_t cerr = esp_wifi_set_country(&gb);
-        Serial.printf("[WiFi] esp_wifi_set_country(GB, manual) -> %s\n",
-                      esp_err_to_name(cerr));
-    }
-    wifi_country_t cur = {};
-    if (esp_wifi_get_country(&cur) == ESP_OK) {
-        Serial.printf("[WiFi] active country: %c%c  ch %u..%u  policy=%s\n",
-                      cur.cc[0], cur.cc[1], cur.schan, cur.schan + cur.nchan - 1,
-                      cur.policy == WIFI_COUNTRY_POLICY_MANUAL ? "MANUAL" : "AUTO");
-    }
-
-    Serial.printf("[WiFi] MAC: %s\n", WiFi.macAddress().c_str());
-
-    // Two-pass scan: an active scan can miss APs on dwell-tight windows,
-    // especially after a cold radio init. Try active first, then a passive
-    // scan with longer dwell if the first comes back empty.
-    Serial.println("[WiFi] scanning (active) for visible APs...");
-    int n = WiFi.scanNetworks(/*async*/false, /*show_hidden*/true,
-                              /*passive*/false, /*max_ms_per_chan*/300, /*chan*/0);
-    if (n <= 0) {
-        Serial.printf("[WiFi] active scan returned %d, retrying passive...\n", n);
-        WiFi.scanDelete();
-        n = WiFi.scanNetworks(/*async*/false, /*show_hidden*/true,
-                              /*passive*/true, /*max_ms_per_chan*/600, /*chan*/0);
-    }
-    if (n <= 0) {
-        Serial.printf("[WiFi] scan returned %d networks — radio may be silent or antenna unconnected\n", n);
-    } else {
-        Serial.printf("[WiFi] %d AP(s) visible:\n", n);
-        for (int i = 0; i < n; i++) {
-            uint8_t ch = WiFi.channel(i);
-            Serial.printf("       %2d) %-32s ch %3u (%s)  RSSI %4d dBm  %s\n",
-                          i,
-                          WiFi.SSID(i).length() ? WiFi.SSID(i).c_str() : "<hidden>",
-                          ch, band_of(ch),
-                          WiFi.RSSI(i),
-                          WiFi.BSSIDstr(i).c_str());
-        }
-        bool target_seen = false;
-        for (int i = 0; i < n; i++) {
-            if (WiFi.SSID(i) == WIFI_SSID) { target_seen = true; break; }
-        }
-        Serial.printf("[WiFi] target SSID \"%s\" %s in scan\n",
-                      WIFI_SSID, target_seen ? "PRESENT" : "NOT PRESENT");
-    }
-    WiFi.scanDelete();
-
-    Serial.printf("[WiFi] connecting to \"%s\"...\n", WIFI_SSID);
+    Serial.printf("[WiFi] MAC: %s, connecting to \"%s\"...\n",
+                  WiFi.macAddress().c_str(), WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
+
+    t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && (millis() - t0) < WIFI_CONNECT_TIMEOUT_MS) {
+        delay(100);
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        // Modem-sleep DTIM gaps silently drop Link's multicast discovery
+        // frames. Disable both via the Arduino wrapper and the IDF API.
+        WiFi.setSleep(false);
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
+        wifi_ap_record_t ap = {};
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+            Serial.printf("[WiFi] connected: ch %u (%s), RSSI %d dBm, IP %s\n",
+                          ap.primary, band_of(ap.primary), ap.rssi,
+                          WiFi.localIP().toString().c_str());
+        }
+
+        // Multicast TX self-test on the Link discovery group. If a tcpdump
+        // on the Mac (`sudo tcpdump -i en0 host 224.76.78.75`) sees this
+        // packet, the C5 can put multicast on the wire and any further
+        // Link sync problems are downstream.
+        WiFiUDP udp;
+        if (udp.beginPacket(IPAddress(224, 76, 78, 75), 20808)) {
+            udp.print("clklinkrec-mcast-test");
+            int sent = udp.endPacket();
+            Serial.printf("[WiFi] multicast TX self-test: endPacket=%d\n", sent);
+        } else {
+            Serial.println("[WiFi] multicast TX self-test: beginPacket FAILED");
+        }
+    } else {
+        Serial.println("[WiFi] not connected — Link will retry when association completes");
+    }
+
+    // Create the Link instance up front; enabling it costs nothing more.
+    link_init();
+
+    Serial.println("[Setup] ready. Link starts disabled. Press Link button to enable.");
 }
 
+// --- Loop -----------------------------------------------------------------
 void loop() {
-    static bool     was_connected = false;
-    static uint32_t last_blink_ms = 0;
-    static uint32_t last_clk_ms   = 0;
-    static bool     blue_blink    = false;
-    static int      last_channel  = -1;
-    static int      last_rssi     = 0;
-    static uint32_t last_telem_ms = 0;
+    unsigned long now_us = micros();
+    unsigned long now_ms = millis();
 
-    uint32_t now = millis();
-    bool connected = (WiFi.status() == WL_CONNECTED);
+    poll_buttons();
+    poll_reset_in(now_us);
+    link_tick(now_us);
+    update_pulse_decay(now_us);
+    update_link_leds(now_ms);
 
-    // -- LED state ----------------------------------------------------------
-    if (connected) {
-        wifi_ap_record_t ap = {};
-        bool have_ap = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK);
-        led_on(PIN_BLUE_LED);
-        if (have_ap && ap.primary >= 32) led_on(PIN_RED_LED);
-        else                              led_off(PIN_RED_LED);
-    } else if (was_connected) {
-        led_off(PIN_BLUE_LED);
-        led_on(PIN_RED_LED);
-    } else {
-        if (now - last_blink_ms >= 250) {
-            last_blink_ms = now;
-            blue_blink = !blue_blink;
-            if (blue_blink) led_on(PIN_BLUE_LED); else led_off(PIN_BLUE_LED);
-        }
-        led_off(PIN_RED_LED);
-    }
-
-    // -- Print on every connect / disconnect transition --------------------
-    if (connected && !was_connected) {
-        print_association();
-        wifi_ap_record_t ap = {};
-        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-            last_channel = ap.primary;
-            last_rssi    = ap.rssi;
-        }
-    } else if (!connected && was_connected) {
-        Serial.printf("[WiFi] disconnected: %s — auto-reconnect armed\n",
-                      wl_status_str(WiFi.status()));
-    }
-    was_connected = connected;
-
-    // -- Heartbeat while not connected so we can see WHY -------------------
-    static uint32_t last_heartbeat_ms = 0;
-    if (!connected && now - last_heartbeat_ms >= 2000) {
-        last_heartbeat_ms = now;
-        Serial.printf("[WiFi] still trying: %s\n",
-                      wl_status_str(WiFi.status()));
-    }
-
-    // -- Periodic telemetry while connected: only print on change ----------
-    if (connected && now - last_telem_ms >= 1000) {
-        last_telem_ms = now;
-        wifi_ap_record_t ap = {};
-        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-            int rssi_delta = abs((int)ap.rssi - last_rssi);
-            if (ap.primary != last_channel || rssi_delta >= 5) {
-                Serial.printf("[WiFi] ch %u (%s), RSSI %d dBm\n",
-                              ap.primary, band_of(ap.primary), ap.rssi);
-                last_channel = ap.primary;
-                last_rssi    = ap.rssi;
-            }
+    // Periodic telemetry while Link is enabled: peer count, tempo,
+    // play state. Once per second, only when something changes so the
+    // console isn't flooded.
+    static unsigned long last_log_ms       = 0;
+    static size_t        last_peers        = 0xFFFF;
+    static double        last_tempo        = -1.0;
+    static bool          last_playing      = false;
+    if (link_enabled && link_initialised && (now_ms - last_log_ms) >= 1000) {
+        last_log_ms = now_ms;
+        abl_link_capture_app_session_state(link_handle, link_state);
+        size_t peers   = link_peer_count();
+        double tempo   = abl_link_tempo(link_state);
+        bool   playing = abl_link_is_playing(link_state);
+        if (peers != last_peers || fabs(tempo - last_tempo) > 0.05 || playing != last_playing) {
+            Serial.printf("[Link] peers=%u tempo=%.2f playing=%d\n",
+                          (unsigned)peers, tempo, playing ? 1 : 0);
+            last_peers   = peers;
+            last_tempo   = tempo;
+            last_playing = playing;
         }
     }
 
-    // -- Keep the clock generator alive so the hardware test isn't lost --
-    if (now - last_clk_ms >= 500) {
-        last_clk_ms = now;
-        assert_out(PIN_CLK_OUT);
-        delay(50);
-        release_out(PIN_CLK_OUT);
-    }
-
-    delay(10);
+    // Yield to FreeRTOS — 1 ms is well below the Link beat budget.
+    delay(1);
 }

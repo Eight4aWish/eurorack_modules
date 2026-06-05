@@ -24,6 +24,7 @@ build/
 # sdkconfig (which derives from sdkconfig.defaults) are not.
 managed_components/
 sdkconfig.esp32-clklink
+sdkconfig.esp32-clklinkrec
 
 # Per-developer WiFi / OTA credentials (use the .example file as a template)
 include/shared/secrets.h
