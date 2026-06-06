@@ -107,7 +107,7 @@ struct Patch {
 
 struct Bank {
   const char* name;
-  Patch* patches[8];
+  Patch* patches[12];
   uint8_t patchCount;
 };
 
@@ -1586,15 +1586,280 @@ void midi_render() {
 
 Patch patch_midi = { "MIDI", midi_enter, midi_tick, midi_render, true };
 
+// -------------------- Patch: Turing (dual Turing Machine) --------------------
+// Two independent Music-Thing-style looping shift registers producing quantised
+// pitch + variable gates. Clock-in on AD0 advances both voices; reset-in on AD1
+// realigns both loop phases. Outputs: V1 pitch->CV0 / gate->CV1,
+// V2 pitch->CV2 / gate->CV3. An internal clock runs as a fallback when no
+// external clock is present so the patch is usable on the bench.
+//
+// Edit pages cycle on short-press: V1 -> V2 -> KEY (long-press exits to menu).
+//   V1/V2: Pot1 Randomness, Pot2 Length (2..16), Pot3 Range (scale degrees).
+//   KEY  : Pot1 Scale, Pot2 Root note, Pot3 Octave base (global to both voices).
+
+struct TmScale { const char* name; uint8_t size; uint8_t semis[12]; };
+static const TmScale kTmScales[] = {
+  { "Chromatic", 12, {0,1,2,3,4,5,6,7,8,9,10,11} },
+  { "Major",      7, {0,2,4,5,7,9,11} },
+  { "Minor",      7, {0,2,3,5,7,8,10} },
+  { "MinPent",    5, {0,3,5,7,10} },
+  { "MajPent",    5, {0,2,4,7,9} },
+  { "Dorian",     7, {0,2,3,5,7,9,10} },
+};
+static const int kTmScaleCount = sizeof(kTmScales) / sizeof(kTmScales[0]);
+static const char* kTmNoteNames[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+
+// Gate length as a fraction of the clock interval, chosen by 2 register bits.
+static const float kTmGateFrac[4] = {0.10f, 0.35f, 0.60f, 0.90f};
+static const uint32_t kTmInternalMs = 500; // 120 BPM internal fallback
+
+// Per-voice state (index 0 = V1, 1 = V2)
+static uint16_t tm_reg[2]      = {0xACE1, 0x5B3A};
+static uint8_t  tm_step[2]     = {0, 0};
+static float    tm_rand[2]     = {0.0f, 0.0f}; // 0..1 flip probability
+static uint8_t  tm_len[2]      = {8, 8};       // 2..16
+static uint8_t  tm_range[2]    = {12, 12};     // 1..24 scale degrees
+static float    tm_note_v[2]   = {0.0f, 0.0f}; // current pitch volts (display + out)
+static uint8_t  tm_note_pc[2]  = {0, 0};       // current pitch class (display)
+static bool     tm_gate_state[2] = {false, false};
+static uint32_t tm_gate_off_ms[2] = {0, 0};
+// Global musical settings
+static uint8_t  tm_scale  = 2; // Minor
+static uint8_t  tm_root   = 0; // C
+static uint8_t  tm_octave = 1; // base octave (volts)
+// UI / clock
+static int      tm_page = 0; // 0=V1, 1=V2, 2=KEY
+static PotPickup tm_pickup;
+static uint32_t tm_last_clock_ms = 0;
+static float    tm_interval_ms = (float)kTmInternalMs;
+static bool     tm_clk_gate = false;
+static bool     tm_rst_gate = false;
+static bool     tm_ext_active = false;
+static uint32_t tm_internal_next_ms = 0;
+
+static inline uint16_t tm_mask(uint8_t len) {
+  return (len >= 16) ? 0xFFFFu : (uint16_t)((1u << len) - 1u);
+}
+
+// Quantise the voice's register to a pitch (volts) + cache its display fields,
+// and decide this step's gate (on/off + length) from the register bits.
+static void tm_compute_output(int v, bool setGate) {
+  uint8_t len = tm_len[v];
+  const TmScale& sc = kTmScales[tm_scale];
+  int value  = tm_reg[v] & 0xFF;                 // 0..255
+  int degree = (value * (int)tm_range[v]) >> 8;  // 0..range-1
+  int oct = degree / sc.size;
+  int idx = degree % sc.size;
+  int semi = oct * 12 + sc.semis[idx];
+  float volts = (float)tm_octave + (float)(tm_root + semi) / 12.0f;
+  if (volts < 0.0f) volts = 0.0f; else if (volts > 5.0f) volts = 5.0f;
+  tm_note_v[v]  = volts;
+  tm_note_pc[v] = (uint8_t)((tm_root + semi) % 12);
+  if (setGate) {
+    bool gateOn = ((tm_reg[v] >> (len - 1)) & 1u) != 0; // pattern-locked density
+    if (gateOn) {
+      tm_gate_state[v] = true;
+      float gms = kTmGateFrac[tm_reg[v] & 0x3] * tm_interval_ms;
+      if (gms < 5.0f) gms = 5.0f;
+      tm_gate_off_ms[v] = millis() + (uint32_t)gms;
+    }
+  }
+}
+
+// One Turing-machine step: rotate the len-bit register left, feeding back the
+// bit that fell off (flipped with probability = randomness knob), then quantise.
+static void tm_step_voice(int v) {
+  uint8_t len = tm_len[v];
+  uint16_t fb = (tm_reg[v] >> (len - 1)) & 1u;
+  float r = (float)random(0, 1000) / 1000.0f;
+  if (r < tm_rand[v]) fb ^= 1u; // 0=locked loop, 0.5=random, 1=inverted loop
+  tm_reg[v] = (uint16_t)(((tm_reg[v] << 1) | fb) & tm_mask(len));
+  tm_step[v] = (uint8_t)((tm_step[v] + 1) % len);
+  tm_compute_output(v, /*setGate=*/true);
+}
+
+static void tm_clock_step() { tm_step_voice(0); tm_step_voice(1); }
+
+// Reset: rotate each register back to its step-0 orientation so the loop
+// restarts from the top (exact for locked loops, phase-realign otherwise).
+static void tm_reset_voice(int v) {
+  uint8_t len = tm_len[v];
+  uint8_t k = tm_step[v] % len;
+  if (k) {
+    uint16_t m = tm_mask(len);
+    tm_reg[v] = (uint16_t)(((tm_reg[v] >> k) | (tm_reg[v] << (len - k))) & m);
+  }
+  tm_step[v] = 0;
+  tm_compute_output(v, /*setGate=*/false);
+}
+
+void tm_enter() {
+  resetPotSmooth();
+  tm_page = 0;
+  tm_scale = 2; tm_root = 0; tm_octave = 1;
+  randomSeed((uint32_t)micros() ^ (uint32_t)analogRead(PIN_POT1));
+  for (int v = 0; v < 2; v++) {
+    tm_rand[v] = 0.0f; tm_len[v] = 8; tm_range[v] = 12;
+    tm_reg[v] = (uint16_t)random(1, 0x10000); // non-zero seed
+    tm_step[v] = 0; tm_gate_state[v] = false; tm_gate_off_ms[v] = 0;
+    tm_compute_output(v, /*setGate=*/false);
+  }
+  tm_last_clock_ms = 0;
+  tm_interval_ms = (float)kTmInternalMs;
+  tm_clk_gate = tm_rst_gate = false;
+  tm_ext_active = false;
+  tm_internal_next_ms = millis();
+  pickup_setLive(tm_pickup);
+  if (haveMCP) {
+    mcp_values[CV0_DA_CH] = voltsToDac(0, tm_note_v[0]);
+    mcp_values[CV1_DA_CH] = kGateLowCode;
+    mcp_values[CV2_DA_CH] = voltsToDac(2, tm_note_v[1]);
+    mcp_values[CV3_DA_CH] = kGateLowCode;
+    mcp_writeAll();
+  }
+}
+
+void tm_tick() {
+  uint32_t now = millis();
+  float pRand  = readPotNormSmooth(PIN_POT1, 0);
+  float pLen   = readPotNormSmooth(PIN_POT2, 1);
+  float pRange = readPotNormSmooth(PIN_POT3, 2);
+
+  // Short press cycles edit page; arm pickup so pots don't snap the new page.
+  if (patchShortPressed) {
+    tm_page = (tm_page + 1) % 3;
+    patchShortPressed = false;
+    pickup_arm(tm_pickup, pRand, pLen, pRange);
+  }
+
+  if (tm_page < 2) {
+    int v = tm_page;
+    float tRand  = tm_rand[v];
+    float tLen   = (float)(tm_len[v] - 2) / 14.0f;
+    float tRange = (float)(tm_range[v] - 1) / 23.0f;
+    if (pickup_update(tm_pickup, 0, pRand, tRand))   tm_rand[v]  = pRand;
+    if (pickup_update(tm_pickup, 1, pLen, tLen))     tm_len[v]   = (uint8_t)(2 + (int)(pLen * 14.0f + 0.5f));
+    if (pickup_update(tm_pickup, 2, pRange, tRange)) tm_range[v] = (uint8_t)(1 + (int)(pRange * 23.0f + 0.5f));
+  } else {
+    float tScale = ((float)tm_scale + 0.5f) / (float)kTmScaleCount;
+    float tRoot  = ((float)tm_root + 0.5f) / 12.0f;
+    float tOct   = (float)tm_octave / 4.0f;
+    if (pickup_update(tm_pickup, 0, pRand, tScale)) {
+      int s = (int)(pRand * kTmScaleCount); if (s >= kTmScaleCount) s = kTmScaleCount - 1;
+      tm_scale = (uint8_t)s;
+    }
+    if (pickup_update(tm_pickup, 1, pLen, tRoot)) {
+      int rt = (int)(pLen * 12.0f); if (rt > 11) rt = 11;
+      tm_root = (uint8_t)rt;
+    }
+    if (pickup_update(tm_pickup, 2, pRange, tOct)) {
+      int oc = (int)(pRange * 4.99f); if (oc > 4) oc = 4;
+      tm_octave = (uint8_t)oc;
+    }
+  }
+
+  // ---- Clock + reset CV inputs: rising-edge detect with hysteresis ----
+  // Lower ADC code = higher Eurorack voltage (inverting front-end).
+  if (haveADS) {
+    int16_t aClk = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH); // AD0
+    int16_t aRst = ads.readADC_SingleEnded(AD1_CH);          // AD1
+    bool clkNow = tm_clk_gate ? (aClk < kGateOffThresh) : (aClk < kGateOnThresh);
+    bool rstNow = tm_rst_gate ? (aRst < kGateOffThresh) : (aRst < kGateOnThresh);
+    if (clkNow && !tm_clk_gate) {
+      if (tm_last_clock_ms) {
+        uint32_t dt = now - tm_last_clock_ms;
+        if (dt >= 20 && dt <= 4000) {
+          if (tm_interval_ms < 1.0f) tm_interval_ms = (float)dt;
+          else tm_interval_ms = 0.7f * tm_interval_ms + 0.3f * (float)dt;
+        }
+      }
+      tm_last_clock_ms = now;
+      tm_ext_active = true;
+      tm_clock_step();
+    }
+    if (rstNow && !tm_rst_gate) { tm_reset_voice(0); tm_reset_voice(1); }
+    tm_clk_gate = clkNow;
+    tm_rst_gate = rstNow;
+  }
+
+  // External clock timeout -> internal fallback
+  if (tm_ext_active && tm_last_clock_ms && (now - tm_last_clock_ms > kExtClockTimeoutMs)) {
+    tm_ext_active = false;
+    tm_internal_next_ms = now;
+  }
+  if (!tm_ext_active) {
+    tm_interval_ms = (float)kTmInternalMs;
+    if (now >= tm_internal_next_ms) {
+      tm_internal_next_ms = now + kTmInternalMs;
+      tm_clock_step();
+    }
+  }
+
+  // Expire gates
+  for (int v = 0; v < 2; v++) {
+    if (tm_gate_state[v] && now >= tm_gate_off_ms[v]) tm_gate_state[v] = false;
+  }
+
+  // Write outputs: pitch held on CV0/CV2, gates on CV1/CV3.
+  if (haveMCP) {
+    mcp_values[CV0_DA_CH] = voltsToDac(0, tm_note_v[0]);
+    mcp_values[CV1_DA_CH] = tm_gate_state[0] ? kGateHighCode : kGateLowCode;
+    mcp_values[CV2_DA_CH] = voltsToDac(2, tm_note_v[1]);
+    mcp_values[CV3_DA_CH] = tm_gate_state[1] ? kGateHighCode : kGateLowCode;
+    mcp_writeAll();
+  }
+}
+
+void tm_render() {
+  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 96, "Turing");
+  oled.setCursor(104, 0);
+  oled.print(tm_page == 0 ? "V1" : tm_page == 1 ? "V2" : "KEY");
+
+  if (tm_page < 2) {
+    int v = tm_page;
+    oled.setCursor(0, 16);
+    oled.print("Rnd "); oled.print((int)(tm_rand[v] * 100.0f + 0.5f)); oled.print("% ");
+    oled.print("Len "); oled.print(tm_len[v]);
+    oled.setCursor(0, 26);
+    oled.print("Rng "); oled.print(tm_range[v]);
+    // Register bits (MSB..LSB left-to-right), filled = 1.
+    int len = tm_len[v];
+    const int by = 36, sz = 6;
+    for (int i = 0; i < len; i++) {
+      int x = i * (sz + 1);
+      if (x + sz > OLED_W) break;
+      if ((tm_reg[v] >> (len - 1 - i)) & 1u) oled.fillRect(x, by, sz, sz, SSD1306_WHITE);
+      else oled.drawRect(x, by, sz, sz, SSD1306_WHITE);
+    }
+  } else {
+    oled.setCursor(0, 16); oled.print("Scale "); oled.print(kTmScales[tm_scale].name);
+    oled.setCursor(0, 26); oled.print("Root "); oled.print(kTmNoteNames[tm_root]);
+    oled.setCursor(64, 26); oled.print("Oct "); oled.print(tm_octave);
+  }
+
+  // Bottom: both voices' current note + gate, and clock source/tempo.
+  oled.setCursor(0, 48);
+  oled.print("1:"); oled.print(kTmNoteNames[tm_note_pc[0]]); oled.print(tm_gate_state[0] ? "*" : " ");
+  oled.setCursor(54, 48);
+  oled.print("2:"); oled.print(kTmNoteNames[tm_note_pc[1]]); oled.print(tm_gate_state[1] ? "*" : " ");
+  oled.setCursor(0, 56);
+  oled.print(tm_ext_active ? "EXT " : "INT ");
+  oled.print((int)(60000.0f / tm_interval_ms + 0.5f)); oled.print(" BPM");
+
+  oled.display();
+}
+Patch patch_turing = { "Turing", tm_enter, tm_tick, tm_render, true };
+
 // Arrange the bank so indexes match the home-menu ordering below.
-Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_diag }, 8 };
+Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_turing, &patch_diag }, 9 };
 Bank* banks[] = { &bank_util };
 static uint8_t bankIdx  = 0;
 static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Turing", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;

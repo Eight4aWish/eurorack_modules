@@ -94,6 +94,17 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot1/Pot3: No effect.
 - Notes: Pitch is calibrated via `voltsToDac()`; the device enumerates as "Pico2W OC MIDI".
 
+### Turing (Dual Turing Machine)
+- Purpose: Two independent Music-Thing-style looping shift registers generating quantised pitch + variable gates (TB3PO-ish), clocked and reset from the CV inputs.
+- Inputs: `AD0` = clock in (rising edge advances both voices), `AD1` = reset in (rising edge realigns both loop phases to the top of the loop). An internal 120 BPM clock runs as a fallback when no external clock is detected.
+- Outputs: V1 → pitch `CV0`, gate `CV1`; V2 → pitch `CV2`, gate `CV3`. Pitch is 1 V/oct via calibration; gates use fixed gate codes.
+- Engine: Each clock, the per-voice register rotates and the bit that falls off is fed back, flipped with probability set by Randomness — fully CCW = locked loop, centre = random, fully CW = inverted (double-length) loop. Pitch comes from the low 8 register bits mapped across `Range` scale degrees and quantised to the global scale/root. The gate fires on a register tap (pattern-locked density) with length (10/35/60/90 % of the clock interval) chosen by 2 register bits.
+- Pages (short press cycles `V1 → V2 → KEY`; title-right shows the active page):
+  - `V1`/`V2`: Pot1 Randomness, Pot2 Length (2–16), Pot3 Range (1–24 scale degrees) — per voice.
+  - `KEY` (global to both voices): Pot1 Scale (Chromatic / Major / Minor / MinPent / MajPent / Dorian), Pot2 Root note (C…B), Pot3 Octave base (0–4).
+- Pot pickup: After switching page, each pot stays inactive until it crosses (or already matches) the stored value for the newly-selected page/voice.
+- Display: Selected voice shows Rnd/Len/Rng plus its register bits as squares; KEY shows Scale/Root/Octave. Bottom row shows both voices' current note + gate (`*`) and the clock source/tempo (`INT`/`EXT` BPM).
+
 ### Calibration
 - Approach: Use the `Diag` patch for DMM-first calibration. Record raw ADC codes vs known volts, and raw DAC codes vs measured volts, then fit straight lines per channel.
 - Integration: Static fits are compiled in (see `include/pico2w-oc/calib_static.h`). Diagnostics remain raw-only.
@@ -117,7 +128,7 @@ This guide covers navigation, controls, and behavior for the current functional 
 - Physical Mapping: DAC channels use physical macros `CV0_DA_CH..CV3_DA_CH`; ADS channels use `AD0_CH`, `AD1_CH`, and `AD_EXT_CLOCK_CH` in `include/pico2w-oc/pins.h`.
 - External Clocking: Provide clean rising edges into `AD_EXT_CLOCK_CH` for reliable detection.
 - OLED Grid: Keep titles at `y=0`; use rows `16/26/36/46/56` for content.
-- Menu: Currently 8 patches — `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `MIDI`, `Diag`.
+- Menu: Currently 9 patches — `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `MIDI`, `Turing`, `Diag`.
 
 ## PlatformIO Quick Commands
 
