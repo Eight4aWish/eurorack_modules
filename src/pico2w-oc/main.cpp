@@ -120,15 +120,13 @@ static float cv0V  = 0, cv1V  = 0;
 static int16_t ads_raw0 = 0, ads_raw1 = 0;
 static uint16_t mcp_values[4] = {0, 0, 0, 0};
 
-// Helper: write mcp_values[] to MCP4728 in the correct physical channel order.
-// All patches use the same (CV3, CV0, CV2, CV1) mapping — centralise it here.
+// Helper: write mcp_values[] to the MCP4728.
+// mcp_values[] is indexed by PHYSICAL DAC channel (0=A, 1=B, 2=C, 3=D), and
+// patches store each logical CV into its physical slot via the CVx_DA_CH macros
+// (e.g. mcp_values[CV0_DA_CH] = ...). fastWrite() takes channels in A,B,C,D
+// order, so we just pass the physical slots straight through.
 static void mcp_writeAll() {
-  mcp.fastWrite(
-    mcp_values[CV3_DA_CH],
-    mcp_values[CV0_DA_CH],
-    mcp_values[CV2_DA_CH],
-    mcp_values[CV1_DA_CH]
-  );
+  mcp.fastWrite(mcp_values[0], mcp_values[1], mcp_values[2], mcp_values[3]);
 }
 
 static char mcpPhysLetter(uint8_t phys) {
@@ -189,6 +187,38 @@ float readPotNormSmooth(int pin, int idx) {
   return potSmooth[idx];
 }
 
+// ---- Pot soft-takeover (pickup) ----------------------------------------
+// When a patch switches which voice/target the pots edit, the physical pot
+// positions no longer match the newly-selected target's stored values. Without
+// pickup the next tick snaps (clobbers) those values to wherever the knobs
+// happen to sit. Pickup holds a parameter until its pot crosses (or already
+// matches) the stored value, then tracks normally — standard "soft takeover".
+struct PotPickup {
+  bool  caught[3] = {true, true, true};
+  float ref[3]    = {0.0f, 0.0f, 0.0f};
+};
+// Make all pots immediately live (e.g. on patch entry, where stored values are
+// fresh defaults with nothing worth preserving).
+static void pickup_setLive(PotPickup& pk) {
+  pk.caught[0] = pk.caught[1] = pk.caught[2] = true;
+}
+// Arm pickup after a target switch: pots go inactive until they re-catch.
+// `p0..p2` are the current normalized pot readings (the side to cross from).
+static void pickup_arm(PotPickup& pk, float p0, float p1, float p2) {
+  pk.ref[0] = p0; pk.ref[1] = p1; pk.ref[2] = p2;
+  pk.caught[0] = pk.caught[1] = pk.caught[2] = false;
+}
+// Returns true once pot `i` should drive its parameter. `target` is that
+// parameter's current normalized (0..1) value.
+static bool pickup_update(PotPickup& pk, int i, float potNow, float target) {
+  if (pk.caught[i]) return true;
+  const float eps = 0.02f;
+  if (fabsf(potNow - target) <= eps) { pk.caught[i] = true; return true; }
+  // Caught once the pot moves to the opposite side of the target value.
+  if ((pk.ref[i] - target) * (potNow - target) < 0.0f) { pk.caught[i] = true; return true; }
+  return false;
+}
+
 void i2cScan(bool &ssd, bool &adsOK, bool &mcpOK) {
   ssd = adsOK = mcpOK = false;
   // OLED is on Wire (I2C0)
@@ -245,7 +275,7 @@ void diag_tick() {
   // DAC manual test: short press cycles logical DAC index (0..3). Pot1 sets ONLY that physical channel using mapping macros.
   if (haveMCP) {
     if (patchShortPressed) {
-      diag_sel_dac = (diag_sel_dac + 1) & 0x3; // cycle CV1->CV4
+      diag_sel_dac = (diag_sel_dac + 1) & 0x3; // cycle CV0->CV3
       patchShortPressed = false;
     }
     // Clear all first (physical indices)
@@ -336,9 +366,7 @@ static uint32_t clock_base_interval_ms = 500; // default 120 BPM -> 500ms per be
 static uint32_t clock_ext_interval_ms = 0;
 static float clock_ext_interval_smooth = 0.0f; // smoothed external interval for stability
 static bool clock_ext_resync = false; // set true on each external rising edge
-static int ads_prev0 = 0;
 static bool clock_ext_gate = false; // track gate state for threshold detection
-static bool clock_ads_continuous = false; // true while ADS is in continuous mode for ext clock
 // division / multiplication options
 static const char* div_labels[] = { "/16", "/12", "/8", "/6", "/5", "/4", "/3", "/2", "1", "x2", "x3", "x4", "x5", "x6", "x8" };
 static const float div_factors[] = { 1.0f/16, 1.0f/12, 1.0f/8, 1.0f/6, 1.0f/5, 0.25f, 0.3333333f, 0.5f, 1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f };
@@ -350,6 +378,7 @@ static bool ch_state[4] = {false,false,false,false};
 // Per-channel division index — default to "1" (index 8)
 static int clock_div_idx[4] = {8, 8, 8, 8};
 static int clock_sel_ch = 0; // which channel (0..3) is being edited via Pot3
+static PotPickup clock_pickup; // soft-takeover for Pot3 across channel selection
 
 // Helper: find nearest division index to a target factor
 static int clock_find_nearest_div(float target) {
@@ -371,11 +400,14 @@ void clock_enter() {
   clock_ext_resync = false;
   clock_ext_gate = false;
   for (int i=0;i<4;i++) { ch_next_fire_ms[i]=0; ch_pulse_end_ms[i]=0; ch_state[i]=false; }
+  // Arm Pot3 pickup so entering Clock preserves each channel's stored division
+  // until the knob is moved across it (divisions persist between visits).
+  pickup_arm(clock_pickup, readPotNormSmooth(PIN_POT1, 0),
+             readPotNormSmooth(PIN_POT2, 1), readPotNormSmooth(PIN_POT3, 2));
   // Start ADS1115 in continuous mode on the ext-clock channel so
   // clock_tick() can read the latest sample without a blocking conversion.
   if (haveADS) {
     ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
-    clock_ads_continuous = true;
   }
 }
 
@@ -422,7 +454,6 @@ void clock_tick() {
       clock_ext_resync = true;
     }
     clock_ext_gate = gate_now;
-    ads_prev0 = a0;
   }
 
   // Timeout: revert to internal mode if external clock has stopped
@@ -446,13 +477,23 @@ void clock_tick() {
     if (bpm <= 0) bpm = 120;
     clock_base_interval_ms = 60000 / bpm;
   }
-  // POT2 selects which channel (0..3) to edit; POT3 sets its division
+  // POT2 selects which channel (0..3) to edit; POT3 sets its division.
   int sel = (int)((uint32_t)pot_raw_sel * 4 / 4096);
   if (sel < 0) sel = 0; else if (sel > 3) sel = 3;
-  clock_sel_ch = sel;
-  int div_idx = (int)((uint32_t)pot_raw_div * kDivCount / 4096);
-  if (div_idx < 0) div_idx = 0; else if (div_idx >= kDivCount) div_idx = kDivCount - 1;
-  clock_div_idx[clock_sel_ch] = div_idx;
+  // When the selected channel changes, arm Pot3 pickup so its division isn't
+  // snapped to the knob position until Pot3 crosses the channel's stored value.
+  if (sel != clock_sel_ch) {
+    clock_sel_ch = sel;
+    pickup_arm(clock_pickup, p_bpm, p_sel, p_div);
+  }
+  // Pot3 division, gated by soft-takeover. Target is the band-centre of the
+  // channel's current division index within the kDivCount options.
+  float divTargetN = ((float)clock_div_idx[clock_sel_ch] + 0.5f) / (float)kDivCount;
+  if (pickup_update(clock_pickup, 2, p_div, divTargetN)) {
+    int div_idx = (int)((uint32_t)pot_raw_div * kDivCount / 4096);
+    if (div_idx < 0) div_idx = 0; else if (div_idx >= kDivCount) div_idx = kDivCount - 1;
+    clock_div_idx[clock_sel_ch] = div_idx;
+  }
 
   // On each external rising edge, resynchronize all channel schedules so
   // outputs are phase-locked to the incoming clock, not free-running.
@@ -556,6 +597,7 @@ static int euclid_ch_rotation[4] = {0,1,2,3};
 // Selection in complex mode: (channel, param)
 static int euclid_sel_channel = 0; // 0..3
 static int euclid_bpm = 120; // cached for render
+static PotPickup euclid_pickup; // soft-takeover for Pot3 across param/mode/channel
 
 void build_euclid_pattern(bool *out, int steps, int pulses, int rotate) {
   // simple even-distribution algorithm
@@ -580,6 +622,7 @@ void euclid_enter() {
   euclid_steps = 8; euclid_pulses = 3; euclid_rotation = 0; euclid_prev_rotation = 0;
   euclid_step_idx = 0; euclid_next_ms = millis(); euclid_bpm = 120;
   for (int c=0;c<4;c++) { euclid_pulse_end_ms[c]=0; euclid_state[c]=false; euclid_ch_step_idx[c]=0; }
+  pickup_setLive(euclid_pickup); // Pot3 live for the initial parameter
 }
 
 void euclid_tick() {
@@ -590,34 +633,60 @@ void euclid_tick() {
   int raw1 = (int)(p_bpm   * 4095.0f);
   int raw2 = (int)(p_mode  * 4095.0f);
   int raw3 = (int)(p_param * 4095.0f);
-  // Mode selection via Pot2 (coarse split): <50% simple, >=50% complex
-  euclid_mode = (raw2 >= 2048) ? 1 : 0;
+  // Mode selection via Pot2 (coarse split): <50% simple, >=50% complex.
+  // On a mode flip, arm Pot3 pickup — the selected parameter's meaning changes.
+  int newMode = (raw2 >= 2048) ? 1 : 0;
+  if (newMode != euclid_mode) {
+    euclid_mode = newMode;
+    pickup_arm(euclid_pickup, p_bpm, p_mode, p_param);
+  }
 
   int steps = euclid_steps;
   int pulses = euclid_pulses;
   int bpm = 30 + (int)(((long)raw1 * (300-30)) / 4095);
 
+  // Normalized (0..1) position of the selected Pot3 parameter, for soft-takeover.
+  float p3target;
+  if (euclid_mode == 0) {
+    switch (euclid_selected_param) {
+      case 0:  p3target = (float)(euclid_steps - 1) / 15.0f; break;
+      case 1:  p3target = (euclid_steps > 0) ? (float)euclid_pulses   / (float)euclid_steps : 0.0f; break;
+      case 2:  p3target = (euclid_steps > 0) ? (float)euclid_rotation / (float)euclid_steps : 0.0f; break;
+      default: p3target = p_param; break; // BPM page: Pot3 is a no-op
+    }
+  } else {
+    int ch = euclid_sel_channel;
+    int sc = euclid_ch_steps[ch]; if (sc < 1) sc = 1;
+    switch (euclid_selected_param) {
+      case 0:  p3target = (float)(euclid_ch_steps[ch] - 1) / 15.0f; break;
+      case 1:  p3target = (float)euclid_ch_pulses[ch]   / (float)sc; break;
+      default: p3target = (float)euclid_ch_rotation[ch] / (float)sc; break; // param 2
+    }
+  }
+  bool p3live = pickup_update(euclid_pickup, 2, p_param, p3target);
+
   if (euclid_mode == 0) {
     // Simple mode: shared params — selected param edited via Pot3
     switch (euclid_selected_param) {
-      case 0: steps  = 1 + (raw3 * 15) / 4095; break; // 1..16
-      case 1: pulses = (raw3 * euclid_steps) / 4095; break; // 0..steps
-      case 2: euclid_rotation = (raw3 * euclid_steps) / 4095; break; // 0..steps-1 approx
+      case 0: if (p3live) steps  = 1 + (raw3 * 15) / 4095; break; // 1..16
+      case 1: if (p3live) pulses = (raw3 * euclid_steps) / 4095; break; // 0..steps
+      case 2: if (p3live) euclid_rotation = (raw3 * euclid_steps) / 4095; break; // 0..steps-1 approx
       case 3: /* BPM via Pot1 */ break;
     }
   } else {
     // Complex mode: per-channel params; Pot3 edits selected (channel,param)
     int ch = euclid_sel_channel;
     switch (euclid_selected_param) {
-      case 0: euclid_ch_steps[ch]   = 1 + (raw3 * 15) / 4095; break;
-      case 1: euclid_ch_pulses[ch]  = (raw3 * euclid_ch_steps[ch]) / 4095; break;
-      case 2: euclid_ch_rotation[ch]= (raw3 * euclid_ch_steps[ch]) / 4095; break;
+      case 0: if (p3live) euclid_ch_steps[ch]   = 1 + (raw3 * 15) / 4095; break;
+      case 1: if (p3live) euclid_ch_pulses[ch]  = (raw3 * euclid_ch_steps[ch]) / 4095; break;
+      case 2: if (p3live) euclid_ch_rotation[ch]= (raw3 * euclid_ch_steps[ch]) / 4095; break;
       case 3: /* BPM via Pot1 */ break;
     }
   }
   if (bpm <= 0) bpm = 120;
 
-  // short-press cycles selected parameter (and channel in complex mode)
+  // short-press cycles selected parameter (and channel in complex mode); arm
+  // Pot3 pickup so it doesn't snap the newly-selected parameter.
   if (patchShortPressed) {
     if (euclid_mode == 0) {
       euclid_selected_param = (euclid_selected_param + 1) % 4;
@@ -627,6 +696,7 @@ void euclid_tick() {
       if (euclid_selected_param == 0) euclid_sel_channel = (euclid_sel_channel + 1) % 4;
     }
     patchShortPressed = false;
+    pickup_arm(euclid_pickup, p_bpm, p_mode, p_param);
   }
 
   euclid_bpm = bpm; // cache for render
@@ -767,6 +837,7 @@ static float lfo_amp[4]       = {1,1,1,1};   // 0..5V peak (amplitude knob scale
 static uint8_t lfo_shape[4]   = {LFO_SINE,LFO_TRI,LFO_SQUARE,LFO_RAMP_UP};
 static int lfo_edit_idx       = 0;           // which LFO pots are editing
 static uint32_t lfo_last_ms   = 0;           // last tick time
+static PotPickup lfo_pickup;                 // soft-takeover across LFO switches
 
 static float quadlfo_shape_eval(uint8_t shape, float ph) {
   // ph in [0,1)
@@ -790,6 +861,7 @@ void quadlfo_enter() {
   for (int i=0;i<4;i++) { lfo_phase[i]=0.0f; lfo_rate_hz[i]=1.0f; lfo_amp[i]=2.5f; }
   lfo_shape[0]=LFO_SINE; lfo_shape[1]=LFO_TRI; lfo_shape[2]=LFO_SQUARE; lfo_shape[3]=LFO_RAMP_UP;
   lfo_last_ms = millis();
+  pickup_setLive(lfo_pickup); // pots live for the initial LFO
 }
 
 void quadlfo_tick() {
@@ -806,19 +878,34 @@ void quadlfo_tick() {
   float p_rate = readPotNormSmooth(PIN_POT2, 1); // rate mapping
   float p_shape= readPotNormSmooth(PIN_POT3, 2); // shape select
 
-  // Short press cycles edited LFO index
-  if (patchShortPressed) { lfo_edit_idx = (lfo_edit_idx + 1) & 0x3; patchShortPressed = false; }
+  // Short press cycles edited LFO index; arm pickup so the pots don't snap the
+  // newly-selected LFO's params until each knob crosses its stored value.
+  if (patchShortPressed) {
+    lfo_edit_idx = (lfo_edit_idx + 1) & 0x3;
+    patchShortPressed = false;
+    pickup_arm(lfo_pickup, p_amp, p_rate, p_shape);
+  }
 
-  // Update selected LFO params
-  // Amplitude: 0..5V peak (bipolar), use direct scaling
-  lfo_amp[lfo_edit_idx] = p_amp * 5.0f;
+  // Normalized (0..1) positions of the selected LFO's current params, for the
+  // pickup comparison (inverse of each forward mapping below).
+  float ampN   = lfo_amp[lfo_edit_idx] / 5.0f;
+  float rateN  = sqrtf((lfo_rate_hz[lfo_edit_idx] - 0.05f) / (20.0f - 0.05f));
+  if (rateN < 0.0f) rateN = 0.0f; else if (rateN > 1.0f) rateN = 1.0f;
+  float shapeN = ((float)lfo_shape[lfo_edit_idx] + 0.5f) / (float)LFO_COUNT;
+
+  // Update selected LFO params only once each pot has taken over.
+  // Amplitude: 0..5V peak (bipolar), direct scaling.
+  if (pickup_update(lfo_pickup, 0, p_amp, ampN))
+    lfo_amp[lfo_edit_idx] = p_amp * 5.0f;
   // Rate: square for resolution at low end -> 0.05 .. 20 Hz
-  float rate = 0.05f + (p_rate * p_rate) * (20.0f - 0.05f);
-  lfo_rate_hz[lfo_edit_idx] = rate;
+  if (pickup_update(lfo_pickup, 1, p_rate, rateN))
+    lfo_rate_hz[lfo_edit_idx] = 0.05f + (p_rate * p_rate) * (20.0f - 0.05f);
   // Shape index
-  int sh = (int)(p_shape * (float)LFO_COUNT);
-  if (sh < 0) sh = 0; else if (sh >= LFO_COUNT) sh = LFO_COUNT - 1;
-  lfo_shape[lfo_edit_idx] = (uint8_t)sh;
+  if (pickup_update(lfo_pickup, 2, p_shape, shapeN)) {
+    int sh = (int)(p_shape * (float)LFO_COUNT);
+    if (sh < 0) sh = 0; else if (sh >= LFO_COUNT) sh = LFO_COUNT - 1;
+    lfo_shape[lfo_edit_idx] = (uint8_t)sh;
+  }
 
   // Advance all LFO phases
   for (int i=0;i<4;i++) {
@@ -885,6 +972,7 @@ static EnvStage env_stages[2]  = {ENV_IDLE, ENV_IDLE};
 static bool env_gate_state[2]  = {false, false};
 static uint8_t env_adc_divider = 0;         // tick sub-counter for ADC read decimation
 static uint16_t env_prev_code[2] = {0, 0};  // previous DAC codes for slew limiting
+static PotPickup env_pickup;                // soft-takeover across E1/E2 switches
 
 void env_enter() {
   resetPotSmooth();
@@ -898,6 +986,7 @@ void env_enter() {
   env_adc_divider = 0;
   env_prev_code[0] = env_prev_code[1] = kGateLowCode;
   env_last_ms = millis();
+  pickup_setLive(env_pickup); // pots live for the initial envelope
   // Zero all CV outputs so stale values from previous patch don't persist
   if (haveMCP) {
     mcp_values[CV0_DA_CH] = kGateLowCode;
@@ -921,13 +1010,23 @@ void env_tick() {
   float potAD  = readPotNormSmooth(PIN_POT2, 1); // 0..1
   float potSR  = readPotNormSmooth(PIN_POT3, 2); // 0..1
 
-  // Short press: select which envelope to edit (Env1/Env2)
-  if (patchShortPressed) { env_edit_idx ^= 1; patchShortPressed = false; }
+  // Short press: select which envelope to edit (Env1/Env2). Arm pickup so the
+  // pots don't snap the newly-selected envelope's params until each knob
+  // crosses its stored value.
+  if (patchShortPressed) {
+    env_edit_idx ^= 1;
+    patchShortPressed = false;
+    pickup_arm(env_pickup, potVel, potAD, potSR);
+  }
 
-  // Update selected env params from pots
-  env_params_AD[env_edit_idx]  = potAD;
-  env_params_SR[env_edit_idx]  = potSR;
-  env_params_Vel[env_edit_idx] = potVel;
+  // Update selected env params from pots, gated by soft-takeover.
+  // Pot1->Vel, Pot2->AD, Pot3->SR; params are already stored normalized (0..1).
+  if (pickup_update(env_pickup, 0, potVel, env_params_Vel[env_edit_idx]))
+    env_params_Vel[env_edit_idx] = potVel;
+  if (pickup_update(env_pickup, 1, potAD, env_params_AD[env_edit_idx]))
+    env_params_AD[env_edit_idx] = potAD;
+  if (pickup_update(env_pickup, 2, potSR, env_params_SR[env_edit_idx]))
+    env_params_SR[env_edit_idx] = potSR;
 
   // External triggers: threshold-based gate detection with hysteresis.
   // Lower ADC code = higher Eurorack voltage (inverting front-end).
@@ -1106,6 +1205,10 @@ static uint16_t quant_code0 = 0, quant_code1 = 0;
 // Hysteresis: require input to move past the semitone midpoint by this margin
 // (in volts) before flipping to the next note. ~10 mV ≈ 0.12 semitones.
 static const float kQuantHysteresis = 0.010f;
+// Each ADS single-ended read blocks ~1.16 ms at 860 SPS; reading both channels
+// every 2 ms tick would overrun the control loop. Decimate to every 4th tick
+// (~125 Hz), matching the Env patch — far faster than needed for pitch.
+static uint8_t quant_adc_divider = 0;
 
 void quant_enter() {
   resetPotSmooth();
@@ -1114,8 +1217,13 @@ void quant_enter() {
   quant_vq0 = quant_vq1 = NAN;
   quant_prev_vq0 = quant_prev_vq1 = NAN;
   quant_code0 = quant_code1 = kGateLowCode;
+  quant_adc_divider = 0;
 }
 void quant_tick() {
+  // Only read/quantise/output every 4th tick to keep the loop responsive.
+  if (++quant_adc_divider < 4) return;
+  quant_adc_divider = 0;
+
   if (haveADS) {
     quant_raw0 = ads.readADC_SingleEnded(AD0_CH);
     quant_raw1 = ads.readADC_SingleEnded(AD1_CH);
@@ -1487,7 +1595,6 @@ static uint8_t patchIdx = 0;
 static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
-static int activePlaceholder = -1; // -1 = none; 0 reserved for Diag
 static uint32_t menuIgnoreUntil = 0;
 
 // -------------------- Input --------------------
@@ -1507,23 +1614,15 @@ void handleButtons() {
       } else {
         // long press -> select current
         uint8_t sel = homeMenu.commit();
-        // If the selected index corresponds to a registered patch in the current bank,
-        // activate that patch. Otherwise treat it as a placeholder screen.
+        // Activate the selected patch if it's registered in the current bank;
+        // otherwise ignore the press and stay in the menu (defensive guard for
+        // banks that may contain gaps).
         if (sel < banks[bankIdx]->patchCount && banks[bankIdx]->patches[sel] != nullptr) {
           homeMenuActive = false;
-          activePlaceholder = -1;
           bankIdx = 0; patchIdx = sel;
           saveLastPatch(bankIdx, patchIdx);
           Patch* p = banks[bankIdx]->patches[patchIdx];
           if (p && p->enter) p->enter();
-        } else {
-          // Placeholder screens for other items: remember which placeholder is active
-          activePlaceholder = sel; // 1..N
-          homeMenuActive = false;
-          // draw immediately (single-word placeholder below the top band)
-          oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
-          ui::printClipped(0, UI_TOP_MARGIN, OLED_W, kHomeItems[sel]);
-          oled.display();
         }
       }
     } else {
@@ -1531,9 +1630,8 @@ void handleButtons() {
       if (held <= 600) {
         patchShortPressed = true;
       } else {
-        // enter menu from patch: reset placeholder, clear patch short flag, force redraw and ignore spurious inputs
+        // enter menu from patch: clear patch short flag, force redraw and ignore spurious inputs
         homeMenuActive = true;
-        activePlaceholder = -1;
         patchShortPressed = false;
         clearLastPatch(); // next boot will show menu instead of auto-launching
         menuIgnoreUntil = millis() + 400;
@@ -1643,7 +1741,6 @@ void setup() {
       bankIdx  = savedBank;
       patchIdx = savedPatch;
       homeMenuActive   = false;
-      activePlaceholder = -1;
       Patch* p = banks[bankIdx]->patches[patchIdx];
       if (p && p->enter) p->enter();
       Serial.printf("[BOOT] Auto-restored patch %s\n", p ? p->name : "?");
@@ -1671,10 +1768,6 @@ void loop() {
     lastUiMs = now;
     if (homeMenuActive) {
       homeMenu.draw();
-    } else if (activePlaceholder >= 1) {
-      // show placeholder single-word screen (already drawn on select, but keep it)
-      // draw minimal heartbeat so screen doesn't get overwritten
-      ;
     } else {
       Patch* p = banks[bankIdx]->patches[patchIdx];
       if (p && p->render) p->render();

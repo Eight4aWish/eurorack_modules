@@ -39,6 +39,7 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot1: BPM (INT mode: 30–300 BPM). If external clock edges are detected on `AD_EXT_CLOCK_CH`, the clock follows the external period.
   - Pot2: Select which channel to edit (CH0 / CH1 / CH2 / CH3).
   - Pot3: Set division/multiplication for the selected channel.
+  - Pot pickup: After selecting a different channel with Pot2, Pot3 stays inactive until it crosses (or already matches) that channel's stored division, so divisions aren't clobbered when scanning channels.
 
 ### Euclid
 - Purpose: Euclidean drum triggers on up to 4 outputs.
@@ -51,6 +52,7 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2: Mode select — <50%: Simple, ≥50%: Complex.
   - Pot3: Adjusts the currently selected parameter (Steps/Pulses/Rotation).
   - Short press: Cycles the selected parameter. In Complex mode, when the cycle wraps, the selected channel advances (CH0→CH1→CH2→CH3).
+  - Pot pickup: After cycling to a new parameter (or switching Simple/Complex with Pot2), Pot3 stays inactive until it crosses (or already matches) that parameter's stored value, so the previous parameter isn't clobbered.
 
 ### Env (Dual Envelopes)
 - Purpose: Two independent macro ADSR-style envelopes.
@@ -61,6 +63,7 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2: AD macro — Attack and Decay are linked; turning clockwise lengthens both. Short settings are punchy.
   - Pot3: S/R macro — Sustain level and Release time together; higher values raise sustain and lengthen release.
   - Short press: Toggle which envelope is edited (E1/E2). Header shows the active target; first row displays `Vel <n>%` for the selected envelope.
+  - Pot pickup: After switching envelopes, each pot stays inactive until it crosses (or already matches) the selected envelope's stored value, so the other envelope's settings aren't clobbered.
 - Envelope Model:
   - Attack(ms) = 1 + (AD²) × 2000.
   - Decay(ms) = Attack × (0.15 + 0.85 × Sustain) for percussive response.
@@ -82,6 +85,15 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2: Horizontal window (32..128 samples).
   - Pot3: Midpoint offset.
 
+### MIDI (USB MIDI-to-CV)
+- Purpose: Monophonic USB-MIDI to CV/gate converter (last-note priority with a held-note stack).
+- Outputs: CV0 = pitch (1 V/oct, MIDI note 36/C2 = 0 V), CV1 = gate (+5 V on / 0 V off), CV2 = velocity (0–5 V), CV3 = mod wheel / CC1 (0–5 V).
+- Display: Note name + octave, pitch volts, velocity and mod bars, held-note count, and the active channel.
+- Controls:
+  - Pot2: MIDI channel — `OMNI` (<1/17 of travel) or `CH1`..`CH16`.
+  - Pot1/Pot3: No effect.
+- Notes: Pitch is calibrated via `voltsToDac()`; the device enumerates as "Pico2W OC MIDI".
+
 ### Calibration
 - Approach: Use the `Diag` patch for DMM-first calibration. Record raw ADC codes vs known volts, and raw DAC codes vs measured volts, then fit straight lines per channel.
 - Integration: Static fits are compiled in (see `include/pico2w-oc/calib_static.h`). Diagnostics remain raw-only.
@@ -94,6 +106,7 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2: Rate (≈0.05–20 Hz with squared mapping for fine low-end control).
   - Pot3: Shape (Sin/Tri/Sq/Up/Down).
   - Short press: Cycle edited LFO target (L0→L1→L2→L3). Title right shows `L<idx>`.
+  - Pot pickup: After switching LFOs, each pot stays inactive until it crosses (or already matches) the selected LFO's stored value, so the other LFOs' settings aren't clobbered.
   - Long press: Return to menu.
  - Notes: All LFOs run continuously; editing only affects the selected LFO’s parameters.
 
@@ -103,7 +116,7 @@ This guide covers navigation, controls, and behavior for the current functional 
 - Physical Mapping: DAC channels use physical macros `CV0_DA_CH..CV3_DA_CH`; ADS channels use `AD0_CH`, `AD1_CH`, and `AD_EXT_CLOCK_CH` in `include/pico2w-oc/pins.h`.
 - External Clocking: Provide clean rising edges into `AD_EXT_CLOCK_CH` for reliable detection.
 - OLED Grid: Keep titles at `y=0`; use rows `16/26/36/46/56` for content.
-- Menu: Currently 7 patches — `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `Diag`.
+- Menu: Currently 8 patches — `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `MIDI`, `Diag`.
 
 ## PlatformIO Quick Commands
 
