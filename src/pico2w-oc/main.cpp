@@ -937,20 +937,22 @@ void quadlfo_render() {
   ui::printClipped(0, 0, 64, "QuadLFO");
   oled.setCursor(66,0); oled.print("L"); oled.print(lfo_edit_idx);
 
-  // Row 1: Show only amplitude for the selected LFO
-  float ampV = lfo_amp[lfo_edit_idx];
+  // Row 1: selected LFO's params in pot order (Pot1=Amp, Pot2=Rate, Pot3=Shape)
   oled.setCursor(0,16);
   oled.print(">L"); oled.print(lfo_edit_idx);
-  oled.print(" Amp "); oled.print(ampV,1); oled.print("V");
+  oled.print(" A"); oled.print(lfo_amp[lfo_edit_idx],1); oled.print("V ");
+  oled.print(lfo_rate_hz[lfo_edit_idx],1); oled.print("Hz ");
+  oled.print(kLfoShapeNames[lfo_shape[lfo_edit_idx]]);
 
-  // Rows for each LFO summary
+  // Per-LFO summary, fields ordered to match the pots: Amp, Rate, Shape.
   for (int i=0;i<4;i++) {
     int y = 26 + i*10; if (y > 56) y = 56; // ensure fits grid
     oled.setCursor(0,y);
     if (i == lfo_edit_idx) oled.print("*"); else oled.print(" ");
-    oled.print("L"); oled.print(i); oled.print(" ");
-    oled.print(lfo_rate_hz[i],2); oled.print("Hz ");
-    oled.print(kLfoShapeNames[lfo_shape[i]]); oled.print(" A"); oled.print(lfo_amp[i],1);
+    oled.print("L"); oled.print(i);
+    oled.print(" A"); oled.print(lfo_amp[i],1);
+    oled.print(" "); oled.print(lfo_rate_hz[i],2); oled.print("Hz ");
+    oled.print(kLfoShapeNames[lfo_shape[i]]);
   }
 
   oled.display();

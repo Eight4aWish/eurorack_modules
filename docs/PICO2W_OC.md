@@ -102,9 +102,10 @@ This guide covers navigation, controls, and behavior for the current functional 
 - Purpose: 4 independent LFOs with per-LFO amplitude, rate, and shape.
 - Outputs: CV0..CV3 emit LFOs; bipolar ±amp mapped via calibration to DAC codes.
 - Controls (smoothed, inverted):
-  - Pot1: Amplitude (0..~5 V peak per LFO). Header shows amplitude for the selected LFO.
+  - Pot1: Amplitude (0..~5 V peak per LFO).
   - Pot2: Rate (≈0.05–20 Hz with squared mapping for fine low-end control).
   - Pot3: Shape (Sin/Tri/Sq/Up/Down).
+  - Display: First row and the per-LFO rows list fields in pot order — Amp, Rate, Shape — so they read left-to-right to match the knobs.
   - Short press: Cycle edited LFO target (L0→L1→L2→L3). Title right shows `L<idx>`.
   - Pot pickup: After switching LFOs, each pot stays inactive until it crosses (or already matches) the selected LFO's stored value, so the other LFOs' settings aren't clobbered.
   - Long press: Return to menu.
