@@ -1609,9 +1609,8 @@ static const TmScale kTmScales[] = {
 static const int kTmScaleCount = sizeof(kTmScales) / sizeof(kTmScales[0]);
 static const char* kTmNoteNames[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
 
-// Gate length as a fraction of the clock interval, chosen by 2 register bits.
-static const float kTmGateFrac[4] = {0.10f, 0.35f, 0.60f, 0.90f};
-static const uint32_t kTmInternalMs = 500; // 120 BPM internal fallback
+static const uint32_t kTmInternalMs = 500;       // 120 BPM internal fallback
+static const float    kTmGateFraction = 0.5f;     // gate-high time as fraction of the clock interval
 
 // Per-voice state (index 0 = V1, 1 = V2)
 static uint16_t tm_reg[2]      = {0xACE1, 0x5B3A};
@@ -1634,8 +1633,10 @@ static uint32_t tm_last_clock_ms = 0;
 static float    tm_interval_ms = (float)kTmInternalMs;
 static bool     tm_clk_gate = false;
 static bool     tm_rst_gate = false;
-static bool     tm_ext_active = false;
+static bool     tm_ext_ever = false; // has any external clock been seen this session
 static uint32_t tm_internal_next_ms = 0;
+static uint8_t  tm_rst_div = 0;      // sub-counter: poll reset (AD1) every N ticks
+static uint8_t  tm_clk_skip = 0;     // skip one clock sample after resuming continuous mode
 
 static inline uint16_t tm_mask(uint8_t len) {
   return (len >= 16) ? 0xFFFFu : (uint16_t)((1u << len) - 1u);
@@ -1659,8 +1660,11 @@ static void tm_compute_output(int v, bool setGate) {
     bool gateOn = ((tm_reg[v] >> (len - 1)) & 1u) != 0; // pattern-locked density
     if (gateOn) {
       tm_gate_state[v] = true;
-      float gms = kTmGateFrac[tm_reg[v] & 0x3] * tm_interval_ms;
-      if (gms < 5.0f) gms = 5.0f;
+      // Gate length depends only on tempo (not Length or pattern bits): half the
+      // clock interval, clamped so it always fits inside one step.
+      float gms = kTmGateFraction * tm_interval_ms;
+      if (gms < 8.0f) gms = 8.0f;
+      if (tm_interval_ms > 16.0f && gms > tm_interval_ms - 8.0f) gms = tm_interval_ms - 8.0f;
       tm_gate_off_ms[v] = millis() + (uint32_t)gms;
     }
   }
@@ -1707,8 +1711,13 @@ void tm_enter() {
   tm_last_clock_ms = 0;
   tm_interval_ms = (float)kTmInternalMs;
   tm_clk_gate = tm_rst_gate = false;
-  tm_ext_active = false;
+  tm_ext_ever = false;
   tm_internal_next_ms = millis();
+  tm_rst_div = 0;
+  tm_clk_skip = 1;
+  // Run the clock channel in continuous mode for low-jitter, non-blocking edge
+  // detection (same approach as the Clock patch).
+  if (haveADS) ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
   pickup_setLive(tm_pickup);
   if (haveMCP) {
     mcp_values[CV0_DA_CH] = voltsToDac(0, tm_note_v[0]);
@@ -1758,36 +1767,54 @@ void tm_tick() {
     }
   }
 
-  // ---- Clock + reset CV inputs: rising-edge detect with hysteresis ----
-  // Lower ADC code = higher Eurorack voltage (inverting front-end).
+  // ---- Clock + reset CV inputs (lower ADC code = higher Eurorack voltage) ----
+  // The clock channel runs in ADS continuous mode so it is polled non-blocking
+  // every tick (~0.1ms) for low-jitter edge timing — blocking single-shot reads
+  // (~1.16ms each) were coarse enough to miss edges and drag the tempo estimate
+  // around. Reset (AD1) needs no such precision, so we borrow the ADS for a
+  // single-shot read every 16 ticks, then resume clock continuous mode (and skip
+  // one possibly-stale clock sample on the following tick).
   if (haveADS) {
-    int16_t aClk = ads.readADC_SingleEnded(AD_EXT_CLOCK_CH); // AD0
-    int16_t aRst = ads.readADC_SingleEnded(AD1_CH);          // AD1
-    bool clkNow = tm_clk_gate ? (aClk < kGateOffThresh) : (aClk < kGateOnThresh);
-    bool rstNow = tm_rst_gate ? (aRst < kGateOffThresh) : (aRst < kGateOnThresh);
-    if (clkNow && !tm_clk_gate) {
-      if (tm_last_clock_ms) {
-        uint32_t dt = now - tm_last_clock_ms;
-        if (dt >= 20 && dt <= 4000) {
-          if (tm_interval_ms < 1.0f) tm_interval_ms = (float)dt;
-          else tm_interval_ms = 0.7f * tm_interval_ms + 0.3f * (float)dt;
+    if (++tm_rst_div >= 16) {
+      tm_rst_div = 0;
+      int16_t aRst = ads.readADC_SingleEnded(AD1_CH);
+      bool rstNow = tm_rst_gate ? (aRst < kGateOffThresh) : (aRst < kGateOnThresh);
+      if (rstNow && !tm_rst_gate) { tm_reset_voice(0); tm_reset_voice(1); }
+      tm_rst_gate = rstNow;
+      ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
+      tm_clk_skip = 1;
+    } else if (tm_clk_skip) {
+      tm_clk_skip = 0; // let the resumed continuous conversion settle
+    } else {
+      int16_t aClk = ads.getLastConversionResults(); // non-blocking
+      bool clkNow = tm_clk_gate ? (aClk < kGateOffThresh) : (aClk < kGateOnThresh);
+      if (clkNow && !tm_clk_gate) {
+        if (tm_last_clock_ms) {
+          uint32_t dt = now - tm_last_clock_ms;
+          if (dt >= 50 && dt <= 3000) {
+            if (tm_interval_ms < 1.0f) {
+              tm_interval_ms = (float)dt; // first interval seeds the estimate
+            } else {
+              // Reject outliers (a missed or doubled edge) so one bad interval
+              // can't drag the tempo; we still step on every detected edge.
+              float ratio = (float)dt / tm_interval_ms;
+              if (ratio > 0.6f && ratio < 1.6f)
+                tm_interval_ms = 0.8f * tm_interval_ms + 0.2f * (float)dt;
+            }
+          }
         }
+        tm_last_clock_ms = now;
+        tm_ext_ever = true;
+        tm_clock_step();
       }
-      tm_last_clock_ms = now;
-      tm_ext_active = true;
-      tm_clock_step();
+      tm_clk_gate = clkNow;
     }
-    if (rstNow && !tm_rst_gate) { tm_reset_voice(0); tm_reset_voice(1); }
-    tm_clk_gate = clkNow;
-    tm_rst_gate = rstNow;
   }
 
-  // External clock timeout -> internal fallback
-  if (tm_ext_active && tm_last_clock_ms && (now - tm_last_clock_ms > kExtClockTimeoutMs)) {
-    tm_ext_active = false;
-    tm_internal_next_ms = now;
-  }
-  if (!tm_ext_active) {
+  // Internal clock runs only until the first external clock is seen (bench
+  // fallback). Once externally clocked, the module follows that clock and
+  // holds when it stops — no internal free-run takeover.
+  if (!tm_ext_ever) {
     tm_interval_ms = (float)kTmInternalMs;
     if (now >= tm_internal_next_ms) {
       tm_internal_next_ms = now + kTmInternalMs;
@@ -1818,11 +1845,16 @@ void tm_render() {
 
   if (tm_page < 2) {
     int v = tm_page;
+    // Randomness peaks at the knob centre and locks at both ends; show the
+    // amount (0..100%) plus which locked end: Loop (len N) or Inv (len 2N).
+    float k = tm_rand[v];
+    int amt = (int)((1.0f - fabsf(2.0f * k - 1.0f)) * 100.0f + 0.5f);
     oled.setCursor(0, 16);
-    oled.print("Rnd "); oled.print((int)(tm_rand[v] * 100.0f + 0.5f)); oled.print("% ");
-    oled.print("Len "); oled.print(tm_len[v]);
+    oled.print("Rnd "); oled.print(amt); oled.print("%");
+    if (amt < 100) oled.print(k < 0.5f ? " Loop" : " Inv");
     oled.setCursor(0, 26);
-    oled.print("Rng "); oled.print(tm_range[v]);
+    oled.print("Len "); oled.print(tm_len[v]);
+    oled.print("  Rng "); oled.print(tm_range[v]);
     // Register bits (MSB..LSB left-to-right), filled = 1.
     int len = tm_len[v];
     const int by = 36, sz = 6;
@@ -1844,8 +1876,13 @@ void tm_render() {
   oled.setCursor(54, 48);
   oled.print("2:"); oled.print(kTmNoteNames[tm_note_pc[1]]); oled.print(tm_gate_state[1] ? "*" : " ");
   oled.setCursor(0, 56);
-  oled.print(tm_ext_active ? "EXT " : "INT ");
-  oled.print((int)(60000.0f / tm_interval_ms + 0.5f)); oled.print(" BPM");
+  if (!tm_ext_ever) {
+    oled.print("INT "); oled.print((int)(60000.0f / tm_interval_ms + 0.5f)); oled.print(" BPM");
+  } else if (millis() - tm_last_clock_ms > kExtClockTimeoutMs) {
+    oled.print("EXT -- (stop)");
+  } else {
+    oled.print("EXT "); oled.print((int)(60000.0f / tm_interval_ms + 0.5f)); oled.print(" BPM");
+  }
 
   oled.display();
 }

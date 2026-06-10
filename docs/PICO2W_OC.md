@@ -96,14 +96,14 @@ This guide covers navigation, controls, and behavior for the current functional 
 
 ### Turing (Dual Turing Machine)
 - Purpose: Two independent Music-Thing-style looping shift registers generating quantised pitch + variable gates (TB3PO-ish), clocked and reset from the CV inputs.
-- Inputs: `AD0` = clock in (rising edge advances both voices), `AD1` = reset in (rising edge realigns both loop phases to the top of the loop). An internal 120 BPM clock runs as a fallback when no external clock is detected.
+- Inputs: `AD0` = clock in (rising edge advances both voices), `AD1` = reset in (rising edge realigns both loop phases to the top of the loop). An internal 120 BPM clock runs only until the first external clock edge is seen (bench fallback); once externally clocked the module follows that clock and **holds when the clock stops** (no internal free-run takeover). Re-enter the patch to get the internal clock back.
 - Outputs: V1 → pitch `CV0`, gate `CV1`; V2 → pitch `CV2`, gate `CV3`. Pitch is 1 V/oct via calibration; gates use fixed gate codes.
-- Engine: Each clock, the per-voice register rotates and the bit that falls off is fed back, flipped with probability set by Randomness — fully CCW = locked loop, centre = random, fully CW = inverted (double-length) loop. Pitch comes from the low 8 register bits mapped across `Range` scale degrees and quantised to the global scale/root. The gate fires on a register tap (pattern-locked density) with length (10/35/60/90 % of the clock interval) chosen by 2 register bits.
+- Engine: Each clock, the per-voice register rotates and the bit that falls off is fed back, flipped with probability set by Randomness — fully CCW = locked loop (length N), centre = maximum randomness, fully CW = locked but inverted (length 2N). Note randomness peaks at the **centre** and locks at **both** ends. Pitch comes from the low 8 register bits mapped across `Range` scale degrees and quantised to the global scale/root. The gate fires on a register tap (pattern-locked density); its length is half the measured clock interval (tempo-dependent only, independent of Length/pattern).
 - Pages (short press cycles `V1 → V2 → KEY`; title-right shows the active page):
   - `V1`/`V2`: Pot1 Randomness, Pot2 Length (2–16), Pot3 Range (1–24 scale degrees) — per voice.
   - `KEY` (global to both voices): Pot1 Scale (Chromatic / Major / Minor / MinPent / MajPent / Dorian), Pot2 Root note (C…B), Pot3 Octave base (0–4).
 - Pot pickup: After switching page, each pot stays inactive until it crosses (or already matches) the stored value for the newly-selected page/voice.
-- Display: Selected voice shows Rnd/Len/Rng plus its register bits as squares; KEY shows Scale/Root/Octave. Bottom row shows both voices' current note + gate (`*`) and the clock source/tempo (`INT`/`EXT` BPM).
+- Display: Selected voice shows randomness as an amount that peaks at centre with a `Loop`/`Inv` tag for the locked end (e.g. `Rnd 0% Loop`, `Rnd 100%`, `Rnd 0% Inv`), plus Len/Rng and the register bits as squares; KEY shows Scale/Root/Octave. Bottom row shows both voices' current note + gate (`*`) and the clock source/tempo (`INT`/`EXT` BPM, or `EXT -- (stop)` when an external clock has stopped).
 
 ### Calibration
 - Approach: Use the `Diag` patch for DMM-first calibration. Record raw ADC codes vs known volts, and raw DAC codes vs measured volts, then fit straight lines per channel.
