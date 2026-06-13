@@ -245,6 +245,86 @@ static void printLabelOnly(int x, int y, int w, const char* label) { eurorack_ui
 static void drawBarF(int x, int y, int w, int h, float norm) { eurorack_ui::drawBar(oled, x, y, w, h, norm, false); }
 }
 
+// -------------------- Shared musical key --------------------
+// One scale/root/octave shared by every pitched patch (Turing, Acid, Quant...).
+// State is module-global and persists across patch switches so the instrument
+// keeps a single "key" no matter which patch is on screen. Patches that don't
+// need every field (e.g. Quant ignores octave) simply use what applies.
+struct Scale { const char* name; uint8_t size; uint8_t semis[12]; };
+static const Scale kScales[] = {
+  { "Chromatic", 12, {0,1,2,3,4,5,6,7,8,9,10,11} },
+  { "Major",      7, {0,2,4,5,7,9,11} },
+  { "Minor",      7, {0,2,3,5,7,8,10} },
+  { "MinPent",    5, {0,3,5,7,10} },
+  { "MajPent",    5, {0,2,4,7,9} },
+  { "Dorian",     7, {0,2,3,5,7,9,10} },
+};
+static const int kScaleCount = sizeof(kScales) / sizeof(kScales[0]);
+static const char* kNoteNames[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+
+// Module-global key (defaults: C Minor, base octave 1V). Not reset on patch entry.
+static uint8_t g_scale  = 2; // Minor
+static uint8_t g_root   = 0; // C
+static uint8_t g_octave = 1; // base octave (volts)
+
+// Map a scale degree (0..) to output volts using the shared key, clamped 0..5V.
+// If `pitchClass` is non-null it receives the 0..11 pitch class for display.
+static float key_degreeToVolts(int degree, uint8_t* pitchClass = nullptr) {
+  const Scale& sc = kScales[g_scale];
+  int oct  = degree / sc.size;
+  int idx  = degree % sc.size;
+  int semi = oct * 12 + sc.semis[idx];
+  if (pitchClass) *pitchClass = (uint8_t)((g_root + semi) % 12);
+  float v = (float)g_octave + (float)(g_root + semi) / 12.0f;
+  if (v < 0.0f) v = 0.0f; else if (v > 5.0f) v = 5.0f;
+  return v;
+}
+
+// Snap an input voltage to the nearest note of the shared scale+root, returning
+// volts (clamped 0..5V). Used by Quant. Searches scale tones across octaves.
+static float key_quantizeVolts(float v) {
+  const Scale& sc = kScales[g_scale];
+  float s = v * 12.0f;                 // input in semitones from 0V
+  float best = 0.0f, bestErr = 1e30f;
+  for (int oct = -1; oct <= 6; oct++) {
+    for (int i = 0; i < sc.size; i++) {
+      float cand = (float)((int)g_root + sc.semis[i] + 12 * oct);
+      float err = fabsf(cand - s);
+      if (err < bestErr) { bestErr = err; best = cand; }
+    }
+  }
+  float volts = best / 12.0f;
+  if (volts < 0.0f) volts = 0.0f; else if (volts > 5.0f) volts = 5.0f;
+  return volts;
+}
+
+// Shared KEY edit page used by any pitched patch. Pot1 scale, Pot2 root,
+// Pot3 octave, all via pickup so they don't snap on arrival. Pass the three
+// normalized (0..1) pot readings; `pk` is the caller's PotPickup.
+static void key_update(PotPickup& pk, float p1, float p2, float p3) {
+  float tScale = ((float)g_scale + 0.5f) / (float)kScaleCount;
+  float tRoot  = ((float)g_root + 0.5f) / 12.0f;
+  float tOct   = (float)g_octave / 4.0f;
+  if (pickup_update(pk, 0, p1, tScale)) {
+    int s = (int)(p1 * kScaleCount); if (s >= kScaleCount) s = kScaleCount - 1;
+    g_scale = (uint8_t)s;
+  }
+  if (pickup_update(pk, 1, p2, tRoot)) {
+    int rt = (int)(p2 * 12.0f); if (rt > 11) rt = 11;
+    g_root = (uint8_t)rt;
+  }
+  if (pickup_update(pk, 2, p3, tOct)) {
+    int oc = (int)(p3 * 4.99f); if (oc > 4) oc = 4;
+    g_octave = (uint8_t)oc;
+  }
+}
+// Render the shared KEY page body (rows at y=16/26). Caller draws header/footer.
+static void key_draw() {
+  oled.setCursor(0, 16); oled.print("Scale "); oled.print(kScales[g_scale].name);
+  oled.setCursor(0, 26); oled.print("Root "); oled.print(kNoteNames[g_root]);
+  oled.setCursor(64, 26); oled.print("Oct "); oled.print(g_octave);
+}
+
 // -------------------- Patch: Util/Diag --------------------
 void diag_enter() { resetPotSmooth(); }
 
@@ -772,50 +852,40 @@ void euclid_tick() {
 }
 
 void euclid_render() {
-  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE);
-  ui::printClipped(0, 0, 64, "Euclid");
-  // Mode in header right
-  oled.setCursor(66,0);
-  oled.print(euclid_mode == 0 ? "Simple" : "Complex");
-  // Row 1: BPM (from tick state to avoid re-reading ADC)
-  oled.setCursor(0,16); oled.print("BPM "); oled.print(euclid_bpm);
+  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 70, "Euclid");
+  oled.setCursor(78, 0);
+  oled.print(euclid_mode == 0 ? "Smp " : "Cpx "); oled.print(euclid_bpm);
 
-  if (euclid_mode == 0) {
-    // Simple mode UI
-    // Row 2: Steps / Pulses
-    oled.setCursor(0,26); oled.print("Steps "); oled.print(euclid_steps);
-    if (euclid_selected_param == 0) oled.drawFastHLine(0, 35, 40, SSD1306_WHITE);
-    oled.setCursor(64,26); oled.print("Pulses "); oled.print(euclid_pulses);
-    if (euclid_selected_param == 1) oled.drawFastHLine(64, 35, 50, SSD1306_WHITE);
-    // Row 3: Rotation (right side unused)
-    oled.setCursor(0,36); oled.print("Rot "); oled.print(euclid_rotation);
-    if (euclid_selected_param == 2) oled.drawFastHLine(0, 45, 30, SSD1306_WHITE);
-  } else {
-    // Complex mode UI: show per-channel params compactly
-    for (int ch=0; ch<4; ch++) {
-      int y = (ch < 2) ? 26 : 36;
-      int x = (ch % 2 == 0) ? 0 : 64;
-      oled.setCursor(x, y);
-      oled.print("CH"); oled.print(ch); oled.print(" ");
-      oled.print(euclid_ch_steps[ch]); oled.print('/');
-      oled.print(euclid_ch_pulses[ch]); oled.print(" r");
-      oled.print(euclid_ch_rotation[ch]);
-      // underline current selection (channel + param)
-      if (ch == euclid_sel_channel) {
-        int ux = x;
-        int uw = (euclid_selected_param==0)?20:(euclid_selected_param==1)?28:10;
-        int uy = y + 9;
-        oled.drawFastHLine(ux, uy, uw, SSD1306_WHITE);
-      }
+  // One row per channel: step boxes (filled = pulse), playhead tick under the
+  // current step, live-gate marker, and a '>' on the selected channel (complex).
+  const int sz = 5, gap = 1, x0 = 14;
+  for (int ch = 0; ch < 4; ch++) {
+    int y = 16 + ch * 10; // keep below the 16px yellow title band
+    int steps  = (euclid_mode == 0) ? euclid_steps : euclid_ch_steps[ch];
+    int curIdx = (euclid_mode == 0) ? euclid_step_idx : euclid_ch_step_idx[ch];
+    oled.setCursor(0, y + 1);
+    oled.print((euclid_mode == 1 && ch == euclid_sel_channel) ? ">" : " ");
+    oled.print(ch);
+    if (euclid_state[ch]) oled.fillRect(11, y, 2, sz, SSD1306_WHITE); // live gate
+    for (int i = 0; i < steps && i < 16; i++) {
+      int x = x0 + i * (sz + gap);
+      if (x + sz > OLED_W) break;
+      if (euclid_patterns[ch][i]) oled.fillRect(x, y, sz, sz, SSD1306_WHITE);
+      else                        oled.drawRect(x, y, sz, sz, SSD1306_WHITE);
+      if (i == curIdx) oled.drawFastHLine(x, y + sz + 1, sz, SSD1306_WHITE);
     }
-    // BPM shown above; underline selection as before
   }
 
-  // Row 4 & 5: CV outputs (codes) for visibility
-  oled.setCursor(0,46); oled.print("CV0 "); oled.print(mcp_values[CV0_DA_CH]);
-  oled.setCursor(64,46); oled.print("CV1 "); oled.print(mcp_values[CV1_DA_CH]);
-  oled.setCursor(0,56); oled.print("CV2 "); oled.print(mcp_values[CV2_DA_CH]);
-  oled.setCursor(64,56); oled.print("CV3 "); oled.print(mcp_values[CV3_DA_CH]);
+  // Status: the parameter currently being edited + its value.
+  oled.setCursor(0, 56);
+  if (euclid_mode == 1) { oled.print("CH"); oled.print(euclid_sel_channel); oled.print(" "); }
+  oled.print((euclid_selected_param==0)?"Steps ":(euclid_selected_param==1)?"Puls ":(euclid_selected_param==2)?"Rot ":"BPM ");
+  int pv;
+  if (euclid_selected_param == 3)      pv = euclid_bpm;
+  else if (euclid_mode == 0)           pv = (euclid_selected_param==0)?euclid_steps:(euclid_selected_param==1)?euclid_pulses:euclid_rotation;
+  else                                 pv = (euclid_selected_param==0)?euclid_ch_steps[euclid_sel_channel]:(euclid_selected_param==1)?euclid_ch_pulses[euclid_sel_channel]:euclid_ch_rotation[euclid_sel_channel];
+  oled.print(pv);
 
   oled.display();
 }
@@ -934,25 +1004,39 @@ void quadlfo_tick() {
 
 void quadlfo_render() {
   oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 64, "QuadLFO");
-  oled.setCursor(66,0); oled.print("L"); oled.print(lfo_edit_idx);
 
-  // Row 1: selected LFO's params in pot order (Pot1=Amp, Pot2=Rate, Pot3=Shape)
-  oled.setCursor(0,16);
-  oled.print(">L"); oled.print(lfo_edit_idx);
-  oled.print(" A"); oled.print(lfo_amp[lfo_edit_idx],1); oled.print("V ");
-  oled.print(lfo_rate_hz[lfo_edit_idx],1); oled.print("Hz ");
-  oled.print(kLfoShapeNames[lfo_shape[lfo_edit_idx]]);
+  // Top line: numeric readout of the LFO being edited (pots = Amp/Rate/Shape).
+  oled.setCursor(0, 0);
+  oled.print("L"); oled.print(lfo_edit_idx); oled.print(":");
+  oled.print(kLfoShapeNames[lfo_shape[lfo_edit_idx]]); oled.print(" ");
+  oled.print(lfo_amp[lfo_edit_idx], 1); oled.print("V ");
+  oled.print(lfo_rate_hz[lfo_edit_idx], 2); oled.print("Hz");
 
-  // Per-LFO summary, fields ordered to match the pots: Amp, Rate, Shape.
-  for (int i=0;i<4;i++) {
-    int y = 26 + i*10; if (y > 56) y = 56; // ensure fits grid
-    oled.setCursor(0,y);
-    if (i == lfo_edit_idx) oled.print("*"); else oled.print(" ");
-    oled.print("L"); oled.print(i);
-    oled.print(" A"); oled.print(lfo_amp[i],1);
-    oled.print(" "); oled.print(lfo_rate_hz[i],2); oled.print("Hz ");
-    oled.print(kLfoShapeNames[lfo_shape[i]]);
+  // 2x2 grid of live mini-waveforms (one cycle each) with a moving phase dot.
+  // Cells stay below the 16px yellow title band.
+  const int cw = 62, chh = 23;
+  for (int i = 0; i < 4; i++) {
+    int cx  = (i % 2) * 64;
+    int cy0 = 16 + (i / 2) * 24;          // rows at y=16 and y=40
+    int midY = cy0 + chh / 2;
+    int ampPx = chh / 2 - 2;              // vertical headroom
+    float ascale = lfo_amp[i] / 5.0f;     // 0..1
+    if (i == lfo_edit_idx) oled.drawRect(cx, cy0, cw, chh, SSD1306_WHITE); // selected
+    for (int x = 2; x < cw - 2; x += 3) oled.drawPixel(cx + x, midY, SSD1306_WHITE); // zero line
+    const int px0 = cx + 2, pxw = cw - 4;
+    int prevY = midY;
+    for (int px = 0; px < pxw; px++) {
+      float ph = (float)px / (float)pxw;
+      float val = quadlfo_shape_eval(lfo_shape[i], ph);             // -1..1
+      int yy = midY - (int)(val * ascale * ampPx);
+      if (px > 0) oled.drawLine(px0 + px - 1, prevY, px0 + px, yy, SSD1306_WHITE);
+      prevY = yy;
+    }
+    float cph = lfo_phase[i];
+    int dpx = px0 + (int)(cph * (pxw - 1));
+    int dpy = midY - (int)(quadlfo_shape_eval(lfo_shape[i], cph) * ascale * ampPx);
+    oled.fillCircle(dpx, dpy, 1, SSD1306_WHITE);
+    oled.setCursor(cx + 2, cy0 + 1); oled.print("L"); oled.print(i);
   }
 
   oled.display();
@@ -1190,15 +1274,14 @@ static uint16_t voltsToDac(int ch, float v) {
 }
 
 // (Quant patch removed at user request)
-// ---- Quant patch: reads CV inputs, displays raw + computed volts, outputs quantized ----
-static float quantize_voct(float v) {
-  if (isnan(v)) return v;
-  if (v < -5.0f) v = -5.0f; if (v > 5.0f) v = 5.0f;
-  float st = roundf(v * 12.0f);
-  return st / 12.0f;
-}
+// ---- Quant patch: quantizes the two CV inputs to the shared musical key ----
+// MAIN page shows each channel's input voltage + output note on a pitch-class
+// strip (scale tones outlined, current note filled). KEY page edits the shared
+// scale/root via key_update. Quantized V/oct goes out on CV0/CV1.
 
 // ---- Quant state for tick/render split ----
+static int      quant_page = 0; // 0=MAIN, 1=KEY
+static PotPickup quant_pickup;
 static int16_t quant_raw0 = 0, quant_raw1 = 0;
 static float quant_vin0 = NAN, quant_vin1 = NAN;
 static float quant_vq0 = NAN, quant_vq1 = NAN;
@@ -1214,6 +1297,8 @@ static uint8_t quant_adc_divider = 0;
 
 void quant_enter() {
   resetPotSmooth();
+  quant_page = 0;
+  pickup_setLive(quant_pickup);
   quant_raw0 = quant_raw1 = 0;
   quant_vin0 = quant_vin1 = NAN;
   quant_vq0 = quant_vq1 = NAN;
@@ -1222,6 +1307,17 @@ void quant_enter() {
   quant_adc_divider = 0;
 }
 void quant_tick() {
+  // Page handling: short-press toggles MAIN / KEY; KEY page edits shared key.
+  float p1 = readPotNormSmooth(PIN_POT1, 0);
+  float p2 = readPotNormSmooth(PIN_POT2, 1);
+  float p3 = readPotNormSmooth(PIN_POT3, 2);
+  if (patchShortPressed) {
+    quant_page = (quant_page + 1) % 2;
+    patchShortPressed = false;
+    pickup_arm(quant_pickup, p1, p2, p3);
+  }
+  if (quant_page == 1) key_update(quant_pickup, p1, p2, p3);
+
   // Only read/quantise/output every 4th tick to keep the loop responsive.
   if (++quant_adc_divider < 4) return;
   quant_adc_divider = 0;
@@ -1237,8 +1333,8 @@ void quant_tick() {
       quant_vin1 = mapAdsToCv(ads.computeVolts(quant_raw1));
     #endif
   }
-  quant_vq0 = quantize_voct(quant_vin0);
-  quant_vq1 = quantize_voct(quant_vin1);
+  quant_vq0 = isnan(quant_vin0) ? NAN : key_quantizeVolts(quant_vin0);
+  quant_vq1 = isnan(quant_vin1) ? NAN : key_quantizeVolts(quant_vin1);
   // Hysteresis: only update the output note if the input has moved past
   // the current note boundary by at least kQuantHysteresis volts.
   if (!isnan(quant_prev_vq0) && !isnan(quant_vin0)
@@ -1262,28 +1358,42 @@ void quant_tick() {
     mcp_writeAll();
   }
 }
+// Draw one channel's row: input volts, output note name, and a 12-cell
+// pitch-class strip (scale tones outlined, the output note filled).
+static void quant_draw_channel(int yTop, const char* label, float vin, float vq,
+                               const bool* inScale) {
+  oled.setCursor(0, yTop);
+  oled.print(label); oled.print(' ');
+  if (isnan(vin)) oled.print("--.--"); else oled.print(vin, 2);
+  oled.print("V");
+  if (!isnan(vq)) {
+    int pc = ((int)lroundf(vq * 12.0f)) % 12; if (pc < 0) pc += 12;
+    oled.setCursor(86, yTop); oled.print(">"); oled.print(kNoteNames[pc]);
+  }
+  int outPc = isnan(vq) ? -1 : (((int)lroundf(vq * 12.0f)) % 12 + 12) % 12;
+  int yBox = yTop + 10;
+  for (int pc = 0; pc < 12; pc++) {
+    int x = 18 + pc * 9;
+    if (pc == outPc)        oled.fillRect(x, yBox, 8, 7, SSD1306_WHITE);
+    else if (inScale[pc])   oled.drawRect(x, yBox, 8, 7, SSD1306_WHITE);
+    // non-scale tones left blank
+  }
+}
+
 void quant_render() {
   oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 64, "Quant");
+  ui::printClipped(0, 0, 96, "Quant");
+  oled.setCursor(104, 0); oled.print(quant_page == 0 ? "QNT" : "KEY");
 
-  // Display raw ADS codes and computed input volts (from tick state)
-  oled.setCursor(0,16);  oled.print("Raw0 "); oled.print(quant_raw0);
-  oled.setCursor(64,16); oled.print("V0 "); if (isnan(quant_vin0)) oled.print("--"); else oled.print(quant_vin0,2);
-  oled.setCursor(0,26);  oled.print("Raw1 "); oled.print(quant_raw1);
-  oled.setCursor(64,26); oled.print("V1 "); if (isnan(quant_vin1)) oled.print("--"); else oled.print(quant_vin1,2);
-  // Show quantised output target volts
-  oled.setCursor(0,36);  oled.print("Out0 "); if (isnan(quant_vq0)) oled.print("--"); else oled.print(quant_vq0,2);
-  oled.setCursor(64,36); oled.print("Out1 "); if (isnan(quant_vq1)) oled.print("--"); else oled.print(quant_vq1,2);
-  // Show the DAC codes being written for CV0/CV1, including which physical channel
-  const uint8_t phys0 = CV0_DA_CH;
-  const uint8_t phys1 = CV1_DA_CH;
-  oled.setCursor(0,46);  oled.print("CV0"); oled.print(mcpPhysLetter(phys0)); oled.print(' '); oled.print((int)quant_code0);
-  oled.setCursor(64,46); oled.print("CV1"); oled.print(mcpPhysLetter(phys1)); oled.print(' '); oled.print((int)quant_code1);
-  // Predicted MCP4728 pin volts for those physical channels
-  float vDac0 = (mcpVdd * (float)quant_code0) / 4095.0f;
-  float vDac1 = (mcpVdd * (float)quant_code1) / 4095.0f;
-  oled.setCursor(0,56);  oled.print("V0p "); oled.print(vDac0,2);
-  oled.setCursor(64,56); oled.print("V1p "); oled.print(vDac1,2);
+  if (quant_page == 1) { key_draw(); oled.display(); return; }
+
+  // Pitch classes belonging to the current scale+root (for the strips).
+  bool inScale[12] = {false};
+  const Scale& sc = kScales[g_scale];
+  for (int i = 0; i < sc.size; i++) inScale[((int)g_root + sc.semis[i]) % 12] = true;
+
+  quant_draw_channel(16, "0", quant_vin0, quant_vq0, inScale);
+  quant_draw_channel(40, "1", quant_vin1, quant_vq1, inScale);
 
   oled.display();
 }
@@ -1291,7 +1401,8 @@ Patch patch_quant = { "Quant", quant_enter, quant_tick, quant_render, false };
 
 // ---- Scope patch: basic ADC oscilloscope for ADS inputs ----
 static const int SCOPE_SAMPLES = 128;
-static int16_t scope_buf[SCOPE_SAMPLES];
+static int16_t scope_buf[SCOPE_SAMPLES];   // AD0 (channel 0)
+static int16_t scope_buf2[SCOPE_SAMPLES];  // AD1 (channel 1)
 static int scope_idx = 0;
 static bool scope_buf_full = false; // true once buffer has wrapped at least once
 
@@ -1299,7 +1410,7 @@ void scope_enter() {
   resetPotSmooth();
   scope_idx = 0;
   scope_buf_full = false;
-  for (int i=0;i<SCOPE_SAMPLES;i++) scope_buf[i]=0;
+  for (int i=0;i<SCOPE_SAMPLES;i++) { scope_buf[i]=0; scope_buf2[i]=0; }
   // Zero DAC outputs so stale values from previous patch don't persist
   if (haveMCP) {
     mcp_values[CV0_DA_CH] = kGateLowCode;
@@ -1312,14 +1423,15 @@ void scope_enter() {
 
 void scope_tick() {
   if (!haveADS) return;
-  // Collect 2 samples per tick. ADS1115 at 860SPS takes ~1.16ms per read;
+  // One sample per channel per tick. ADS1115 at 860SPS takes ~1.16ms per read;
   // 2 reads ≈ 2.3ms out of 5ms tick budget, leaving headroom for DAC writes.
-  for (int burst = 0; burst < 2; burst++) {
-    int16_t a0 = ads.readADC_SingleEnded(AD0_CH);
-    scope_buf[scope_idx] = a0;
-    scope_idx = (scope_idx + 1) % SCOPE_SAMPLES;
-    if (scope_idx == 0) scope_buf_full = true;
-  }
+  // Both channels are written to the same index so the traces stay time-aligned.
+  int16_t a0 = ads.readADC_SingleEnded(AD0_CH);
+  int16_t a1 = ads.readADC_SingleEnded(AD1_CH);
+  scope_buf[scope_idx]  = a0;
+  scope_buf2[scope_idx] = a1;
+  scope_idx = (scope_idx + 1) % SCOPE_SAMPLES;
+  if (scope_idx == 0) scope_buf_full = true;
 }
 
 void scope_render() {
@@ -1381,6 +1493,7 @@ void scope_render() {
     start = (scope_idx - visible + SCOPE_SAMPLES) % SCOPE_SAMPLES;
   }
 
+  // Channel 0 (AD0): solid line.
   int prevx = 0; int prevy = cy;
   for (int i=0;i<visible;i++) {
     int s = scope_buf[(start + i) % SCOPE_SAMPLES];
@@ -1390,6 +1503,16 @@ void scope_render() {
     int x = (i * (OLED_W - 1)) / (visible - 1);
     if (i>0) oled.drawLine(prevx, prevy, x, y, SSD1306_WHITE);
     prevx = x; prevy = y;
+  }
+
+  // Channel 1 (AD1): dotted, so the two traces are distinguishable on the mono OLED.
+  for (int i=0;i<visible;i++) {
+    int s = scope_buf2[(start + i) % SCOPE_SAMPLES];
+    int centered = s - midpoint;
+    int y = cy - (int)((centered * vgain * (h-1)) / 32767.0f);
+    if (y < y0) y = y0; else if (y > y0 + h - 1) y = y0 + h - 1;
+    int x = (i * (OLED_W - 1)) / (visible - 1);
+    if ((i & 1) == 0) oled.drawPixel(x, y, SSD1306_WHITE);
   }
 
   oled.display();
@@ -1597,17 +1720,9 @@ Patch patch_midi = { "MIDI", midi_enter, midi_tick, midi_render, true };
 //   V1/V2: Pot1 Randomness, Pot2 Length (2..16), Pot3 Range (scale degrees).
 //   KEY  : Pot1 Scale, Pot2 Root note, Pot3 Octave base (global to both voices).
 
-struct TmScale { const char* name; uint8_t size; uint8_t semis[12]; };
-static const TmScale kTmScales[] = {
-  { "Chromatic", 12, {0,1,2,3,4,5,6,7,8,9,10,11} },
-  { "Major",      7, {0,2,4,5,7,9,11} },
-  { "Minor",      7, {0,2,3,5,7,8,10} },
-  { "MinPent",    5, {0,3,5,7,10} },
-  { "MajPent",    5, {0,2,4,7,9} },
-  { "Dorian",     7, {0,2,3,5,7,9,10} },
-};
-static const int kTmScaleCount = sizeof(kTmScales) / sizeof(kTmScales[0]);
-static const char* kTmNoteNames[12] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+// Scale/root/octave now live in the shared musical-key block above (kScales,
+// kNoteNames, g_scale/g_root/g_octave, key_update/key_draw/key_degreeToVolts),
+// so Turing, Acid and Quant all share one key.
 
 static const uint32_t kTmInternalMs = 500;       // 120 BPM internal fallback
 static const float    kTmGateFraction = 0.5f;     // gate-high time as fraction of the clock interval
@@ -1622,10 +1737,7 @@ static float    tm_note_v[2]   = {0.0f, 0.0f}; // current pitch volts (display +
 static uint8_t  tm_note_pc[2]  = {0, 0};       // current pitch class (display)
 static bool     tm_gate_state[2] = {false, false};
 static uint32_t tm_gate_off_ms[2] = {0, 0};
-// Global musical settings
-static uint8_t  tm_scale  = 2; // Minor
-static uint8_t  tm_root   = 0; // C
-static uint8_t  tm_octave = 1; // base octave (volts)
+// Musical key (scale/root/octave) is shared module-wide — see g_scale/g_root/g_octave.
 // UI / clock
 static int      tm_page = 0; // 0=V1, 1=V2, 2=KEY
 static PotPickup tm_pickup;
@@ -1646,16 +1758,9 @@ static inline uint16_t tm_mask(uint8_t len) {
 // and decide this step's gate (on/off + length) from the register bits.
 static void tm_compute_output(int v, bool setGate) {
   uint8_t len = tm_len[v];
-  const TmScale& sc = kTmScales[tm_scale];
   int value  = tm_reg[v] & 0xFF;                 // 0..255
   int degree = (value * (int)tm_range[v]) >> 8;  // 0..range-1
-  int oct = degree / sc.size;
-  int idx = degree % sc.size;
-  int semi = oct * 12 + sc.semis[idx];
-  float volts = (float)tm_octave + (float)(tm_root + semi) / 12.0f;
-  if (volts < 0.0f) volts = 0.0f; else if (volts > 5.0f) volts = 5.0f;
-  tm_note_v[v]  = volts;
-  tm_note_pc[v] = (uint8_t)((tm_root + semi) % 12);
+  tm_note_v[v]  = key_degreeToVolts(degree, &tm_note_pc[v]);
   if (setGate) {
     bool gateOn = ((tm_reg[v] >> (len - 1)) & 1u) != 0; // pattern-locked density
     if (gateOn) {
@@ -1700,7 +1805,7 @@ static void tm_reset_voice(int v) {
 void tm_enter() {
   resetPotSmooth();
   tm_page = 0;
-  tm_scale = 2; tm_root = 0; tm_octave = 1;
+  // Musical key is shared/persistent across patches — don't reset it here.
   randomSeed((uint32_t)micros() ^ (uint32_t)analogRead(PIN_POT1));
   for (int v = 0; v < 2; v++) {
     tm_rand[v] = 0.0f; tm_len[v] = 8; tm_range[v] = 12;
@@ -1750,21 +1855,7 @@ void tm_tick() {
     if (pickup_update(tm_pickup, 1, pLen, tLen))     tm_len[v]   = (uint8_t)(2 + (int)(pLen * 14.0f + 0.5f));
     if (pickup_update(tm_pickup, 2, pRange, tRange)) tm_range[v] = (uint8_t)(1 + (int)(pRange * 23.0f + 0.5f));
   } else {
-    float tScale = ((float)tm_scale + 0.5f) / (float)kTmScaleCount;
-    float tRoot  = ((float)tm_root + 0.5f) / 12.0f;
-    float tOct   = (float)tm_octave / 4.0f;
-    if (pickup_update(tm_pickup, 0, pRand, tScale)) {
-      int s = (int)(pRand * kTmScaleCount); if (s >= kTmScaleCount) s = kTmScaleCount - 1;
-      tm_scale = (uint8_t)s;
-    }
-    if (pickup_update(tm_pickup, 1, pLen, tRoot)) {
-      int rt = (int)(pLen * 12.0f); if (rt > 11) rt = 11;
-      tm_root = (uint8_t)rt;
-    }
-    if (pickup_update(tm_pickup, 2, pRange, tOct)) {
-      int oc = (int)(pRange * 4.99f); if (oc > 4) oc = 4;
-      tm_octave = (uint8_t)oc;
-    }
+    key_update(tm_pickup, pRand, pLen, pRange); // shared KEY page (scale/root/octave)
   }
 
   // ---- Clock + reset CV inputs (lower ADC code = higher Eurorack voltage) ----
@@ -1865,16 +1956,14 @@ void tm_render() {
       else oled.drawRect(x, by, sz, sz, SSD1306_WHITE);
     }
   } else {
-    oled.setCursor(0, 16); oled.print("Scale "); oled.print(kTmScales[tm_scale].name);
-    oled.setCursor(0, 26); oled.print("Root "); oled.print(kTmNoteNames[tm_root]);
-    oled.setCursor(64, 26); oled.print("Oct "); oled.print(tm_octave);
+    key_draw();
   }
 
   // Bottom: both voices' current note + gate, and clock source/tempo.
   oled.setCursor(0, 48);
-  oled.print("1:"); oled.print(kTmNoteNames[tm_note_pc[0]]); oled.print(tm_gate_state[0] ? "*" : " ");
+  oled.print("1:"); oled.print(kNoteNames[tm_note_pc[0]]); oled.print(tm_gate_state[0] ? "*" : " ");
   oled.setCursor(54, 48);
-  oled.print("2:"); oled.print(kTmNoteNames[tm_note_pc[1]]); oled.print(tm_gate_state[1] ? "*" : " ");
+  oled.print("2:"); oled.print(kNoteNames[tm_note_pc[1]]); oled.print(tm_gate_state[1] ? "*" : " ");
   oled.setCursor(0, 56);
   if (!tm_ext_ever) {
     oled.print("INT "); oled.print((int)(60000.0f / tm_interval_ms + 0.5f)); oled.print(" BPM");
@@ -1888,15 +1977,335 @@ void tm_render() {
 }
 Patch patch_turing = { "Turing", tm_enter, tm_tick, tm_render, true };
 
+// -------------------- Patch: Acid (TB-303 style, TB-3PO inspired) --------------------
+// Where Turing is a *live* shift register, Acid is *seed-regenerated*: the whole
+// pattern is laid out deterministically from a 16-bit seed. Turn the Seed knob to
+// morph between patterns; Density is bipolar and sculpts gate busyness AND pitch
+// range at once (centre = sparse/narrow, extremes = busy/full scale); Steps sets
+// loop length. Scale/root/octave come from the shared KEY page. Mono voice with
+// discrete expression outs: CV0 pitch (with 303 slides) / CV1 gate / CV2 accent /
+// CV3 slide. Clock-in AD0 advances; reset-in AD1 restarts; internal clock is a
+// bench fallback until the first external clock arrives. (Generation rules ported
+// from Logarhythm's TB-3PO Hemisphere applet.)
+
+#define ACID_MAX_STEPS 32
+
+static uint16_t ac_seed    = 0x1234;
+static uint8_t  ac_density = 7;   // 0..14, read bipolar as (density-7) = -7..+7
+static uint8_t  ac_steps   = 16;  // 1..32 loop length
+// Seed knob is mapped across the full 16-bit space, so it's very sensitive to pot
+// noise. Only re-roll the seed once the knob moves past this deadband from the
+// position that last set it — stops noise from constantly regenerating the pattern.
+static float ac_seed_ref = 0.0f;
+static const float kAcSeedDeadband = 0.012f;
+
+static uint8_t  ac_notes[ACID_MAX_STEPS]; // scale-degree index per step
+static uint32_t ac_gates   = 0;           // bit s set => step s gated
+static uint32_t ac_slides  = 0;
+static uint32_t ac_accents = 0;
+static uint32_t ac_octups  = 0;
+static uint32_t ac_octdns  = 0;
+
+// What the live pattern was generated from (to know when to regenerate)
+static uint16_t ac_cur_seed    = 0xFFFF;
+static uint8_t  ac_cur_density = 0xFF;
+static uint8_t  ac_cur_scale   = 0xFF;
+
+// Playback state
+static int      ac_step         = 0;
+static float    ac_pitch_cur    = 0.0f;  // glided output volts
+static float    ac_pitch_tgt    = 0.0f;
+static uint8_t  ac_note_pc      = 0;
+static bool     ac_gate_state   = false;
+static bool     ac_accent_state = false;
+static bool     ac_slide_state  = false;
+static uint32_t ac_gate_off_ms  = 0;
+
+// UI / clock (same scheme as Turing)
+static int       ac_page = 0; // 0=PLAY, 1=KEY
+static PotPickup ac_pickup;
+static uint32_t  ac_last_clock_ms = 0;
+static float     ac_interval_ms = (float)kTmInternalMs;
+static bool      ac_clk_gate = false;
+static bool      ac_rst_gate = false;
+static bool      ac_ext_ever = false;
+static uint32_t  ac_internal_next_ms = 0;
+static uint8_t   ac_rst_div = 0;
+static uint8_t   ac_clk_skip = 0;
+
+static inline int ac_prop(int a, int b, int c) { return b ? (int)((long)a * c / b) : 0; }
+static inline int ac_rand_bit(int prob) { return ((int)random(1, 100) <= prob) ? 1 : 0; }
+
+static inline bool ac_is_gated(int s)  { return (ac_gates  >> s) & 1u; }
+static inline bool ac_is_slid(int s)   { return (ac_slides >> s) & 1u; }
+static inline bool ac_is_accent(int s) { return (ac_accents>> s) & 1u; }
+static inline bool ac_is_octup(int s)  { return (ac_octups >> s) & 1u; }
+static inline bool ac_is_octdn(int s)  { return (ac_octdns >> s) & 1u; }
+
+// Output volts for a step via the shared key, shifted +/- one octave per oct bits.
+static float ac_pitch_for_step(int s, uint8_t* pc) {
+  float v = key_degreeToVolts(ac_notes[s], pc);
+  if (ac_is_octup(s)) v += 1.0f; else if (ac_is_octdn(s)) v -= 1.0f;
+  if (v < 0.0f) v = 0.0f; else if (v > 5.0f) v = 5.0f;
+  return v;
+}
+
+// Deterministically rebuild the whole 32-step pattern from the seed, shaped by
+// density + the shared scale.
+static void ac_regenerate() {
+  randomSeed(ac_seed);
+  int scale_size = kScales[g_scale].size;
+
+  // ---- pitches: density's left half narrows the available scale degrees ----
+  int pitch_dens = constrain((int)ac_density, 0, 8);
+  int available = 0;
+  if (scale_size > 0) {
+    if (pitch_dens > 7) available = scale_size - 1;
+    else if (pitch_dens < 2) available = pitch_dens;       // root only, or root+1
+    else {
+      int range_from_scale = scale_size - 3; if (range_from_scale < 4) range_from_scale = 4;
+      available = 3 + ac_prop(pitch_dens - 3, 4, range_from_scale);
+      available = constrain(available, 1, scale_size - 1);
+    }
+  }
+  ac_octups = ac_octdns = 0;
+  int force_repeat = 50 - pitch_dens * 6;                  // sparser density repeats notes
+  for (int s = 0; s < ACID_MAX_STEPS; s++) {
+    if (s > 0 && ac_rand_bit(force_repeat)) {
+      ac_notes[s] = ac_notes[s - 1];
+    } else {
+      ac_notes[s] = (uint8_t)random(0, available + 1);
+      if (ac_rand_bit(40)) {                               // occasional octave jump
+        if (ac_rand_bit(50)) ac_octups |= (1u << s);
+        else                 ac_octdns |= (1u << s);
+      }
+    }
+  }
+
+  // ---- gates / slides / accents: density's distance from centre = busyness ----
+  int on_off_dens = abs((int)ac_density - 7);
+  int densProb = 10 + on_off_dens * 14;
+  ac_gates = ac_slides = ac_accents = 0;
+  int last_slide = 0, last_accent = 0;
+  for (int s = 0; s < ACID_MAX_STEPS; s++) {
+    if (ac_rand_bit(densProb)) ac_gates |= (1u << s);
+    last_slide  = ac_rand_bit(last_slide  ? 10 : 18); if (last_slide)  ac_slides  |= (1u << s);
+    last_accent = ac_rand_bit(last_accent ? 7  : 16); if (last_accent) ac_accents |= (1u << s);
+  }
+
+  ac_cur_seed = ac_seed; ac_cur_density = ac_density; ac_cur_scale = g_scale;
+}
+
+static inline void ac_regen_if_needed() {
+  if (ac_seed != ac_cur_seed || ac_density != ac_cur_density || g_scale != ac_cur_scale)
+    ac_regenerate();
+}
+
+static inline int ac_next_step(int s) { return (s + 1 >= ac_steps) ? 0 : s + 1; }
+
+// Advance one clock: latch next step's pitch/gate/accent/slide and arm the slide.
+static void ac_clock_step() {
+  int prev = ac_step;
+  ac_step = ac_next_step(ac_step);
+
+  uint8_t pc;
+  ac_pitch_tgt = ac_pitch_for_step(ac_step, &pc);
+  ac_note_pc = pc;
+  bool slid_in = ac_is_slid(prev);        // previous step slides into this one
+  if (!slid_in) ac_pitch_cur = ac_pitch_tgt;  // hard jump unless tied by a slide
+
+  bool gated = ac_is_gated(ac_step) || slid_in;
+  ac_gate_state   = gated;
+  ac_accent_state = gated && ac_is_accent(ac_step);
+  ac_slide_state  = ac_is_slid(ac_step);
+  if (gated) {
+    float frac = ac_slide_state ? 1.0f : kTmGateFraction; // slides hold across the step
+    float gms = frac * ac_interval_ms;
+    if (gms < 8.0f) gms = 8.0f;
+    if (!ac_slide_state && ac_interval_ms > 16.0f && gms > ac_interval_ms - 8.0f)
+      gms = ac_interval_ms - 8.0f;
+    ac_gate_off_ms = millis() + (uint32_t)gms;
+  }
+}
+
+// Reset realigns so the next clock plays step 0.
+static void ac_reset() { ac_step = (ac_steps > 0) ? ac_steps - 1 : 0; }
+
+void ac_enter() {
+  resetPotSmooth();
+  ac_page = 0;
+  ac_regenerate();
+  ac_step = (ac_steps > 0) ? ac_steps - 1 : 0;
+  ac_pitch_cur = ac_pitch_tgt = 0.0f;
+  ac_gate_state = ac_accent_state = ac_slide_state = false;
+  ac_gate_off_ms = 0;
+  ac_last_clock_ms = 0;
+  ac_interval_ms = (float)kTmInternalMs;
+  ac_clk_gate = ac_rst_gate = false;
+  ac_ext_ever = false;
+  ac_internal_next_ms = millis();
+  ac_rst_div = 0; ac_clk_skip = 1;
+  if (haveADS) ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
+  pickup_setLive(ac_pickup);
+  ac_seed_ref = readPotNormSmooth(PIN_POT1, 0); // anchor the seed deadband
+  if (haveMCP) {
+    mcp_values[CV0_DA_CH] = voltsToDac(0, ac_pitch_cur);
+    mcp_values[CV1_DA_CH] = kGateLowCode;
+    mcp_values[CV2_DA_CH] = kGateLowCode;
+    mcp_values[CV3_DA_CH] = kGateLowCode;
+    mcp_writeAll();
+  }
+}
+
+void ac_tick() {
+  uint32_t now = millis();
+  float p1 = readPotNormSmooth(PIN_POT1, 0);
+  float p2 = readPotNormSmooth(PIN_POT2, 1);
+  float p3 = readPotNormSmooth(PIN_POT3, 2);
+
+  if (patchShortPressed) {
+    ac_page = (ac_page + 1) % 2;
+    patchShortPressed = false;
+    pickup_arm(ac_pickup, p1, p2, p3);
+    ac_seed_ref = p1; // re-anchor so returning to PLAY doesn't re-roll on its own
+  }
+
+  if (ac_page == 0) {
+    float tSeed = (float)ac_seed / 65535.0f;
+    float tDens = (float)ac_density / 14.0f;
+    float tStep = (float)(ac_steps - 1) / 31.0f;
+    if (pickup_update(ac_pickup, 0, p1, tSeed)
+        && fabsf(p1 - ac_seed_ref) > kAcSeedDeadband) {
+      ac_seed_ref = p1;
+      int sd = (int)(p1 * 65535.0f + 0.5f); if (sd > 65535) sd = 65535;
+      ac_seed = (uint16_t)sd;
+    }
+    if (pickup_update(ac_pickup, 1, p2, tDens)) {
+      int d = (int)(p2 * 14.99f); if (d > 14) d = 14;
+      ac_density = (uint8_t)d;
+    }
+    if (pickup_update(ac_pickup, 2, p3, tStep)) {
+      int st = 1 + (int)(p3 * 31.99f); if (st > 32) st = 32;
+      ac_steps = (uint8_t)st;
+    }
+  } else {
+    key_update(ac_pickup, p1, p2, p3); // shared KEY page
+  }
+
+  ac_regen_if_needed(); // seed/density/scale edits rebuild the pattern
+
+  // ---- Clock + reset CV inputs (same low-jitter scheme as Turing) ----
+  if (haveADS) {
+    if (++ac_rst_div >= 16) {
+      ac_rst_div = 0;
+      int16_t aRst = ads.readADC_SingleEnded(AD1_CH);
+      bool rstNow = ac_rst_gate ? (aRst < kGateOffThresh) : (aRst < kGateOnThresh);
+      if (rstNow && !ac_rst_gate) ac_reset();
+      ac_rst_gate = rstNow;
+      ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
+      ac_clk_skip = 1;
+    } else if (ac_clk_skip) {
+      ac_clk_skip = 0;
+    } else {
+      int16_t aClk = ads.getLastConversionResults();
+      bool clkNow = ac_clk_gate ? (aClk < kGateOffThresh) : (aClk < kGateOnThresh);
+      if (clkNow && !ac_clk_gate) {
+        if (ac_last_clock_ms) {
+          uint32_t dt = now - ac_last_clock_ms;
+          if (dt >= 50 && dt <= 3000) {
+            if (ac_interval_ms < 1.0f) {
+              ac_interval_ms = (float)dt;
+            } else {
+              float ratio = (float)dt / ac_interval_ms;
+              if (ratio > 0.6f && ratio < 1.6f)
+                ac_interval_ms = 0.8f * ac_interval_ms + 0.2f * (float)dt;
+            }
+          }
+        }
+        ac_last_clock_ms = now;
+        ac_ext_ever = true;
+        ac_clock_step();
+      }
+      ac_clk_gate = clkNow;
+    }
+  }
+
+  if (!ac_ext_ever) {
+    ac_interval_ms = (float)kTmInternalMs;
+    if (now >= ac_internal_next_ms) { ac_internal_next_ms = now + kTmInternalMs; ac_clock_step(); }
+  }
+
+  // Glide the pitch toward target (303-style slide); snap when close.
+  if (ac_pitch_cur != ac_pitch_tgt) {
+    ac_pitch_cur += (ac_pitch_tgt - ac_pitch_cur) * 0.15f;
+    if (fabsf(ac_pitch_tgt - ac_pitch_cur) < 0.001f) ac_pitch_cur = ac_pitch_tgt;
+  }
+
+  if (ac_gate_state && now >= ac_gate_off_ms) { ac_gate_state = false; ac_accent_state = false; }
+
+  if (haveMCP) {
+    mcp_values[CV0_DA_CH] = voltsToDac(0, ac_pitch_cur);
+    mcp_values[CV1_DA_CH] = ac_gate_state   ? kGateHighCode : kGateLowCode;
+    mcp_values[CV2_DA_CH] = ac_accent_state ? kGateHighCode : kGateLowCode;
+    mcp_values[CV3_DA_CH] = ac_slide_state  ? kGateHighCode : kGateLowCode;
+    mcp_writeAll();
+  }
+}
+
+void ac_render() {
+  oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 96, "Acid");
+  oled.setCursor(104, 0);
+  oled.print(ac_page == 0 ? "PLAY" : "KEY");
+
+  if (ac_page == 0) {
+    oled.setCursor(0, 16); oled.print("Seed ");
+    if (ac_seed < 0x1000) oled.print("0");
+    if (ac_seed < 0x100)  oled.print("0");
+    if (ac_seed < 0x10)   oled.print("0");
+    oled.print(ac_seed, HEX);
+    oled.setCursor(0, 26); oled.print("Dns ");
+    int dd = (int)ac_density - 7; if (dd >= 0) oled.print("+"); oled.print(dd);
+    oled.print("  Stp "); oled.print(ac_steps);
+    // Step grid: gates filled, accents tick above, current step underlined.
+    const int by = 36, sz = 6;
+    for (int i = 0; i < ac_steps; i++) {
+      int x = i * (sz + 1);
+      if (x + sz > OLED_W) break;
+      if (ac_is_gated(i)) oled.fillRect(x, by, sz, sz, SSD1306_WHITE);
+      else                oled.drawRect(x, by, sz, sz, SSD1306_WHITE);
+      if (ac_is_accent(i)) oled.drawPixel(x + sz / 2, by - 2, SSD1306_WHITE);
+      if (i == ac_step)    oled.drawFastHLine(x, by + sz + 1, sz, SSD1306_WHITE);
+    }
+  } else {
+    key_draw();
+  }
+
+  oled.setCursor(0, 48);
+  oled.print("N:"); oled.print(kNoteNames[ac_note_pc]);
+  oled.print(ac_gate_state ? (ac_accent_state ? "!" : "*") : " ");
+  if (ac_slide_state) { oled.setCursor(54, 48); oled.print("slide"); }
+  oled.setCursor(0, 56);
+  if (!ac_ext_ever) {
+    oled.print("INT "); oled.print((int)(60000.0f / ac_interval_ms + 0.5f)); oled.print(" BPM");
+  } else if (millis() - ac_last_clock_ms > kExtClockTimeoutMs) {
+    oled.print("EXT -- (stop)");
+  } else {
+    oled.print("EXT "); oled.print((int)(60000.0f / ac_interval_ms + 0.5f)); oled.print(" BPM");
+  }
+  oled.display();
+}
+Patch patch_acid = { "Acid", ac_enter, ac_tick, ac_render, true };
+
 // Arrange the bank so indexes match the home-menu ordering below.
-Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_turing, &patch_diag }, 9 };
+Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_turing, &patch_acid, &patch_diag }, 10 };
 Bank* banks[] = { &bank_util };
 static uint8_t bankIdx  = 0;
 static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Turing", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Turing", "Acid", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;
