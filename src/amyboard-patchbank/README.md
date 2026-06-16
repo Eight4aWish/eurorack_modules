@@ -6,7 +6,7 @@ on the 128×128 screen, press to load, and play from **CV/Gate** (Gate triggers
 notes, V/Oct sets pitch). No menu diving — good sounds are one click away.
 
 ```
-amyboard/patchbank/
+src/amyboard-patchbank/
   patches.py         the bank: 24 patches as portable data (no deps)
   patchbank.py       the Tulip app: encoder browser + CV/gate playing
   render_patches.py  desktop harness: renders every patch to WAV + metrics
@@ -38,7 +38,7 @@ top — bump `FONT` if text doesn't fit 128 px.
 
 ```sh
 git clone https://github.com/shorepine/amy && (cd amy && pip install .)
-cd amyboard/patchbank
+cd src/amyboard-patchbank
 python3 render_patches.py      # writes out/*.wav and prints a metrics table
 ```
 
