@@ -46,6 +46,7 @@ def render_one(p):
     hold = 1.6 if is_pad else 0.8       # note-on duration
     tail = 1.8 if is_pad else 0.5       # render past note-off
     amy.restart()
+    amy.send(volume=getattr(bank, "VOLUME", 1.0))
     bank.store_patch(amy, p, PNUM)
     amy.send(synth=1, num_voices=p["voices"], patch=PNUM)
     bank.apply_fx(amy, p)

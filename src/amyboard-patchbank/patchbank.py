@@ -163,6 +163,14 @@ def _all_notes_off():
         _state["note"] = None
 
 
+def _note_on(n, vel=0.9):
+    # always release whatever is currently sounding first, so a gate arriving
+    # mid-audition (or a retrigger) never leaves an orphaned note droning
+    _all_notes_off()
+    amy.send(synth=SYNTH, note=n, vel=vel)
+    _state["note"] = n
+
+
 def load_selected():
     p = bank.PATCHES[_state["sel"]]
     _all_notes_off()
@@ -177,8 +185,7 @@ def load_selected():
     bank.apply_fx(amy, p)
     _state["loaded"] = _state["sel"]
     # audition so you hear it the moment you press
-    amy.send(synth=SYNTH, note=AUDITION_NOTE, vel=0.9)
-    _state["note"] = AUDITION_NOTE
+    _note_on(AUDITION_NOTE)
     _state["audition_off"] = time.ticks_add(time.ticks_ms(), AUDITION_MS)
 
 
@@ -241,6 +248,7 @@ def _hw_init():
 
 def setup():
     _hw_init()
+    amy.send(volume=getattr(bank, "VOLUME", 1.0))
     _state["enc"] = _enc_pos()
     _state["btn"] = _enc_btn()
     _state["gate"] = False
@@ -273,28 +281,23 @@ def loop():
             and time.ticks_diff(time.ticks_ms(), _state["audition_off"]) >= 0):
         _state["audition_off"] = 0
         if _state["note"] == AUDITION_NOTE:
-            amy.send(synth=SYNTH, note=AUDITION_NOTE, vel=0)
-            _state["note"] = None
+            _all_notes_off()
             refoot = True
 
     # CV/gate playing on the loaded patch
     if _state["loaded"] >= 0:
         gate, note = read_cv_gate()
         if gate and not _state["gate"]:                   # rising edge
-            amy.send(synth=SYNTH, note=note, vel=0.9)
-            _state["note"] = note
+            _state["audition_off"] = 0                     # cancel pending audition
+            _note_on(note)                                 # releases audition/old note
             _state["cv_note"] = note
             refoot = True
         elif gate and note != _state["cv_note"]:          # pitch moved while held
-            amy.send(synth=SYNTH, note=_state["cv_note"], vel=0)
-            amy.send(synth=SYNTH, note=note, vel=0.9)
-            _state["note"] = note
+            _note_on(note)
             _state["cv_note"] = note
         elif not gate and _state["gate"]:                 # falling edge
-            if _state["note"] is not None:
-                amy.send(synth=SYNTH, note=_state["note"], vel=0)
-                _state["note"] = None
-                refoot = True
+            _all_notes_off()
+            refoot = True
         _state["gate"] = gate
 
     if relist:
