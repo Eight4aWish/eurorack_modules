@@ -1,7 +1,8 @@
 # AMYboard patch bank -- curated pads/drones + basses.
 #
-# Portable on purpose: pure data plus small helpers, no imports. Runs unchanged
-# under desktop CPython (with the `amy` pip build) and Tulip MicroPython.
+# Portable on purpose: data plus small helpers (only `math`, available on both
+# CPython and MicroPython). Runs unchanged under desktop CPython (with the `amy`
+# pip build) and Tulip MicroPython.
 #
 # Each patch is a few oscillators (relative indices 0..n-1) stored as an AMY
 # "user patch" and played by a synth voice. Control coefficients use AMY's dict
@@ -12,6 +13,8 @@
 #
 # Loudness: the app/harness set a global VOLUME; patches are gain-staged so a
 # single held note peaks comfortably below clipping with headroom for the FX.
+
+import math
 
 # --- wave constants (mirror amy.*) ---
 SINE = 0
@@ -204,6 +207,95 @@ def store_patch(amy, patch, patch_number):
 def apply_fx(amy, patch):
     """Apply (or clear) this patch's bus effects. Call after selecting a voice."""
     fx = patch.get("fx", {})
-    amy.send(chorus=fx.get("chorus", [0, 320, 0.5, 0.5]))
-    amy.send(reverb=fx.get("reverb", [0, 0.5, 0.5, 0.5]))
-    amy.send(echo=fx.get("echo", [0, 250, 500, 0.5, 0]))
+    amy.send(chorus=fx.get("chorus", _FX_DEFAULT["chorus"]))
+    amy.send(reverb=fx.get("reverb", _FX_DEFAULT["reverb"]))
+    amy.send(echo=fx.get("echo", _FX_DEFAULT["echo"]))
+
+
+# ======================================================================
+# Macros -- up to 4 live, encoder-tweakable parameters per patch.
+#
+# A macro is metadata: name, kind, value range, and an `init` (the normalized
+# 0..1 start that reproduces the patch's stored value). The app stores values
+# normalized; apply_macro() maps to the real value and sends it live.
+#   kind "cutoff" -> synth filter cutoff (log-scaled). NB: AMY ignores a synth
+#                    filter_freq with a non-zero eg1, so this takes *manual*
+#                    control of the cutoff (replacing the patch's env sweep)
+#                    once you turn it -- so macros are NOT applied on load.
+#   kind "res"    -> synth resonance (linear)
+#   kind "fx"     -> rides a bus-effect send level (reverb/chorus/echo)
+# Filtered patches get TONE+RES+SPACE+MOVE; filterless ones get FX-only macros.
+# ======================================================================
+_FX_DEFAULT = {
+    "reverb": [0.0, 0.8, 0.35, 0.5],     # [level, liveness, damping, xover]
+    "chorus": [0.0, 340, 0.5, 0.5],      # [level, max_delay, lfo_freq, depth]
+    "echo": [0.0, 250, 500, 0.4, 0.0],   # [level, delay, max_delay, feedback, ...]
+}
+
+
+def _scale(macro, norm):
+    lo, hi = macro["min"], macro["max"]
+    if norm < 0:
+        norm = 0.0
+    elif norm > 1:
+        norm = 1.0
+    if macro["kind"] == "cutoff":
+        return lo * (hi / lo) ** norm        # log -> musical
+    return lo + (hi - lo) * norm             # linear
+
+
+def _norm_for(lo, hi, value, log=False):
+    """The normalized 0..1 that _scale maps back to `value` (for init)."""
+    value = min(max(value, lo), hi)
+    if log:
+        return math.log(value / lo) / math.log(hi / lo)
+    return (value - lo) / (hi - lo) if hi > lo else 0.0
+
+
+def apply_macro(amy, patch, synth, macro, norm):
+    """Send a macro's value live to the playing voice / bus."""
+    v = _scale(macro, norm)
+    k = macro["kind"]
+    if k == "cutoff":
+        amy.send(synth=synth, filter_freq={"const": v, "eg1": 0})
+    elif k == "res":
+        amy.send(synth=synth, resonance=v)
+    elif k == "fx":
+        name = macro["fx"]
+        base = patch.get("fx", {}).get(name)
+        arr = list(base) if base else list(_FX_DEFAULT[name])
+        arr[0] = v
+        amy.send(**{name: arr})
+
+
+def _fx_macro(patch, name, label):
+    lvl = patch.get("fx", {}).get(name, _FX_DEFAULT[name])[0]
+    return {"name": label, "kind": "fx", "fx": name,
+            "min": 0.0, "max": 0.9, "init": _norm_for(0.0, 0.9, lvl)}
+
+
+def _derive_macros(p):
+    osc0 = p["oscs"][0]
+    ff = osc0.get("filter_freq")
+    if ff is not None and "filter_type" in osc0:
+        cutoff = ff.get("const", 800)
+        lo, hi = 200, 6000
+        res = osc0.get("resonance", 2)
+        move = "chorus" if "chorus" in p.get("fx", {}) else "echo"
+        return [
+            {"name": "TONE", "kind": "cutoff", "min": lo, "max": hi,
+             "init": _norm_for(lo, hi, min(max(cutoff, lo), hi), log=True)},
+            {"name": "RES", "kind": "res", "min": 0.7, "max": 14,
+             "init": _norm_for(0.7, 14, res)},
+            _fx_macro(p, "reverb", "SPACE"),
+            _fx_macro(p, move, "MOVE"),
+        ]
+    # filterless (pure sine/triangle) -- FX macros only
+    return [_fx_macro(p, "reverb", "SPACE"),
+            _fx_macro(p, "chorus", "AIR"),
+            _fx_macro(p, "echo", "ECHO")]
+
+
+for _p in PATCHES:
+    if "macros" not in _p:
+        _p["macros"] = _derive_macros(_p)

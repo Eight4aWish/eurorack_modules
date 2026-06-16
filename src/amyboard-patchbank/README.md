@@ -46,16 +46,49 @@ REPL.
 
 ## Controls
 
+Two screens, navigated with the one encoder (**short press = down / tab forward,
+long press = up**):
+
+**Patch list**
 | Action | Result |
 |---|---|
-| Turn encoder | Move selection up/down the list |
-| Press encoder | Load highlighted patch + audition one note (`*` marks loaded) |
-| Gate in (CV1, rising) | Note on at the V/Oct pitch |
-| Gate in (CV1, falling) | Note off |
-| V/Oct (CV0) | Sets pitch (1 V/oct, base note 60 at 0 V) |
+| Turn | Scroll the patch list |
+| Short press | Load the highlighted patch + audition a note, and drop into its macro pages |
+
+**Macro pages** (per loaded patch)
+| Action | Result |
+|---|---|
+| Turn | Adjust the highlighted macro, live |
+| Short press | Tab to the next macro (display flips between page 1 and 2) |
+| Long press (~½ s) | Back up to the patch list |
+
+CV/gate keeps playing on both screens, so you tweak while it sounds.
+
+| CV jack | Result |
+|---|---|
+| Gate in (CV1, rising/falling) | Note on at the V/Oct pitch / note off |
+| V/Oct (CV0) | Pitch (1 V/oct, base note 60 at 0 V) |
+
+## Macros
+
+Each patch exposes up to 4 encoder-tweakable macros (auto-derived in
+`_derive_macros()`), stored as normalized 0..1 values and sent live by
+`apply_macro()`:
+
+- **Filtered patches:** `TONE` (cutoff) · `RES` (resonance) · `SPACE` (reverb
+  send) · `MOVE` (chorus or echo).
+- **Filterless patches** (pure sine/triangle): `SPACE` · `AIR` (chorus) · `ECHO`.
+
+Macros are **not** applied on load — the patch plays exactly as designed until you
+turn one. Note the **TONE** caveat: AMY ignores a synth-level `filter_freq` that
+carries a non-zero envelope (`eg1`), so turning TONE takes *manual* control of the
+cutoff and replaces the patch's filter-envelope sweep (basses lose some "snap").
+`RES`/`SPACE`/`MOVE` update cleanly. Both CV ins are used by pitch+gate, so macros
+are encoder-only.
 
 CV calibration constants (`CV_NOTE_BASE`, `SEMIS_PER_VOLT`, `GATE_VOLTS`,
-`PITCH_CH`, `GATE_CH`) are at the top of `patchbank.py`.
+`PITCH_CH`, `GATE_CH`) and macro tuning (`MACRO_STEP`, `LONG_MS`) are at the top of
+`patchbank.py`.
 
 ## Deploying to the board
 

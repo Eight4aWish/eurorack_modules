@@ -57,6 +57,10 @@ LIST_Y = 16
 VISIBLE = 7
 FOOT_Y = 110              # footer text baseline (region redrawn on gate)
 
+# --- macro editing ------------------------------------------------------
+MACRO_STEP = 0.04         # normalized change per encoder detent
+LONG_MS = 450             # press >= this is a long press (go up a level)
+
 _i2c = None
 _buf = None
 _fb = None
@@ -72,6 +76,12 @@ _state = {
     "audition_off": 0,    # ticks_ms deadline to release the audition note
     "enc": 0,             # last encoder position
     "btn": False,         # last button state
+    "page": "list",       # "list" or "macro"
+    "mfield": 0,          # selected macro index on the macro pages
+    "macros": [],         # loaded patch's macro metadata
+    "mvals": [],          # normalized 0..1 value per macro
+    "btn_t": 0,           # ticks_ms at button-down (for short/long detect)
+    "btn_long": False,    # long press already fired this hold
 }
 
 
@@ -184,6 +194,12 @@ def load_selected():
     amy.send(synth=SYNTH, grab_midi_notes=0)
     bank.apply_fx(amy, p)
     _state["loaded"] = _state["sel"]
+    # set up this patch's macros (values shown but NOT applied -- the patch
+    # plays exactly as designed until you actually turn a macro)
+    _state["macros"] = p.get("macros", [])
+    _state["mvals"] = [m["init"] for m in _state["macros"]]
+    _state["mfield"] = 0
+    _state["page"] = "macro"
     # audition so you hear it the moment you press
     _note_on(AUDITION_NOTE)
     _state["audition_off"] = time.ticks_add(time.ticks_ms(), AUDITION_MS)
@@ -234,6 +250,36 @@ def _show_footer():
     _show(FOOT_Y - 4, H - 1)
 
 
+def _draw_macros():
+    _fb.fill(0)
+    name = bank.PATCHES[_state["loaded"]]["name"] if _state["loaded"] >= 0 else "--"
+    _fb.text(name, 2, 1, WHITE)
+    _fb.hline(0, 11, W, DIM)
+
+    macros = _state["macros"]
+    mvals = _state["mvals"]
+    sel = _state["mfield"]
+    pg = sel // 2
+    y = 24
+    for i in range(pg * 2, min(len(macros), pg * 2 + 2)):
+        is_sel = (i == sel)
+        if is_sel:
+            _fb.fill_rect(0, y - 4, W, 36, SELBAR)
+        col = WHITE if is_sel else GRAY
+        _fb.text(macros[i]["name"], 6, y, col)
+        bx, by, bw, bh = 6, y + 14, W - 12, 9
+        _fb.rect(bx, by, bw, bh, col)
+        fillw = int((bw - 2) * mvals[i])
+        if fillw > 0:
+            _fb.fill_rect(bx + 1, by + 1, fillw, bh - 2, col)
+        y += 44
+
+    _fb.hline(0, H - 14, W, DIM)
+    npages = (len(macros) + 1) // 2
+    _fb.text("P%d/%d  hold=up" % (pg + 1, npages), 2, H - 11, GRAY)
+    _show()
+
+
 # ========================================================================
 # Lifecycle: setup() once, loop() every frame (Tulip sketch model)
 # ========================================================================
@@ -259,21 +305,49 @@ def loop():
     n = len(bank.PATCHES)
     relist = False
     refoot = False
+    remac = False
 
-    # encoder browse
     try:
         p = _enc_pos()
         b = _enc_btn()
     except Exception:
         return
+    now = time.ticks_ms()
+
+    # encoder turn: scroll the list, or adjust the selected macro live
     d = p - _state["enc"]
     if d:
         _state["enc"] = p
-        _state["sel"] = (_state["sel"] + d) % n
-        relist = True
+        if _state["page"] == "list":
+            _state["sel"] = (_state["sel"] + d) % n
+            relist = True
+        elif _state["macros"]:
+            i = _state["mfield"]
+            v = _state["mvals"][i] + d * MACRO_STEP
+            v = 0.0 if v < 0 else 1.0 if v > 1 else v
+            _state["mvals"][i] = v
+            bank.apply_macro(amy, bank.PATCHES[_state["loaded"]], SYNTH,
+                             _state["macros"][i], v)
+            remac = True
+
+    # button: short press = down / tab forward, long press = up a level
     if b and not _state["btn"]:
-        load_selected()
-        relist = True
+        _state["btn_t"] = now
+        _state["btn_long"] = False
+    if (b and not _state["btn_long"]
+            and time.ticks_diff(now, _state["btn_t"]) >= LONG_MS):
+        _state["btn_long"] = True
+        if _state["page"] == "macro":
+            _state["page"] = "list"
+            relist = True
+    if (not b) and _state["btn"]:
+        if not _state["btn_long"]:
+            if _state["page"] == "list":
+                load_selected()                    # loads + descends to macros
+                remac = True
+            elif _state["macros"]:
+                _state["mfield"] = (_state["mfield"] + 1) % len(_state["macros"])
+                remac = True
     _state["btn"] = b
 
     # release the audition note once its timer expires (unless a gate holds one)
@@ -300,10 +374,14 @@ def loop():
             refoot = True
         _state["gate"] = gate
 
-    if relist:
-        _draw_list()
-    elif refoot:
-        _show_footer()
+    # render the active page
+    if _state["page"] == "list":
+        if relist:
+            _draw_list()
+        elif refoot:
+            _show_footer()
+    elif remac or relist:
+        _draw_macros()
 
 
 def run():
