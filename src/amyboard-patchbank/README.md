@@ -1,14 +1,14 @@
 # AMYboard Patch Bank
 
 A Tulip app that turns the AMYboard into a **browse-and-play synth voice**:
-spin the rotary encoder through a curated bank of **12 pads/drones + 12 basses**
-on the 128×128 OLED, press to load, and play from **CV/Gate**. No menu diving —
-good sounds are one click away.
+spin the rotary encoder through a curated bank of **10 pads/drones + 10 basses**
+on the 128×128 OLED, press to load, tweak with macros, and play from **CV/Gate**
+or **TRS MIDI**. No menu diving — good sounds are one click away.
 
 ```
 src/amyboard-patchbank/
-  pbdata.py          the bank: 24 patches as portable data (no deps)
-  patchbank.py       the app: OLED + encoder browser + CV/gate playing
+  pbdata.py          the bank: 20 patches + macro defs as portable data (no deps)
+  patchbank.py       the app: OLED + encoder UI, CV/gate + MIDI playing, macros
   sketch.py          Tulip autostart shim (the "current sketch")
   render_patches.py  desktop harness: renders every patch to WAV + metrics
   README.md
@@ -35,8 +35,10 @@ talks to the front-panel I2C accessory bus itself (**SDA=GPIO17, SCL=GPIO18,
   register, push-switch on Seesaw GPIO24 (active-low).
 - **CV** — `amyboard.cv_in()`: **CV0 = 1 V/oct pitch, CV1 = gate** (matching the
   board's convention). `tulip.cv_in()` is a *different* source — don't use it.
-- **Sound** — `amy`. Each patch is stored into an AMY user-patch slot and the
-  synth is rebuilt on load.
+- **Sound** — `amy`. All patches are pre-stored into distinct permanent slots at
+  boot (patch *i* → slot `1024+i`); loading just points the synth at that slot.
+  (Re-storing an AMY slot is fragile — it can capture an empty patch — and a
+  distinct slot number forces a clean voice reload.)
 
 Tulip's sketch model: it runs the current sketch top-to-bottom once (setup) then
 calls its global `loop()` every frame. So the app exposes **`setup()` + `loop()`**
@@ -129,14 +131,14 @@ cd src/amyboard-patchbank
 python3 render_patches.py      # writes out/*.wav and prints a metrics table
 ```
 
-All 24 patches are pre-validated (level, brightness, stereo width, clean
+All 20 patches are pre-validated (level, brightness, stereo width, clean
 note-off release); `render_patches.py` reports `0 flagged`. `pbdata.py` is pure
 data and runs identically on desktop CPython and Tulip MicroPython.
 
 ## How a patch works
 
-Each entry stores a few oscillators into an AMY user-patch slot and plays them
-polyphonically. Control parameters use AMY's dict-form coefficients whose
+Each entry is a few oscillators played polyphonically (stored as an AMY user
+patch). Control parameters use AMY's dict-form coefficients whose
 sources are `const, note, vel, eg0, eg1, mod, bend, ext0, ext1` — note that
 **`ext0`/`ext1` are the two CV inputs**, so any parameter can be CV-modulated
 (e.g. the `Growl` bass routes `ext0` into its filter cutoff). `bp0` is the
@@ -148,7 +150,7 @@ amplitude envelope and `bp1` the filter envelope; in both, the **last
 ```python
 {"name": "My Pad", "cat": PAD, "voices": 4,
  "oscs": [
-   {"wave": SAW_DOWN, "freq": {"note": 1.0},   "amp": A,
+   {"wave": SAW_DOWN, "freq": {"note": 1.0},   "amp": _amp(0.7),
     "filter_type": LPF, "resonance": 4,
     "filter_freq": {"const": 400, "eg1": 1500},   # eg1 opens the filter
     "bp0": "0,0,600,1,500,0",                      # slow attack, 500ms release
@@ -158,8 +160,10 @@ amplitude envelope and `bp1` the filter envelope; in both, the **last
  "fx": {"chorus": [0.5, 320, 0.4, 0.4], "reverb": [0.3, 0.7, 0.4, 0.5]}},
 ```
 
-Append it to `PATCHES` in `pbdata.py`, run `render_patches.py` to check it isn't
-flagged `SILENT`/`CLIP`, audition the WAV, then reload on the board.
+`_amp(g)` is the velocity·envelope amplitude at gain `g`; macros are auto-derived
+from each patch (`_derive_macros`), so a new entry gets TONE/RES/SPACE/MOVE for
+free. Append it to `PATCHES` in `pbdata.py`, run `render_patches.py` to check it
+isn't flagged `SILENT`/`CLIP`, audition the WAV, then reload on the board.
 
 > FM/`ALGO` patches aren't in the bank yet — AMY's operator wiring needs more
 > setup than the subtractive/additive patches here. They're a clean follow-up.
