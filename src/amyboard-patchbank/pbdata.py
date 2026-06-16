@@ -261,17 +261,26 @@ def apply_macro(amy, patch, synth, macro, norm):
     elif k == "res":
         amy.send(synth=synth, resonance=v)
     elif k == "fx":
+        # drive the whole effect from dry to very wet (not just the send level)
+        # so the AMYboard's modest bus FX actually move the sound
         name = macro["fx"]
-        base = patch.get("fx", {}).get(name)
-        arr = list(base) if base else list(_FX_DEFAULT[name])
-        arr[0] = v
-        amy.send(**{name: arr})
+        if name == "reverb":                         # [level, liveness, damping, xover]
+            amy.send(reverb=[v, 0.4 + 0.6 * v, 0.6 - 0.4 * v, 0.5])
+        elif name == "chorus":                       # [level, max_delay, lfo, depth]
+            amy.send(chorus=[v, 340, 0.6, 0.15 + 0.8 * v])
+        elif name == "echo":                         # [level, delay, max, feedback, ...]
+            amy.send(echo=[v, 270, 500, 0.15 + 0.65 * v, 0.0])
+        else:
+            base = patch.get("fx", {}).get(name)
+            arr = list(base) if base else list(_FX_DEFAULT[name])
+            arr[0] = v
+            amy.send(**{name: arr})
 
 
 def _fx_macro(patch, name, label):
     lvl = patch.get("fx", {}).get(name, _FX_DEFAULT[name])[0]
     return {"name": label, "kind": "fx", "fx": name,
-            "min": 0.0, "max": 0.9, "init": _norm_for(0.0, 0.9, lvl)}
+            "min": 0.0, "max": 1.0, "init": _norm_for(0.0, 1.0, lvl)}
 
 
 def _derive_macros(p):

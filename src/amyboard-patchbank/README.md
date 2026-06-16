@@ -69,6 +69,22 @@ CV/gate keeps playing on both screens, so you tweak while it sounds.
 | Gate in (CV1, rising/falling) | Note on at the V/Oct pitch / note off |
 | V/Oct (CV0) | Pitch (1 V/oct, base note 60 at 0 V) |
 
+**TRS MIDI in** also plays the loaded voice (omni, polyphonic), alongside CV/gate.
+It's deliberately featherweight: the firmware parses MIDI and a tiny callback
+(`_midi_cb`) only does `amy.send` note on/off (+ flush on Stop / All-Notes-Off) —
+no draw, no I2C. We register it with a bare `midi.add_callback()` and **avoid
+`midi.setup()`** on purpose (setup installs Tulip's per-channel router + a voices
+app that fights the sketch). `MIDI_ENABLED = False` disables it. (Two TRS-MIDI
+wiring standards exist; Type A is current — use a matching adapter.)
+
+> **⚠️ Do not cascade MIDI *clock* into the board.** Tulip slaves its frame clock
+> to incoming MIDI clock; if a device sends clock (e.g. Ableton Move "MIDI sync
+> out"), the whole UI **freezes** whenever that clock pauses, and stays latched to
+> external clock until a restart. `setup()` calls `external_midi_sync(0)` as a
+> best effort, but it does not fully detach on this firmware. Keep MIDI clock
+> **off** at the source and sync via **Ableton Link** instead — MIDI *notes* are
+> unaffected.
+
 ## Macros
 
 Each patch exposes up to 4 encoder-tweakable macros (auto-derived in

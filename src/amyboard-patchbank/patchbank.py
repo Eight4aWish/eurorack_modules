@@ -29,7 +29,7 @@ import pbdata as bank
 SYNTH = 1                 # AMY synth id used for note management
 AUDITION_NOTE = 45        # note played when you press to load (bass-ish)
 AUDITION_MS = 700         # how long the audition note holds
-_SLOTS = (1024, 1025)     # alternate user-patch slots so AMY reloads the voice
+BASE_SLOT = 1024          # patch i lives in AMY user-patch slot BASE_SLOT + i
 
 # --- CV calibration (AMYboard CV in is in volts) ------------------------
 # Matches the board's working convention: CV0 = 1V/oct pitch, CV1 = gate.
@@ -69,7 +69,6 @@ _state = {
     "sel": 0,             # highlighted patch index
     "loaded": -1,         # currently loaded patch index
     "top": 0,             # first visible row (scroll offset)
-    "slot": 0,            # index into _SLOTS for the next load
     "note": None,         # currently sounding note, or None
     "gate": False,        # last gate state, for edge detection
     "cv_note": CV_NOTE_BASE,  # note last set by CV pitch while gated
@@ -82,7 +81,12 @@ _state = {
     "mvals": [],          # normalized 0..1 value per macro
     "btn_t": 0,           # ticks_ms at button-down (for short/long detect)
     "btn_long": False,    # long press already fired this hold
+    "load_sel": 0,        # selection latched at press-down (ignores press jitter)
+    "cv_t": 0,            # ticks_ms of last CV poll (throttled)
 }
+
+# --- loop tuning --------------------------------------------------------
+CV_POLL_MS = 6            # min ms between CV/gate reads (caps I2C traffic)
 
 
 # ========================================================================
@@ -165,6 +169,57 @@ def read_cv_gate():
 
 
 # ========================================================================
+# TRS MIDI in -- plays the loaded voice (synth 1) polyphonically alongside
+# CV/gate. The byte parsing is done in firmware; this callback only does fast
+# amy.send() note calls (no draw / no I2C), so it can't stall the UI loop.
+# ========================================================================
+MIDI_ENABLED = True
+
+
+def _flush_notes():
+    """Release everything sounding (CV, audition, and any stuck MIDI notes)."""
+    try:
+        amy.reset(amy.RESET_ALL_NOTES)
+    except Exception:
+        pass
+    _state["note"] = None
+    _state["gate"] = False
+
+
+def _midi_cb(m):
+    if not m:
+        return
+    if m[0] == 0xFC:                                # MIDI Stop -> flush
+        _flush_notes()
+        return
+    if len(m) < 3:
+        return
+    status = m[0] & 0xF0
+    if status == 0x90 and m[2] > 0:                 # note on
+        amy.send(synth=SYNTH, note=m[1], vel=m[2] / 127.0)
+    elif status == 0x80 or (status == 0x90 and m[2] == 0):   # note off
+        amy.send(synth=SYNTH, note=m[1], vel=0)
+    elif status == 0xB0 and m[1] in (120, 123):     # all sound / all notes off
+        _flush_notes()
+
+
+def _midi_setup():
+    if not MIDI_ENABLED:
+        return
+    try:
+        import midi
+        # The firmware MIDI input is armed at boot and dispatches to
+        # midi.MIDI_CALLBACKS, so registering our handler is all that's needed.
+        # We deliberately do NOT call midi.setup(): it installs Tulip's
+        # per-channel router + "voices" app, which runs per message and starves
+        # the sketch loop -- the encoder/UI freezes once MIDI flows. A bare
+        # add_callback keeps MIDI featherweight and the UI responsive.
+        midi.add_callback(_midi_cb)
+    except Exception as e:
+        print("patchbank: MIDI in unavailable:", e)
+
+
+# ========================================================================
 # Patch loading + playback
 # ========================================================================
 def _all_notes_off():
@@ -182,18 +237,17 @@ def _note_on(n, vel=0.9):
 
 
 def load_selected():
-    p = bank.PATCHES[_state["sel"]]
+    sel = _state["sel"]
+    p = bank.PATCHES[sel]
     _all_notes_off()
-    # tear the synth down and reload into a *different* slot, so AMY actually
-    # rebuilds the voice (re-storing the same slot number is treated as a no-op)
+    # every patch is pre-stored in its own permanent slot at setup(); just point
+    # the synth at this patch's slot. Re-storing slots is fragile in AMY (it can
+    # capture an empty patch), and a distinct slot number forces a clean reload.
     amy.send(synth=SYNTH, num_voices=0)
-    _state["slot"] ^= 1
-    slot = _SLOTS[_state["slot"]]
-    bank.store_patch(amy, p, slot)
-    amy.send(synth=SYNTH, num_voices=p["voices"], patch=slot)
+    amy.send(synth=SYNTH, num_voices=p["voices"], patch=BASE_SLOT + sel)
     amy.send(synth=SYNTH, grab_midi_notes=0)
     bank.apply_fx(amy, p)
-    _state["loaded"] = _state["sel"]
+    _state["loaded"] = sel
     # set up this patch's macros (values shown but NOT applied -- the patch
     # plays exactly as designed until you actually turn a macro)
     _state["macros"] = p.get("macros", [])
@@ -292,9 +346,29 @@ def _hw_init():
     _enc_init()
 
 
+def _free_run_clock():
+    # Best-effort: ask Tulip not to slave its timebase to external MIDI clock.
+    # NB: on this firmware it does NOT fully detach -- if a device sends MIDI
+    # *clock* (e.g. Ableton "MIDI sync out"), Tulip locks its frame clock to it
+    # and the whole UI freezes whenever that clock pauses. Workaround: don't
+    # cascade MIDI clock into the board (drive sync via Ableton Link instead);
+    # MIDI notes are unaffected. See README.
+    try:
+        import tulip
+        tulip.external_midi_sync(0)
+    except Exception:
+        pass
+
+
 def setup():
     _hw_init()
     amy.send(volume=getattr(bank, "VOLUME", 1.0))
+    # pre-store every patch in its own permanent AMY slot (BASE_SLOT + index);
+    # loading then just reassigns the synth to a slot (see load_selected)
+    for i, p in enumerate(bank.PATCHES):
+        bank.store_patch(amy, p, BASE_SLOT + i)
+    _midi_setup()
+    _free_run_clock()
     _state["enc"] = _enc_pos()
     _state["btn"] = _enc_btn()
     _state["gate"] = False
@@ -313,6 +387,7 @@ def loop():
     except Exception:
         return
     now = time.ticks_ms()
+    prev_sel = _state["sel"]              # selection before this frame's turn
 
     # encoder turn: scroll the list, or adjust the selected macro live
     d = p - _state["enc"]
@@ -334,6 +409,9 @@ def loop():
     if b and not _state["btn"]:
         _state["btn_t"] = now
         _state["btn_long"] = False
+        # latch the selection as it was BEFORE this frame -- pressing the encoder
+        # shaft can nudge it a detent, which otherwise loads a neighbouring patch
+        _state["load_sel"] = prev_sel
     if (b and not _state["btn_long"]
             and time.ticks_diff(now, _state["btn_t"]) >= LONG_MS):
         _state["btn_long"] = True
@@ -343,7 +421,8 @@ def loop():
     if (not b) and _state["btn"]:
         if not _state["btn_long"]:
             if _state["page"] == "list":
-                load_selected()                    # loads + descends to macros
+                _state["sel"] = _state["load_sel"]   # discard press-jitter
+                load_selected()                      # loads + descends to macros
                 remac = True
             elif _state["macros"]:
                 _state["mfield"] = (_state["mfield"] + 1) % len(_state["macros"])
@@ -358,8 +437,9 @@ def loop():
             _all_notes_off()
             refoot = True
 
-    # CV/gate playing on the loaded patch
-    if _state["loaded"] >= 0:
+    # CV/gate playing on the loaded patch (throttled to cap I2C traffic)
+    if _state["loaded"] >= 0 and time.ticks_diff(now, _state["cv_t"]) >= CV_POLL_MS:
+        _state["cv_t"] = now
         gate, note = read_cv_gate()
         if gate and not _state["gate"]:                   # rising edge
             _state["audition_off"] = 0                     # cancel pending audition
