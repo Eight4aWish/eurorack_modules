@@ -13,7 +13,7 @@ import numpy as np
 import soundfile as sf
 import amy
 
-import patches as bank
+import pbdata as bank
 
 SR = 44100
 OUT = os.path.join(os.path.dirname(__file__), "out")
