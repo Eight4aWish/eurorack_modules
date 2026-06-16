@@ -54,6 +54,10 @@ public:
     float chaosMin = 0.0f,   chaosMax = 1.0f;
     float rateMin  = 0.001f, rateMax  = 0.1f;
     float charMin  = 0.0f,   charMax  = 1.0f;
+    // Largest numerically-safe integration step. Pitch above what `dtBase`
+    // alone can reach is produced by oversampling (multiple steps per audio
+    // sample) instead of growing dt, so V/Oct tracks without diverging.
+    float dtBase   = 0.05f;
     float modScale = 1.0f;          // chaos-param units per volt of MOD CV
     float gainL    = 0.12f, gainR = 0.12f;  // pre-tanh amplitude scale
     float xMin = -1.0f, xRange = 2.0f;     // plot window
@@ -77,7 +81,7 @@ public:
         name       = "ROSSLER";
         chaosLabel = "c"; charLabel = "a";
         chaosMin   = 2.0f;   chaosMax = 8.0f;
-        rateMin    = 0.002f; rateMax  = 0.1f;
+        rateMin    = 0.002f; rateMax  = 0.1f;   dtBase = 0.1f;
         charMin    = 0.1f;   charMax  = 0.4f;
         modScale   = 1.0f;
         gainL      = 0.12f;  gainR    = 0.12f;
@@ -121,7 +125,7 @@ public:
         name       = "VAN DER POL";
         chaosLabel = "u"; charLabel = "a";
         chaosMin   = 0.1f;   chaosMax = 8.0f;
-        rateMin    = 0.002f; rateMax  = 0.15f;
+        rateMin    = 0.002f; rateMax  = 0.15f;  dtBase = 0.15f;
         charMin    = 0.0f;   charMax  = 1.0f;  // reserved
         modScale   = 1.0f;
         gainL      = 0.45f;  gainR    = 0.20f;
@@ -169,7 +173,7 @@ public:
         name       = "LORENZ";
         chaosLabel = "r"; charLabel = "s";
         chaosMin   = 24.0f;  chaosMax = 32.0f;
-        rateMin    = 0.001f; rateMax  = 0.003f;
+        rateMin    = 0.001f; rateMax  = 0.003f;  dtBase = 0.003f;
         charMin    = 6.0f;   charMax  = 14.0f;
         modScale   = 2.0f;
         gainL      = 0.05f;  gainR    = 0.05f;
@@ -206,20 +210,46 @@ private:
 // ─── AudioChaosEngine ─────────────────────────────────────────────────────────
 // Single AudioStream. setAlgo() swaps the active ChaosBase* at any time;
 // pointer reads/writes are word-sized and atomic on Cortex-M7.
+//
+// Pitch comes from `stepsPerSample_`: the attractor is advanced that many
+// integration steps per audio sample (fractional via an accumulator), so V/Oct
+// raises pitch by oversampling at a safe dt rather than enlarging dt itself.
+//
+// An audio-rate exponential AD envelope acts as a VCA on the output. It rests
+// fully open (level 1) until first triggered, so untriggered/drone patches are
+// unaffected; a trigger fires Attack→Decay and then holds closed until the next.
 class AudioChaosEngine : public AudioStream {
 public:
+    enum EnvStage : uint8_t { ENV_OPEN, ENV_ATTACK, ENV_DECAY, ENV_CLOSED };
+
     AudioChaosEngine() : AudioStream(0, nullptr) {}
 
     void setAlgo(ChaosBase* a) {
         if (a == algo_) return;
         if (a) a->init();      // initialise state before making live
         dcL_ = dcR_ = 0.0f;   // flush DC history on switch
+        stepAcc_ = 0.0f;
         algo_ = a;             // atomic pointer store
     }
 
     ChaosBase* algo() const { return algo_; }
     float getX() const { ChaosBase* a = algo_; return a ? a->getX() : 0.0f; }
     float getY() const { ChaosBase* a = algo_; return a ? a->getY() : 0.0f; }
+
+    void  setStepsPerSample(float s) { stepsPerSample_ = (s < 1.0f) ? 1.0f : s; }
+    void  setEnvEnabled(bool e)      { envEnabled_ = e; }   // off → VCA stays open (drone)
+    void  triggerEnv()               { envTrig_ = true; }   // called from loop() on RST edge
+    EnvStage envStage() const        { return envStage_; }
+
+    // Attack is linear (snappy); decay is exponential to ~ -60 dB.
+    void setEnvTimes(float atkMs, float decMs) {
+        float atkSamp = atkMs * (44100.0f / 1000.0f);
+        float decSamp = decMs * (44100.0f / 1000.0f);
+        if (atkSamp < 1.0f) atkSamp = 1.0f;
+        if (decSamp < 1.0f) decSamp = 1.0f;
+        envAtkInc_ = 1.0f / atkSamp;
+        envDecMul_ = expf(-6.908f / decSamp);   // ln(0.001) ≈ -6.908
+    }
 
     void update() override {
         ChaosBase* a = algo_;   // single atomic load — consistent for this block
@@ -229,13 +259,29 @@ public:
         audio_block_t* bR = allocate();
         if (!bR) { release(bL); return; }
 
+        if (!envEnabled_) {
+            // Disabled: VCA fully open (original drone behaviour), ignore triggers.
+            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envTrig_ = false;
+        } else if (envTrig_) {
+            envTrig_ = false; envStage_ = ENV_ATTACK;
+        }
+
         float gL = a->gainL, gR = a->gainR;
+        float steps = stepsPerSample_;
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
-            a->stepSample();
+            // Advance the attractor by `steps` integration steps this sample.
+            stepAcc_ += steps;
+            int n = (int)stepAcc_;
+            stepAcc_ -= (float)n;
+            for (int k = 0; k < n; k++) a->stepSample();
+
+            envAdvance();
+
             float outL = tanhf(a->getX() * gL) * 32000.0f;
             float outR = tanhf(a->getY() * gR) * 32000.0f;
             outL -= dcL_; dcL_ += outL * 0.0007f;
             outR -= dcR_; dcR_ += outR * 0.0007f;
+            outL *= envLevel_; outR *= envLevel_;
             bL->data[i] = (int16_t)outL;
             bR->data[i] = (int16_t)outR;
         }
@@ -244,8 +290,31 @@ public:
     }
 
 private:
+    inline void envAdvance() {
+        switch (envStage_) {
+            case ENV_ATTACK:
+                envLevel_ += envAtkInc_;
+                if (envLevel_ >= 1.0f) { envLevel_ = 1.0f; envStage_ = ENV_DECAY; }
+                break;
+            case ENV_DECAY:
+                envLevel_ *= envDecMul_;
+                if (envLevel_ <= 0.0008f) { envLevel_ = 0.0f; envStage_ = ENV_CLOSED; }
+                break;
+            case ENV_OPEN:   envLevel_ = 1.0f; break;
+            case ENV_CLOSED: envLevel_ = 0.0f; break;
+        }
+    }
+
     ChaosBase* algo_ = nullptr;
     float dcL_ = 0.0f, dcR_ = 0.0f;
+    float stepsPerSample_ = 1.0f, stepAcc_ = 0.0f;
+    // Envelope (VCA)
+    volatile bool envEnabled_ = false;   // off by default — module is a drone voice
+    volatile bool envTrig_ = false;
+    EnvStage envStage_ = ENV_OPEN;
+    float envLevel_  = 1.0f;
+    float envAtkInc_ = 1.0f;      // per-sample linear attack increment
+    float envDecMul_ = 0.999f;    // per-sample exponential decay multiplier
 };
 
 // ─── ChaosChua ────────────────────────────────────────────────────────────────
@@ -260,7 +329,7 @@ public:
         name       = "CHUA";
         chaosLabel = "a"; charLabel = "b";
         chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
-        rateMin    = 0.001f; rateMax  = 0.008f;
+        rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
         charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
         modScale   = 1.0f;
         gainL      = 0.28f;  gainR    = 0.25f;
@@ -323,7 +392,7 @@ public:
         name       = "DUFFING";
         chaosLabel = "g"; charLabel  = "w";
         chaosMin   = 0.1f;   chaosMax = 0.8f;
-        rateMin    = 0.005f; rateMax  = 0.10f;
+        rateMin    = 0.005f; rateMax  = 0.10f;  dtBase = 0.10f;
         charMin    = 0.8f;   charMax  = 1.4f;
         modScale   = 0.35f;
         gainL      = 0.55f;  gainR    = 0.55f;
@@ -383,7 +452,7 @@ public:
         name       = "CPLROSSLER";
         chaosLabel = "c"; charLabel  = "k";
         chaosMin   = 2.0f;   chaosMax = 8.0f;
-        rateMin    = 0.002f; rateMax  = 0.10f;
+        rateMin    = 0.002f; rateMax  = 0.10f;  dtBase = 0.10f;
         charMin    = 0.0f;   charMax  = 0.5f;
         modScale   = 1.0f;
         gainL      = 0.10f;  gainR    = 0.10f;
@@ -500,6 +569,39 @@ void dacWriteVolts(uint8_t ch, float volts) {
     dacWrite(ch, (uint16_t)constrain(code, 0, 4095));
 }
 
+// ─── Envelope + control tunables ──────────────────────────────────────────────
+static constexpr float    ENV_ATK_MIN_MS = 0.5f,  ENV_ATK_MAX_MS = 200.0f;
+static constexpr float    ENV_DEC_MIN_MS = 2.0f,  ENV_DEC_MAX_MS = 4000.0f;
+static constexpr float    OVERSAMPLE_MAX = 64.0f;  // cap steps/sample (~6 oct above dtBase)
+static constexpr uint16_t BTN_LONG_MS    = 500;    // long-press toggles the ENV page
+static constexpr int16_t  RST_THRESH     = 10820;  // ADS code at ~+1V (trigger threshold)
+
+// CV input calibration (measured 2026-04-07; inverting front-end: higher V → lower code)
+static constexpr float CV_MOD_ZERO  = 13236.0f, CV_MOD_CPV  = 2414.0f;
+static constexpr float CV_ASGN_ZERO = 13240.0f, CV_ASGN_CPV = 2424.0f;
+static constexpr float CV_CLK_ZERO  = 13241.0f, CV_CLK_CPV  = 2421.0f;
+
+// Exponential pot map: norm 0..1 → [lo, hi] geometrically (musical for times).
+static inline float expoMap(float norm, float lo, float hi) {
+    if (norm < 0.0f) norm = 0.0f; else if (norm > 1.0f) norm = 1.0f;
+    return lo * powf(hi / lo, norm);
+}
+
+// Soft-takeover for the long-press ENV page. On the ENV page CHAOS/CHAR/DEPTH
+// change meaning (enable / Attack / Decay), so on a page switch their pots stay
+// inactive until each crosses (or matches) the target's stored value.
+struct Pickup3 { bool caught[3] = {true, true, true}; float ref[3] = {0, 0, 0}; };
+static void pickup3_arm(Pickup3& pk, float a, float b, float c) {
+    pk.ref[0] = a; pk.ref[1] = b; pk.ref[2] = c;
+    pk.caught[0] = pk.caught[1] = pk.caught[2] = false;
+}
+static bool pickup3_update(Pickup3& pk, int i, float pot, float target) {
+    if (pk.caught[i]) return true;
+    if (fabsf(pot - target) <= 0.02f) { pk.caught[i] = true; return true; }
+    if ((pk.ref[i] - target) * (pot - target) < 0.0f) { pk.caught[i] = true; return true; }
+    return false;
+}
+
 // ─── setup ────────────────────────────────────────────────────────────────────
 void setup() {
     pinMode(10, OUTPUT);
@@ -534,57 +636,100 @@ void setup() {
 
 // ─── loop ─────────────────────────────────────────────────────────────────────
 void loop() {
-    // Pots
-    int p1 = readPot(PIN_CHAOS);
-    int p2 = readPot(PIN_RATE);
-    int p3 = readPot(PIN_CHAR);
-    int p4 = readPot(PIN_DEPTH);
+    // Pots — light EMA smoothing to steady params and the pickup comparison.
+    static float ps[4]; static bool psInit = false;
+    int praw[4] = { readPot(PIN_CHAOS), readPot(PIN_RATE), readPot(PIN_CHAR), readPot(PIN_DEPTH) };
+    if (!psInit) { for (int i = 0; i < 4; i++) ps[i] = praw[i]; psInit = true; }
+    for (int i = 0; i < 4; i++) ps[i] += (praw[i] - ps[i]) * 0.2f;
+    float p1n = ps[0] / 1023.0f, p2 = ps[1], p3n = ps[2] / 1023.0f, p4n = ps[3] / 1023.0f;
 
     // CV inputs (ADS1115)
     int16_t cv[4];
     adsReadAll(cv);
 
-    // Algorithm selection — button cycles through all algorithms
+    // ── Button: short press = next algorithm, long press = toggle ENV page ──
     static uint8_t  algoIdx   = 0;
     static bool     lastBtn   = false;
-    static uint32_t lastBtnMs = 0;
+    static uint32_t btnDownMs = 0;
+    static bool     envPage   = false;   // false = main params, true = ENV config
+    static Pickup3  pagePickup;
     bool btn = !digitalRead(PIN_BTN);
-    if (btn && !lastBtn && millis() - lastBtnMs > 50) {
-        algoIdx = (algoIdx + 1) % N_ALGOS;
-        engine.setAlgo(algos[algoIdx]);
-        lastBtnMs = millis();
+    if (btn && !lastBtn) btnDownMs = millis();
+    if (!btn && lastBtn) {
+        uint32_t held = millis() - btnDownMs;
+        if (held >= BTN_LONG_MS) {
+            envPage = !envPage;                          // CHAOS/CHAR/DEPTH change meaning…
+            pickup3_arm(pagePickup, p1n, p3n, p4n);      // …so hold them until re-caught
+        } else if (held > 20) {                          // debounce short press
+            algoIdx = (algoIdx + 1) % N_ALGOS;
+            engine.setAlgo(algos[algoIdx]);
+        }
     }
     lastBtn = btn;
 
-    // CV calibration (measured 2026-04-07)
-    // Input circuit is inverting: higher Eurorack voltage → lower ADS code
-    float modVolts  = (13236.0f - cv[0]) / 2414.0f;  // MOD:  0V=13236, 2414 codes/V
-    float asgnVolts = (13240.0f - cv[1]) / 2424.0f;  // ASGN: 0V=13240, 2424 codes/V
-    float clkVolts  = (13241.0f - cv[2]) / 2421.0f;  // CLK:  0V=13241, 2421 codes/V
-    // RST: cv[3] < 10820 = above ~1V (code 10820 corresponds to +1V threshold)
+    // CV calibration (inverting front-end: higher Eurorack voltage → lower ADS code)
+    float modVolts  = (CV_MOD_ZERO  - cv[0]) / CV_MOD_CPV;
+    float asgnVolts = (CV_ASGN_ZERO - cv[1]) / CV_ASGN_CPV;
+    float clkVolts  = (CV_CLK_ZERO  - cv[2]) / CV_CLK_CPV;
 
-    // Apply controls to active algorithm — ranges read from metadata
-    ChaosBase* algo = engine.algo();
-    float chaos = 0.0f, rate = 0.0f, charV = 0.0f;
-    if (algo) {
-        chaos = algo->chaosMin + (p1 / 1023.0f) * (algo->chaosMax - algo->chaosMin);
-        rate  = algo->rateMin  + (p2 / 1023.0f) * (algo->rateMax  - algo->rateMin);
-        charV = algo->charMin  + (p3 / 1023.0f) * (algo->charMax  - algo->charMin);
-        chaos = constrain(chaos + modVolts * algo->modScale,
-                          algo->chaosMin - 2.0f, algo->chaosMax + 2.0f);
-        rate  = constrain(rate * powf(2.0f, clkVolts + asgnVolts),
-                          algo->rateMin * 0.5f, algo->rateMax * 2.0f);
-        algo->setParams(chaos, rate, charV);
+    // ── Persistent control state, stored as 0..1 norms so they survive algo and
+    //    page switches. On the main page CHAOS/CHAR/DEPTH (p1/p3/p4) feed chaos/
+    //    char/depth; on the ENV page CHAOS becomes the envelope ON/OFF switch and
+    //    CHAR/DEPTH become Attack/Decay. Page-dependent pots use soft-takeover.
+    static float ctlChaosNorm = 0.5f, ctlCharNorm = 0.3f, ctlDepthNorm = 0.8f;
+    static float ctlAtkNorm   = 0.0f, ctlDecNorm  = 0.45f;
+    static bool  envEnabled   = false;   // AD envelope off by default
+    if (!envPage) {
+        if (pickup3_update(pagePickup, 0, p1n, ctlChaosNorm)) ctlChaosNorm = p1n;
+        if (pickup3_update(pagePickup, 1, p3n, ctlCharNorm))  ctlCharNorm  = p3n;
+        if (pickup3_update(pagePickup, 2, p4n, ctlDepthNorm)) ctlDepthNorm = p4n;
+    } else {
+        // CHAOS pot is the enable switch (deadband around centre); CHAR/DEPTH
+        // set Attack/Decay with soft-takeover.
+        if (p1n > 0.55f)      envEnabled = true;
+        else if (p1n < 0.45f) envEnabled = false;
+        if (pickup3_update(pagePickup, 1, p3n, ctlAtkNorm))   ctlAtkNorm   = p3n;
+        if (pickup3_update(pagePickup, 2, p4n, ctlDecNorm))   ctlDecNorm   = p4n;
     }
 
-    float depth = 0.1f + (p4 / 1023.0f) * 0.9f;
+    // ── Apply controls to the active algorithm ──
+    ChaosBase* algo = engine.algo();
+    float chaos = 0.0f, charV = 0.0f, rateDisp = 0.0f;
+    if (algo) {
+        chaos = algo->chaosMin + ctlChaosNorm * (algo->chaosMax - algo->chaosMin);
+        chaos = constrain(chaos + modVolts * algo->modScale,
+                          algo->chaosMin - 2.0f, algo->chaosMax + 2.0f);
+        charV = algo->charMin + ctlCharNorm * (algo->charMax - algo->charMin);
+
+        // Pitch: desired simulated-time-per-audio-sample from RATE + V/Oct, then
+        // realise it as a safe step size × oversampling so it stays stable.
+        float potDt    = algo->rateMin + (p2 / 1023.0f) * (algo->rateMax - algo->rateMin);
+        float desiredDt = potDt * powf(2.0f, clkVolts + asgnVolts);
+        desiredDt = constrain(desiredDt, 1.0e-5f, algo->dtBase * OVERSAMPLE_MAX);
+        float stepDt, steps;
+        if (desiredDt <= algo->dtBase) { stepDt = desiredDt;     steps = 1.0f; }
+        else                           { stepDt = algo->dtBase;  steps = desiredDt / algo->dtBase; }
+        rateDisp = desiredDt;
+
+        algo->setParams(chaos, stepDt, charV);
+        engine.setStepsPerSample(steps);
+    }
+
+    // DEPTH = output amplitude; CHAR/DEPTH env page sets Attack/Decay times.
+    float depth = 0.1f + ctlDepthNorm * 0.9f;
     ampL.gain(depth);
     ampR.gain(depth);
+    float atkMs = expoMap(ctlAtkNorm, ENV_ATK_MIN_MS, ENV_ATK_MAX_MS);
+    float decMs = expoMap(ctlDecNorm, ENV_DEC_MIN_MS, ENV_DEC_MAX_MS);
+    engine.setEnvTimes(atkMs, decMs);
+    engine.setEnvEnabled(envEnabled);
 
-    // RST: rising edge above ~1V resets active algorithm to initial conditions
+    // RST: rising edge above ~1V resets the attractor (percussive transient) and
+    // fires the AD envelope — together a self-contained perc voice.
     static int16_t lastRst = 0;
-    if (cv[3] < 10820 && lastRst >= 10820) {
+    if (cv[3] < RST_THRESH && lastRst >= RST_THRESH) {
         if (algo) algo->init();
+        engine.triggerEnv();
     }
     lastRst = cv[3];
 
@@ -617,28 +762,42 @@ void loop() {
         display.setTextColor(SSD1306_WHITE);
 
         if (algo) {
-            // Row 1: algorithm name + chaos param
+            // Row 1: algorithm name + (chaos param | ENV on/off)
             display.setCursor(0, 34);
             display.print(algo->name);
-            display.setCursor(72, 34);
-            display.print(algo->chaosLabel); display.print(':');
-            display.print(chaos, 1);
+            if (!envPage) {
+                display.setCursor(78, 34);
+                display.print(algo->chaosLabel); display.print(':');
+                display.print(chaos, 1);
+            } else {
+                display.setCursor(66, 34);
+                display.print(envEnabled ? "ENV:ON" : "ENV:OFF");
+            }
 
-            // Row 2: char param + rate
-            display.setCursor(0, 44);
-            display.print(algo->charLabel); display.print(':');
-            display.print(charV, 2);
-            display.setCursor(72, 44);
-            display.print("dt:"); display.print(rate, 4);
-
-            // Row 3: depth + peak levels
-            float lv = peakL.available() ? peakL.read() : 0.0f;
-            float rv = peakR.available() ? peakR.read() : 0.0f;
-            display.setCursor(0, 54);
-            display.print("dp:"); display.print(depth, 2);
-            display.setCursor(72, 54);
-            display.print("L"); display.print((int)(lv * 9));
-            display.print(" R"); display.print((int)(rv * 9));
+            if (!envPage) {
+                // Row 2: char param + effective rate
+                display.setCursor(0, 44);
+                display.print(algo->charLabel); display.print(':');
+                display.print(charV, 2);
+                display.setCursor(72, 44);
+                display.print("dt:"); display.print(rateDisp, 4);
+                // Row 3: depth + peak levels
+                float lv = peakL.available() ? peakL.read() : 0.0f;
+                float rv = peakR.available() ? peakR.read() : 0.0f;
+                display.setCursor(0, 54);
+                display.print("dp:"); display.print(depth, 2);
+                display.setCursor(72, 54);
+                display.print("L"); display.print((int)(lv * 9));
+                display.print(" R"); display.print((int)(rv * 9));
+            } else {
+                // ENV page: Attack / Decay times
+                display.setCursor(0, 44);
+                display.print("A:"); display.print(atkMs, 1); display.print("ms");
+                display.setCursor(0, 54);
+                display.print("D:");
+                if (decMs >= 1000.0f) { display.print(decMs / 1000.0f, 2); display.print('s'); }
+                else                  { display.print(decMs, 0); display.print("ms"); }
+            }
         }
 
         display.display();

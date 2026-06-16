@@ -4,6 +4,26 @@ Chaotic / fractal synthesis module exploiting the Teensy 4.1's 600 MHz
 Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 (SGTL5000 codec, I2S).
 
+> **Implemented firmware (current).** The algorithm suite and groups below are
+> the *design roadmap*; the shipping firmware (`src/teensy-chaos/main.cpp`)
+> currently has **6 continuous-ODE algorithms** — Rössler, Van der Pol, Lorenz,
+> Chua, Duffing, Coupled Rössler — cycled by short-pressing BTN. `config.h`'s
+> 14-algorithm/group tables are not yet wired up. Recent changes:
+> - **V/Oct by oversampling.** Pitch = simulated-time advanced per audio sample.
+>   Each algorithm has a safe base step `dtBase`; CLK V/Oct (and ASGN, stacked)
+>   raise pitch by running more integration sub-steps per sample rather than
+>   enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over
+>   several octaves without diverging.
+> - **Onboard AD envelope (VCA), off by default.** An audio-rate exponential
+>   Attack–Decay envelope can shape the output. When **off** (default) the VCA is
+>   fully open and the module behaves exactly as before (drone). When **on**, an
+>   RST rising edge fires it (plus the attractor re-init transient) for a
+>   self-contained percussion voice.
+> - **Long-press BTN = ENV page.** While on the ENV page: **CHAOS** = envelope
+>   ON/OFF switch (low = off, high = on), **CHAR** = Attack, **DEPTH** = Decay
+>   (pots soft-takeover so values aren't snapped on the page switch). Short press
+>   still cycles algorithm.
+
 ## Hardware — 10 HP
 
 ```
@@ -125,9 +145,11 @@ Algorithm-dependent second parameter:
 
 ### BTN — Navigation
 
-- **Short press:** Cycle to next algorithm within current group.
-- **Long press (>500 ms):** Cycle to next group (Melodic -> Percussive ->
-  Texture -> Melodic).
+- **Short press:** Cycle to next algorithm.
+- **Long press (>500 ms):** Toggle the **ENV page** — CHAOS becomes the envelope
+  ON/OFF switch, CHAR becomes Attack and DEPTH becomes Decay for the onboard AD
+  envelope (pots soft-takeover so they don't snap on the switch). *(Roadmap:
+  group navigation once groups exist.)*
 
 ### CLK — Clock / V-Oct
 
@@ -138,10 +160,24 @@ Algorithm-dependent second parameter:
 
 ### RST — Reset / Trigger
 
-- Rising edge resets all state variables to initial conditions.
-- Creates a percussive transient as the trajectory diverges from the
-  starting point back toward the attractor.
+- Rising edge (>~1 V) resets all state variables to initial conditions **and**
+  fires the onboard AD envelope (see below).
+- The re-init creates a percussive transient as the trajectory diverges from the
+  starting point back toward the attractor; the AD envelope shapes it into a hit.
 - Useful for rhythmic use — clock CLK, trigger RST on downbeats.
+
+### AD Envelope (VCA)
+
+- Audio-rate exponential Attack–Decay envelope on the stereo output, **off by
+  default**.
+- **Off:** VCA fully open — the module is a drone/free-running voice (original
+  behaviour). RST still re-inits the attractor (percussive transient) but the
+  output isn't VCA-shaped.
+- **On:** rests open until the first RST trigger, then each trigger runs
+  Attack→Decay and holds closed until the next (classic one-shot perc). Long
+  Decay ≈ sustain.
+- Configured on the **ENV page** (long-press BTN): CHAOS = ON/OFF (low/high),
+  CHAR = Attack (~0.5–200 ms, linear), DEPTH = Decay (~2 ms–4 s, exponential).
 
 ### MOD — Chaos Modulation
 
