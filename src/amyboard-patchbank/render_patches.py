@@ -41,10 +41,15 @@ def width(buf):
 
 
 def render_one(p):
-    is_pad = p["cat"] == bank.PAD
-    note = 48 if is_pad else 36
-    hold = 1.6 if is_pad else 0.8       # note-on duration
-    tail = 1.8 if is_pad else 0.5       # render past note-off
+    cat = p["cat"]
+    perc = cat in (getattr(bank, "DRUM", "DRUM"), getattr(bank, "PERC", "PERC"))
+    is_bass = cat == bank.BASS
+    if perc:                            # one-shot hit
+        note, hold, tail = 36, 0.05, 0.8
+    elif is_bass:
+        note, hold, tail = 36, 0.8, 0.5
+    else:                              # LEAD / PAD / DRONE -- sustained
+        note, hold, tail = 48, 1.6, 1.8
     amy.restart()
     amy.send(volume=getattr(bank, "VOLUME", 1.0))
     bank.store_patch(amy, p, PNUM)

@@ -66,8 +66,9 @@ _buf = None
 _fb = None
 
 _state = {
-    "sel": 0,             # highlighted patch index
-    "loaded": -1,         # currently loaded patch index
+    "bank": 0,            # selected bank index (into bank.BANKS)
+    "sel": 0,             # highlighted patch index WITHIN the current bank
+    "loaded": -1,         # currently loaded patch (global PATCHES index)
     "top": 0,             # first visible row (scroll offset)
     "note": None,         # currently sounding note, or None
     "gate": False,        # last gate state, for edge detection
@@ -75,7 +76,7 @@ _state = {
     "audition_off": 0,    # ticks_ms deadline to release the audition note
     "enc": 0,             # last encoder position
     "btn": False,         # last button state
-    "page": "list",       # "list" or "macro"
+    "page": "bank",       # "bank" | "list" | "macro"
     "mfield": 0,          # selected macro index on the macro pages
     "macros": [],         # loaded patch's macro metadata
     "mvals": [],          # normalized 0..1 value per macro
@@ -236,18 +237,33 @@ def _note_on(n, vel=0.9):
     _state["note"] = n
 
 
+def _bank_name():
+    return bank.BANKS[_state["bank"]]
+
+
+def _bank_patches():
+    """Global PATCHES indices in the currently-selected bank (may be empty)."""
+    return bank.BANK_INDEX[_bank_name()]
+
+
 def load_selected():
+    bp = _bank_patches()
+    if not bp:
+        return
     sel = _state["sel"]
-    p = bank.PATCHES[sel]
+    if sel >= len(bp):
+        sel = len(bp) - 1
+    g = bp[sel]                          # global patch index
+    p = bank.PATCHES[g]
     _all_notes_off()
     # every patch is pre-stored in its own permanent slot at setup(); just point
     # the synth at this patch's slot. Re-storing slots is fragile in AMY (it can
     # capture an empty patch), and a distinct slot number forces a clean reload.
     amy.send(synth=SYNTH, num_voices=0)
-    amy.send(synth=SYNTH, num_voices=p["voices"], patch=BASE_SLOT + sel)
+    amy.send(synth=SYNTH, num_voices=p["voices"], patch=BASE_SLOT + g)
     amy.send(synth=SYNTH, grab_midi_notes=0)
     bank.apply_fx(amy, p)
-    _state["loaded"] = sel
+    _state["loaded"] = g
     # set up this patch's macros (values shown but NOT applied -- the patch
     # plays exactly as designed until you actually turn a macro)
     _state["macros"] = p.get("macros", [])
@@ -262,26 +278,48 @@ def load_selected():
 # ========================================================================
 # Drawing
 # ========================================================================
+def _draw_bank():
+    _fb.fill(0)
+    _fb.text("BANKS", 2, 1, WHITE)
+    _fb.hline(0, 11, W, DIM)
+    y = LIST_Y
+    for i, bnk in enumerate(bank.BANKS):
+        cnt = len(bank.BANK_INDEX[bnk])
+        if i == _state["bank"]:
+            _fb.fill_rect(0, y - 2, W, ROW_H, SELBAR)
+        col = WHITE if i == _state["bank"] else (GRAY if cnt else DIM)
+        _fb.text("%-9s %d" % (bnk, cnt), 2, y, col)
+        y += ROW_H
+    _fb.text("press = open", 2, H - 10, DIM)
+    _show()
+
+
 def _draw_list():
     _fb.fill(0)
-    sel = _state["sel"]
-    cat = bank.PATCHES[sel]["cat"]
-    _fb.text("BANK " + cat, 2, 1, WHITE)
+    bp = _bank_patches()
+    _fb.text(_bank_name(), 2, 1, WHITE)
     _fb.hline(0, 11, W, DIM)
+    if not bp:
+        _fb.text("(empty)", 4, LIST_Y, DIM)
+        _draw_footer()
+        _show()
+        return
 
+    sel = _state["sel"]
     if sel < _state["top"]:
         _state["top"] = sel
     elif sel >= _state["top"] + VISIBLE:
         _state["top"] = sel - VISIBLE + 1
 
     y = LIST_Y
-    last = min(len(bank.PATCHES), _state["top"] + VISIBLE)
-    for i in range(_state["top"], last):
-        p = bank.PATCHES[i]
-        if i == sel:
+    last = min(len(bp), _state["top"] + VISIBLE)
+    for k in range(_state["top"], last):
+        g = bp[k]
+        p = bank.PATCHES[g]
+        if k == sel:
             _fb.fill_rect(0, y - 2, W, ROW_H, SELBAR)
-        mark = "*" if i == _state["loaded"] else " "
-        col = WHITE if i == sel else GRAY
+        mark = "*" if g == _state["loaded"] else " "
+        col = WHITE if k == sel else GRAY
         _fb.text(mark + p["name"], 2, y, col)
         y += ROW_H
     _draw_footer()
@@ -370,14 +408,14 @@ def setup():
     _state["enc"] = _enc_pos()
     _state["btn"] = _enc_btn()
     _state["gate"] = False
-    _draw_list()
+    _draw_bank()
 
 
 def loop():
-    n = len(bank.PATCHES)
     relist = False
     refoot = False
     remac = False
+    rebank = False
 
     try:
         p = _enc_pos()
@@ -385,15 +423,21 @@ def loop():
     except Exception:
         return
     now = time.ticks_ms()
+    page = _state["page"]                 # page at the start of this frame
     prev_sel = _state["sel"]              # selection before this frame's turn
 
-    # encoder turn: scroll the list, or adjust the selected macro live
+    # encoder turn: scroll banks / patches, or adjust the selected macro live
     d = p - _state["enc"]
     if d:
         _state["enc"] = p
-        if _state["page"] == "list":
-            _state["sel"] = (_state["sel"] + d) % n
-            relist = True
+        if page == "bank":
+            _state["bank"] = (_state["bank"] + d) % len(bank.BANKS)
+            rebank = True
+        elif page == "list":
+            bp = _bank_patches()
+            if bp:
+                _state["sel"] = (_state["sel"] + d) % len(bp)
+                relist = True
         elif _state["macros"]:
             i = _state["mfield"]
             v = _state["mvals"][i] + d * MACRO_STEP
@@ -403,7 +447,7 @@ def loop():
                              _state["macros"][i], v)
             remac = True
 
-    # button: short press = down / tab forward, long press = up a level
+    # button: short press = down / into, long press = up a level
     if b and not _state["btn"]:
         _state["btn_t"] = now
         _state["btn_long"] = False
@@ -413,15 +457,24 @@ def loop():
     if (b and not _state["btn_long"]
             and time.ticks_diff(now, _state["btn_t"]) >= LONG_MS):
         _state["btn_long"] = True
-        if _state["page"] == "macro":
+        if page == "macro":
             _state["page"] = "list"
             relist = True
+        elif page == "list":
+            _state["page"] = "bank"
+            rebank = True
     if (not b) and _state["btn"]:
         if not _state["btn_long"]:
-            if _state["page"] == "list":
-                _state["sel"] = _state["load_sel"]   # discard press-jitter
-                load_selected()                      # loads + descends to macros
-                remac = True
+            if page == "bank":
+                _state["page"] = "list"      # open the highlighted bank
+                _state["sel"] = 0
+                _state["top"] = 0
+                relist = True
+            elif page == "list":
+                if _bank_patches():
+                    _state["sel"] = _state["load_sel"]   # discard press-jitter
+                    load_selected()                      # loads + descends to macros
+                    remac = True
             elif _state["macros"]:
                 _state["mfield"] = (_state["mfield"] + 1) % len(_state["macros"])
                 remac = True
@@ -453,13 +506,18 @@ def loop():
         _state["gate"] = gate
 
     # render the active page
-    if _state["page"] == "list":
-        if relist:
+    pg = _state["page"]
+    if pg == "bank":
+        if rebank:
+            _draw_bank()
+    elif pg == "list":
+        if relist or rebank:
             _draw_list()
         elif refoot:
             _show_footer()
-    elif remac or relist:
-        _draw_macros()
+    elif pg == "macro":
+        if remac:
+            _draw_macros()
 
 
 def run():

@@ -29,8 +29,14 @@ LPF = 1
 BPF = 2
 HPF = 3
 
-PAD = "PAD"
+# --- banks (the patch list is organised into these; display order) ---
 BASS = "BASS"
+LEAD = "LEAD"
+PAD = "PAD"
+DRONE = "DRONE"
+DRUM = "DRUM"
+PERC = "PERC"
+BANKS = [BASS, LEAD, PAD, DRONE, DRUM, PERC]
 
 # Global AMY volume the bank is voiced against (app + render harness use this).
 VOLUME = 3.0
@@ -79,7 +85,7 @@ PATCHES = [
                "bp0": "0,0,4,1,350,0", "pan": 0.5}],
      "fx": {"chorus": [0.3, 300, 0.5, 0.4], "reverb": [0.5, 0.82, 0.3, 0.5]}},
 
-    {"name": "Dark Drone", "cat": PAD, "voices": 2,
+    {"name": "Dark Drone", "cat": DRONE, "voices": 2,
      "oscs": [{"wave": SAW_DOWN, "freq": {"note": 0.5}, "amp": _amp(0.8),
                "filter_type": LPF, "resonance": 3, "filter_freq": {"const": 240, "eg1": 500},
                "bp0": "0,0,900,1,900,0", "bp1": "0,0,2600,1,600,0", "pan": 0.35},
@@ -114,11 +120,11 @@ PATCHES = [
                "bp0": "0,0,110,1,260,0.8,300,0", "bp1": "0,0,120,1,400,0.5,300,0", "pan": 0.65}],
      "fx": {"reverb": [0.3, 0.65, 0.4, 0.5]}},
 
-    {"name": "Reso Sweep", "cat": PAD, "voices": 3,
+    {"name": "Reso Sweep", "cat": DRONE, "voices": 3,
      "oscs": _saw_stack(3, 0.005, 0.3, 0.7, 180, 500, 700, 3200, 9, 0.7),
      "fx": {"reverb": [0.4, 0.75, 0.4, 0.5]}},
 
-    {"name": "Air Pad", "cat": PAD, "voices": 4,
+    {"name": "Air Pad", "cat": DRONE, "voices": 4,
      "oscs": [{"wave": SINE, "freq": {"note": 1.0}, "amp": _amp(0.9),
                "bp0": "0,0,800,1,900,0", "pan": 0.3},
               {"wave": TRIANGLE, "freq": {"note": 2.002}, "amp": {"vel": 0.3, "eg0": 1},
@@ -308,3 +314,14 @@ def _derive_macros(p):
 for _p in PATCHES:
     if "macros" not in _p:
         _p["macros"] = _derive_macros(_p)
+
+
+def patches_in(bank):
+    """Global PATCHES indices in `bank`, sorted alphabetically by patch name."""
+    idx = [i for i, p in enumerate(PATCHES) if p["cat"] == bank]
+    idx.sort(key=lambda i: PATCHES[i]["name"].lower())
+    return idx
+
+
+# bank -> [patch indices]; banks with no patches yet (LEAD/DRUM/PERC) map to []
+BANK_INDEX = {b: patches_in(b) for b in BANKS}
