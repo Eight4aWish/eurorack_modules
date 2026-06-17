@@ -55,13 +55,13 @@ long press = up**):
 | Action | Result |
 |---|---|
 | Turn | Scroll the patch list |
-| Short press | Load the highlighted patch + audition a note, and drop into its macro pages |
+| Short press | Load the highlighted patch + audition a note, and drop into its macro page |
 
-**Macro pages** (per loaded patch)
+**Macro page** (per loaded patch — all macros on one screen)
 | Action | Result |
 |---|---|
 | Turn | Adjust the highlighted macro, live |
-| Short press | Tab to the next macro (display flips between page 1 and 2) |
+| Short press | Move the highlight to the next macro |
 | Long press (~½ s) | Back up to the patch list |
 
 CV/gate keeps playing on both screens, so you tweak while it sounds.

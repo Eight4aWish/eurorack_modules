@@ -307,30 +307,28 @@ def _show_footer():
 def _draw_macros():
     _fb.fill(0)
     name = bank.PATCHES[_state["loaded"]]["name"] if _state["loaded"] >= 0 else "--"
-    _fb.text(name, 2, 1, WHITE)
-    _fb.hline(0, 11, W, DIM)
+    _fb.text(name, 2, 2, WHITE)
+    _fb.hline(0, 12, W, DIM)
 
     macros = _state["macros"]
     mvals = _state["mvals"]
     sel = _state["mfield"]
-    pg = sel // 2
+    # all macros on one screen: name on the left, value bar on the right
     y = 24
-    for i in range(pg * 2, min(len(macros), pg * 2 + 2)):
+    for i in range(len(macros)):
         is_sel = (i == sel)
         if is_sel:
-            _fb.fill_rect(0, y - 4, W, 36, SELBAR)
+            _fb.fill_rect(0, y - 4, W, 18, SELBAR)
         col = WHITE if is_sel else GRAY
-        _fb.text(macros[i]["name"], 6, y, col)
-        bx, by, bw, bh = 6, y + 14, W - 12, 9
+        _fb.text(macros[i]["name"], 4, y, col)
+        bx, by, bw, bh = 50, y - 1, 72, 10
         _fb.rect(bx, by, bw, bh, col)
         fillw = int((bw - 2) * mvals[i])
         if fillw > 0:
             _fb.fill_rect(bx + 1, by + 1, fillw, bh - 2, col)
-        y += 44
+        y += 22
 
-    _fb.hline(0, H - 14, W, DIM)
-    npages = (len(macros) + 1) // 2
-    _fb.text("P%d/%d  hold=up" % (pg + 1, npages), 2, H - 11, GRAY)
+    _fb.text("hold = back", 2, H - 10, DIM)
     _show()
 
 

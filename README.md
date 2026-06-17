@@ -149,11 +149,11 @@ See [docs/NANOESP32_CORTHEX.md](docs/NANOESP32_CORTHEX.md) for the firmware arch
 
 ## AMYboard — `amyboard-patchbank`
 
-A **MicroPython / Tulip** app (not a PlatformIO env) for the shorepine AMYboard (ESP32-S3 + the AMY synth engine). Turns the board into a browse-and-play synth voice: spin the rotary encoder through a curated bank of **10 pads + 10 basses** on the 128×128 OLED, press to load, tweak via two macro pages, and play from CV/Gate or TRS MIDI.
+A **MicroPython / Tulip** app (not a PlatformIO env) for the shorepine AMYboard (ESP32-S3 + the AMY synth engine). Turns the board into a browse-and-play synth voice: spin the rotary encoder through a curated bank of **10 pads + 10 basses** on the 128×128 OLED, press to load, tweak via a one-screen macro page, and play from CV/Gate or TRS MIDI.
 
 - **Hardware**: shorepine AMYboard (runs Tulip/MicroPython stock) + front-panel I2C accessories — Adafruit SSD1327 128×128 OLED (`0x3D`) and Seesaw rotary encoder (`0x36`) on the front Grove/STEMMA bus (SDA=GPIO17, SCL=GPIO18, 400 kHz).
 - **Play**: CV0 = 1 V/oct pitch, CV1 = gate; TRS MIDI in (notes, omni + polyphonic).
-- **Macros**: up to 4 encoder-tweakable parameters per patch (TONE / RES, then SPACE / MOVE) across two pages, applied live while it sounds.
+- **Macros**: up to 4 encoder-tweakable parameters per patch (TONE / RES / SPACE / MOVE), all on one screen, applied live while it sounds.
 - **⚠️ Don't cascade MIDI _clock_** into the board — Tulip slaves its frame clock to it and the UI freezes when the clock stops. Sync via Ableton Link instead; MIDI notes are unaffected.
 
 Deploy is over the board's MicroPython REPL, not `pio`: copy `pbdata.py` + `patchbank.py` to `/user/`, and `sketch.py` to `/user/current/sketch.py` to make it the boot app (`mpremote` fights this board's USB-CDC — copy over the raw REPL).
