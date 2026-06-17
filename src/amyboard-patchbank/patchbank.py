@@ -197,9 +197,9 @@ def _midi_cb(m):
         return
     status = m[0] & 0xF0
     if status == 0x90 and m[2] > 0:                 # note on
-        amy.send(synth=SYNTH, note=m[1], vel=m[2] / 127.0)
+        amy.send(synth=SYNTH, note=m[1] + _pitch_xpose(), vel=m[2] / 127.0)
     elif status == 0x80 or (status == 0x90 and m[2] == 0):   # note off
-        amy.send(synth=SYNTH, note=m[1], vel=0)
+        amy.send(synth=SYNTH, note=m[1] + _pitch_xpose(), vel=0)
     elif status == 0xB0 and m[1] in (120, 123):     # all sound / all notes off
         _flush_notes()
 
@@ -229,10 +229,20 @@ def _all_notes_off():
         _state["note"] = None
 
 
+def _pitch_xpose():
+    # semitone offset from the loaded patch's PITCH macro (drum/perc), else 0
+    for i, m in enumerate(_state["macros"]):
+        if m.get("kind") == "pitch":
+            v = _state["mvals"][i]
+            return int(round(m["min"] + (m["max"] - m["min"]) * v))
+    return 0
+
+
 def _note_on(n, vel=0.9):
     # always release whatever is currently sounding first, so a gate arriving
     # mid-audition (or a retrigger) never leaves an orphaned note droning
     _all_notes_off()
+    n = n + _pitch_xpose()
     amy.send(synth=SYNTH, note=n, vel=vel)
     _state["note"] = n
 

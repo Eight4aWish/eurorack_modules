@@ -227,6 +227,105 @@ PATCHES = [
                "filter_type": LPF, "resonance": 15, "filter_freq": {"const": 300, "eg1": 3000},
                "bp0": "0,0,4,1,250,0.4,90,0", "bp1": "0,1,220,0,90,0", "pan": 0.5}],
      "fx": {"reverb": [0.2, 0.7, 0.4, 0.5]}},
+
+    # ==================== DRONES (top-up) ====================
+    {"name": "Deep Space", "cat": DRONE, "voices": 2,
+     "oscs": [{"wave": SAW_DOWN, "freq": {"note": 0.5}, "amp": _amp(0.8), "filter_type": LPF,
+               "resonance": 3, "filter_freq": {"const": 200, "eg1": 400},
+               "bp0": "0,0,1500,1,1200,0", "bp1": "0,0,4000,1,800,0", "pan": 0.3},
+              {"wave": SAW_DOWN, "freq": {"note": 0.503}, "amp": _amp(0.8), "filter_type": LPF,
+               "resonance": 3, "filter_freq": {"const": 200, "eg1": 400},
+               "bp0": "0,0,1600,1,1200,0", "bp1": "0,0,4000,1,800,0", "pan": 0.7}],
+     "fx": {"reverb": [0.55, 0.88, 0.25, 0.5]}},
+
+    {"name": "Harmonic Drift", "cat": DRONE, "voices": 3,
+     "oscs": [{"wave": SINE, "freq": {"note": 1.0}, "amp": _amp(0.9),
+               "bp0": "0,0,1200,1,1000,0", "pan": 0.4},
+              {"wave": SINE, "freq": {"note": 1.5}, "amp": {"vel": 0.5, "eg0": 1},
+               "bp0": "0,0,1600,1,1000,0", "pan": 0.6},
+              {"wave": SINE, "freq": {"note": 2.002}, "amp": {"vel": 0.35, "eg0": 1},
+               "bp0": "0,0,2000,1,900,0", "pan": 0.5}],
+     "fx": {"chorus": [0.4, 360, 0.3, 0.4], "reverb": [0.5, 0.85, 0.3, 0.5]}},
+
+    {"name": "Glass Drone", "cat": DRONE, "voices": 3,
+     "oscs": [{"wave": TRIANGLE, "freq": {"note": 1.0}, "amp": _amp(0.8),
+               "bp0": "0,0,900,1,1000,0", "pan": 0.35},
+              {"wave": SINE, "freq": {"note": 3.01}, "amp": {"vel": 0.3, "eg0": 1},
+               "bp0": "0,0,1200,1,800,0", "pan": 0.65}],
+     "fx": {"chorus": [0.5, 320, 0.5, 0.4], "reverb": [0.55, 0.88, 0.3, 0.5]}},
+
+    {"name": "Sub Drone", "cat": DRONE, "voices": 2,
+     "oscs": [{"wave": TRIANGLE, "freq": {"note": 0.5}, "amp": _amp(1.0), "filter_type": LPF,
+               "resonance": 2, "filter_freq": {"const": 300, "eg1": 200},
+               "bp0": "0,0,1000,1,1100,0", "bp1": "0,0,3000,1,0,0", "pan": 0.5}],
+     "fx": {"reverb": [0.45, 0.82, 0.3, 0.5]}},
+
+    # ======================== DRUMS (synth) ========================
+    {"name": "Kick", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": SINE, "freq": {"note": 0.5}, "amp": _amp(1.6), "filter_type": LPF,
+               "resonance": 1, "filter_freq": {"const": 2000}, "bp0": "0,0,2,1,120,0", "pan": 0.5}]},
+
+    {"name": "Snare", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(1.0), "filter_type": HPF, "resonance": 2,
+               "filter_freq": {"const": 1500}, "bp0": "0,0,1,1,140,0", "pan": 0.5},
+              {"wave": TRIANGLE, "freq": {"note": 1.0}, "amp": {"vel": 0.5, "eg0": 1},
+               "bp0": "0,0,1,1,90,0", "pan": 0.5}]},
+
+    {"name": "Closed Hat", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(0.8), "filter_type": HPF, "resonance": 2,
+               "filter_freq": {"const": 7000}, "bp0": "0,0,1,1,40,0", "pan": 0.5}]},
+
+    {"name": "Open Hat", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(0.8), "filter_type": HPF, "resonance": 2,
+               "filter_freq": {"const": 7000}, "bp0": "0,0,1,1,300,0.3,120,0", "pan": 0.5}]},
+
+    {"name": "Clap", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(1.0), "filter_type": BPF, "resonance": 3,
+               "filter_freq": {"const": 1800}, "bp0": "0,0,1,1,120,0.2,80,0", "pan": 0.5}],
+     "fx": {"reverb": [0.25, 0.7, 0.4, 0.5]}},
+
+    {"name": "Tom", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": TRIANGLE, "freq": {"note": 1.0}, "amp": _amp(1.4), "filter_type": LPF,
+               "resonance": 2, "filter_freq": {"const": 1500}, "bp0": "0,0,2,1,200,0", "pan": 0.5}]},
+
+    {"name": "Rim", "cat": DRUM, "voices": 1,
+     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": {"note": 1.0}, "amp": _amp(1.0),
+               "filter_type": BPF, "resonance": 4, "filter_freq": {"const": 2200},
+               "bp0": "0,0,1,1,40,0", "pan": 0.5}]},
+
+    # ===================== PERCUSSION (synth) =====================
+    {"name": "Conga", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": SINE, "freq": {"note": 1.0}, "amp": _amp(1.3), "filter_type": LPF,
+               "resonance": 2, "filter_freq": {"const": 1800}, "bp0": "0,0,2,1,150,0", "pan": 0.4}]},
+
+    {"name": "Bongo", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": SINE, "freq": {"note": 1.5}, "amp": _amp(1.2), "filter_type": LPF,
+               "resonance": 2, "filter_freq": {"const": 2400}, "bp0": "0,0,2,1,90,0", "pan": 0.6}]},
+
+    {"name": "Woodblock", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": {"note": 2.0}, "amp": _amp(1.4),
+               "filter_type": LPF, "resonance": 4, "filter_freq": {"const": 2500},
+               "bp0": "0,0,1,1,45,0", "pan": 0.5}]},
+
+    {"name": "Shaker", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(0.7), "filter_type": HPF, "resonance": 1,
+               "filter_freq": {"const": 6000}, "bp0": "0,0,1,1,50,0", "pan": 0.5}]},
+
+    {"name": "Tambourine", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": NOISE, "amp": _amp(0.8), "filter_type": BPF, "resonance": 3,
+               "filter_freq": {"const": 5000}, "bp0": "0,0,1,1,120,0.2,80,0", "pan": 0.5}]},
+
+    {"name": "Clave", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 3.0}, "amp": _amp(1.4), "filter_type": LPF,
+               "resonance": 4, "filter_freq": {"const": 3000}, "bp0": "0,0,1,1,45,0", "pan": 0.5}]},
+
+    {"name": "Cowbell", "cat": PERC, "voices": 1,
+     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 1.0}, "amp": _amp(0.8),
+               "filter_type": BPF, "resonance": 3, "filter_freq": {"const": 2200},
+               "bp0": "0,0,1,1,180,0.2,80,0", "pan": 0.5},
+              {"wave": PULSE, "duty": 0.5, "freq": {"note": 1.5}, "amp": {"vel": 0.6, "eg0": 1},
+               "filter_type": BPF, "resonance": 3, "filter_freq": {"const": 2200},
+               "bp0": "0,0,1,1,180,0.2,80,0", "pan": 0.5}]},
 ]
 
 
@@ -294,6 +393,10 @@ def apply_macro(amy, patch, synth, macro, norm):
         amy.send(synth=synth, filter_freq={"const": v, "eg1": 0})
     elif k == "res":
         amy.send(synth=synth, resonance=v)
+    elif k == "pitch":
+        pass                                          # applied by the app at note-on
+    elif k == "decay":
+        amy.send(synth=synth, bp0="0,0,2,1,%d,0" % int(v))   # one-shot decay (next hit)
     elif k == "fx":
         # drive the whole effect from dry to very wet (not just the send level)
         # so the AMYboard's modest bus FX actually move the sound
@@ -317,8 +420,31 @@ def _fx_macro(patch, name, label):
             "min": 0.0, "max": 1.0, "init": _norm_for(0.0, 1.0, lvl)}
 
 
+def _bp0_decay(bp0):
+    try:
+        return int(bp0.split(",")[4])   # decay time of the post-attack segment (ms)
+    except Exception:
+        return 150
+
+
+def _drum_macros(p, osc0):
+    cutoff = osc0.get("filter_freq", {}).get("const", 2000)
+    dec = _bp0_decay(osc0.get("bp0", "0,0,2,1,150,0"))
+    return [
+        {"name": "PITCH", "kind": "pitch", "min": -12, "max": 12, "init": 0.5},
+        {"name": "DECAY", "kind": "decay", "min": 20, "max": 700,
+         "init": _norm_for(20, 700, min(max(dec, 20), 700))},
+        {"name": "TONE", "kind": "cutoff", "min": 200, "max": 9000,
+         "init": _norm_for(200, 9000, min(max(cutoff, 200), 9000), log=True)},
+        {"name": "SNAP", "kind": "res", "min": 0.7, "max": 12,
+         "init": _norm_for(0.7, 12, osc0.get("resonance", 2))},
+    ]
+
+
 def _derive_macros(p):
     osc0 = p["oscs"][0]
+    if p["cat"] in (DRUM, PERC):
+        return _drum_macros(p, osc0)
     ff = osc0.get("filter_freq")
     if ff is not None and "filter_type" in osc0:
         cutoff = ff.get("const", 800)
