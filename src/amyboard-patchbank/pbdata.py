@@ -178,27 +178,55 @@ PATCHES = [
               {"wave": SINE, "freq": {"note": 3.01}, "amp": {"vel": 0.35, "eg0": 1},
                "bp0": "0,0,2,1,35,0,30,0", "pan": 0.5}]},
 
-    {"name": "Square Bass", "cat": BASS, "voices": 1,
-     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 1.0}, "amp": _amp(1.0),
-               "filter_type": LPF, "resonance": 3, "filter_freq": {"const": 240, "eg1": 1300},
-               "bp0": "0,0,5,1,200,0.6,80,0", "bp1": "0,1,200,0.1,80,0", "pan": 0.5}]},
-
     {"name": "Pluck", "cat": BASS, "voices": 2,
      "oscs": [{"wave": TRIANGLE, "freq": {"note": 1.0}, "amp": _amp(1.2),
                "filter_type": LPF, "resonance": 5, "filter_freq": {"const": 320, "eg1": 2200},
                "bp0": "0,0,3,1,200,0,90,0", "bp1": "0,1,160,0,0,0", "pan": 0.5}]},
 
-    {"name": "Growl", "cat": BASS, "voices": 1,
+    # ======================== LEADS ========================
+    {"name": "Saw Lead", "cat": LEAD, "voices": 1,
      "oscs": [{"wave": SAW_DOWN, "freq": {"note": 1.0}, "amp": _amp(1.0),
-               "filter_type": LPF, "resonance": 10, "filter_freq": {"const": 200, "eg1": 900, "ext0": 1800},
-               "bp0": "0,0,5,1,380,0.6,90,0", "bp1": "0,1,600,0.3,90,0", "pan": 0.5}]},
+               "filter_type": LPF, "resonance": 5, "filter_freq": {"const": 600, "eg1": 2500},
+               "bp0": "0,0,4,1,200,0.8,150,0", "bp1": "0,1,300,0.4,150,0", "pan": 0.5}],
+     "fx": {"reverb": [0.2, 0.7, 0.4, 0.5]}},
 
-    {"name": "Stab", "cat": BASS, "voices": 2,
+    {"name": "Square Lead", "cat": LEAD, "voices": 1,
+     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 1.0}, "amp": _amp(1.0),
+               "filter_type": LPF, "resonance": 4, "filter_freq": {"const": 800, "eg1": 1800},
+               "bp0": "0,0,4,1,180,0.85,140,0", "bp1": "0,1,250,0.5,140,0", "pan": 0.5}],
+     "fx": {"reverb": [0.2, 0.7, 0.4, 0.5]}},
+
+    {"name": "Supersaw Lead", "cat": LEAD, "voices": 1,
+     "oscs": _saw_stack(5, 0.008, 0.2, 0.8, 1200, 6, 220, 2000, 3, 0.55),
+     "fx": {"chorus": [0.6, 340, 0.5, 0.5], "reverb": [0.25, 0.7, 0.4, 0.5]}},
+
+    {"name": "Pluck Lead", "cat": LEAD, "voices": 1,
+     "oscs": [{"wave": SAW_DOWN, "freq": {"note": 1.0}, "amp": _amp(1.1),
+               "filter_type": LPF, "resonance": 6, "filter_freq": {"const": 400, "eg1": 3000},
+               "bp0": "0,0,3,1,250,0,150,0", "bp1": "0,1,150,0,0,0", "pan": 0.5}],
+     "fx": {"reverb": [0.3, 0.75, 0.35, 0.5]}},
+
+    {"name": "Sync Lead", "cat": LEAD, "voices": 1,
      "oscs": [{"wave": SAW_DOWN, "freq": {"note": 1.0}, "amp": _amp(0.9),
-               "filter_type": LPF, "resonance": 6, "filter_freq": {"const": 280, "eg1": 2400},
-               "bp0": "0,0,4,1,140,0,70,0", "bp1": "0,1,130,0,0,0", "pan": 0.4},
-              {"wave": SINE, "freq": {"note": 0.5}, "amp": {"vel": 0.7, "eg0": 1},
-               "bp0": "0,0,4,1,140,0,70,0", "pan": 0.6}]},
+               "filter_type": LPF, "resonance": 8, "filter_freq": {"const": 1500, "eg1": 2500},
+               "bp0": "0,0,4,1,200,0.8,120,0", "bp1": "0,1,200,0.6,120,0", "pan": 0.5},
+              {"wave": PULSE, "duty": 0.2, "freq": {"note": 2.01}, "amp": {"vel": 0.5, "eg0": 1},
+               "filter_type": LPF, "resonance": 8, "filter_freq": {"const": 2000, "eg1": 1500},
+               "bp0": "0,0,4,1,200,0.8,120,0", "pan": 0.5}],
+     "fx": {"reverb": [0.2, 0.7, 0.4, 0.5]}},
+
+    {"name": "Sine Lead", "cat": LEAD, "voices": 1,
+     "oscs": [{"wave": SINE, "freq": {"note": 1.0}, "amp": _amp(1.3),
+               "bp0": "0,0,20,1,300,0.9,200,0", "pan": 0.5},
+              {"wave": SINE, "freq": {"note": 3.0}, "amp": {"vel": 0.2, "eg0": 1},
+               "bp0": "0,0,30,1,200,0.5,150,0", "pan": 0.5}],
+     "fx": {"reverb": [0.35, 0.78, 0.35, 0.5]}},
+
+    {"name": "Acid Lead", "cat": LEAD, "voices": 1,
+     "oscs": [{"wave": SAW_DOWN, "freq": {"note": 1.0}, "amp": _amp(1.0),
+               "filter_type": LPF, "resonance": 15, "filter_freq": {"const": 300, "eg1": 3000},
+               "bp0": "0,0,4,1,250,0.4,90,0", "bp1": "0,1,220,0,90,0", "pan": 0.5}],
+     "fx": {"reverb": [0.2, 0.7, 0.4, 0.5]}},
 ]
 
 
