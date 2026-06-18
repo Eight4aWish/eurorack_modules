@@ -260,18 +260,18 @@ PATCHES = [
                "bp0": "0,0,1000,1,1100,0", "bp1": "0,0,3000,1,0,0", "pan": 0.5}],
      "fx": {"reverb": [0.45, 0.82, 0.3, 0.5]}},
 
-    # ============== DRUMS (synth, one-shot, fixed pitch) ==============
+    # ============== DRUMS (synth, one-shot) ==============
     # bp0 "0,0,a,1,d,0,3,0" = attack a / decay-to-0 d / release -> a true hit,
-    # not a held note. Oscillator freq is absolute Hz so each drum keeps its
-    # canonical pitch no matter what note triggers it.
+    # not a held note. Pitch is freq {"note": ratio} (absolute Hz goes silent in
+    # a synth voice on this board); ratio sets the drum's pitch at the played note.
     {"name": "Kick", "cat": DRUM, "voices": 1,
-     "oscs": [{"wave": SINE, "freq": 55, "amp": _amp(1.8), "filter_type": LPF,
+     "oscs": [{"wave": SINE, "freq": {"note": 0.8}, "amp": _amp(1.8), "filter_type": LPF,
                "resonance": 1, "filter_freq": {"const": 1500}, "bp0": "0,0,2,1,150,0,3,0", "pan": 0.5}]},
 
     {"name": "Snare", "cat": DRUM, "voices": 1,
      "oscs": [{"wave": NOISE, "amp": _amp(1.0), "filter_type": HPF, "resonance": 2,
                "filter_freq": {"const": 1200}, "bp0": "0,0,1,1,160,0,3,0", "pan": 0.5},
-              {"wave": TRIANGLE, "freq": 185, "amp": {"vel": 0.6, "eg0": 1},
+              {"wave": TRIANGLE, "freq": {"note": 2.8}, "amp": {"vel": 0.6, "eg0": 1},
                "bp0": "0,0,1,1,90,0,3,0", "pan": 0.5}]},
 
     {"name": "Closed Hat", "cat": DRUM, "voices": 1,
@@ -288,25 +288,25 @@ PATCHES = [
      "fx": {"reverb": [0.25, 0.7, 0.4, 0.5]}},
 
     {"name": "Tom", "cat": DRUM, "voices": 1,
-     "oscs": [{"wave": TRIANGLE, "freq": 120, "amp": _amp(1.4), "filter_type": LPF,
+     "oscs": [{"wave": TRIANGLE, "freq": {"note": 1.8}, "amp": _amp(1.4), "filter_type": LPF,
                "resonance": 2, "filter_freq": {"const": 1500}, "bp0": "0,0,2,1,220,0,3,0", "pan": 0.5}]},
 
     {"name": "Rim", "cat": DRUM, "voices": 1,
-     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": 440, "amp": _amp(1.0),
+     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": {"note": 6.7}, "amp": _amp(1.0),
                "filter_type": LPF, "resonance": 4, "filter_freq": {"const": 3000},
                "bp0": "0,0,1,1,40,0,3,0", "pan": 0.5}]},
 
-    # ============ PERCUSSION (synth, one-shot, fixed pitch) ============
+    # ============ PERCUSSION (synth, one-shot) ============
     {"name": "Conga", "cat": PERC, "voices": 1,
-     "oscs": [{"wave": SINE, "freq": 220, "amp": _amp(1.3), "filter_type": LPF,
+     "oscs": [{"wave": SINE, "freq": {"note": 3.4}, "amp": _amp(1.3), "filter_type": LPF,
                "resonance": 2, "filter_freq": {"const": 2000}, "bp0": "0,0,2,1,160,0,3,0", "pan": 0.4}]},
 
     {"name": "Bongo", "cat": PERC, "voices": 1,
-     "oscs": [{"wave": SINE, "freq": 380, "amp": _amp(1.2), "filter_type": LPF,
+     "oscs": [{"wave": SINE, "freq": {"note": 5.8}, "amp": _amp(1.2), "filter_type": LPF,
                "resonance": 2, "filter_freq": {"const": 2600}, "bp0": "0,0,2,1,110,0,3,0", "pan": 0.6}]},
 
     {"name": "Woodblock", "cat": PERC, "voices": 1,
-     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": 1100, "amp": _amp(1.3),
+     "oscs": [{"wave": PULSE, "duty": 0.4, "freq": {"note": 17}, "amp": _amp(1.3),
                "filter_type": LPF, "resonance": 3, "filter_freq": {"const": 3500},
                "bp0": "0,0,1,1,45,0,3,0", "pan": 0.5}]},
 
@@ -319,14 +319,14 @@ PATCHES = [
                "filter_freq": {"const": 6000}, "bp0": "0,0,1,1,130,0,3,0", "pan": 0.5}]},
 
     {"name": "Clave", "cat": PERC, "voices": 1,
-     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": 2400, "amp": _amp(1.4), "filter_type": LPF,
+     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 36}, "amp": _amp(1.4), "filter_type": LPF,
                "resonance": 3, "filter_freq": {"const": 4500}, "bp0": "0,0,1,1,40,0,3,0", "pan": 0.5}]},
 
     {"name": "Cowbell", "cat": PERC, "voices": 1,
-     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": 560, "amp": _amp(0.9),
+     "oscs": [{"wave": PULSE, "duty": 0.5, "freq": {"note": 8.6}, "amp": _amp(0.9),
                "filter_type": BPF, "resonance": 3, "filter_freq": {"const": 2500},
                "bp0": "0,0,1,1,200,0,3,0", "pan": 0.5},
-              {"wave": PULSE, "duty": 0.5, "freq": 845, "amp": {"vel": 0.7, "eg0": 1},
+              {"wave": PULSE, "duty": 0.5, "freq": {"note": 13}, "amp": {"vel": 0.7, "eg0": 1},
                "filter_type": BPF, "resonance": 3, "filter_freq": {"const": 2500},
                "bp0": "0,0,1,1,200,0,3,0", "pan": 0.5}]},
 ]
