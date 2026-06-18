@@ -265,8 +265,10 @@ PATCHES = [
     # not a held note. Pitch is freq {"note": ratio} (absolute Hz goes silent in
     # a synth voice on this board); ratio sets the drum's pitch at the played note.
     {"name": "Kick", "cat": DRUM, "voices": 1,
-     "oscs": [{"wave": SINE, "freq": {"note": 0.8}, "amp": _amp(1.8), "filter_type": LPF,
-               "resonance": 1, "filter_freq": {"const": 1500}, "bp0": "0,0,2,1,150,0,3,0", "pan": 0.5}]},
+     "oscs": [{"wave": SINE, "freq": {"note": 0.7}, "amp": _amp(1.8), "filter_type": LPF,
+               "resonance": 1, "filter_freq": {"const": 2000}, "bp0": "0,0,2,1,130,0,3,0", "pan": 0.5},
+              {"wave": NOISE, "amp": {"vel": 0.5, "eg0": 1}, "filter_type": HPF, "resonance": 1,
+               "filter_freq": {"const": 3000}, "bp0": "0,0,1,1,8,0,3,0", "pan": 0.5}]},
 
     {"name": "Snare", "cat": DRUM, "voices": 1,
      "oscs": [{"wave": NOISE, "amp": _amp(1.0), "filter_type": HPF, "resonance": 2,

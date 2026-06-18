@@ -29,6 +29,7 @@ import pbdata as bank
 SYNTH = 1                 # AMY synth id used for note management
 AUDITION_NOTE = 45        # note played when you press to load (bass-ish)
 AUDITION_MS = 700         # how long the audition note holds
+DRUM_NOTE = 36            # drums/perc always fire at this note (fixed pitch)
 BASE_SLOT = 1024          # patch i lives in AMY user-patch slot BASE_SLOT + i
 
 # --- CV calibration (AMYboard CV in is in volts) ------------------------
@@ -197,9 +198,9 @@ def _midi_cb(m):
         return
     status = m[0] & 0xF0
     if status == 0x90 and m[2] > 0:                 # note on
-        amy.send(synth=SYNTH, note=m[1] + _pitch_xpose(), vel=m[2] / 127.0)
+        amy.send(synth=SYNTH, note=_trig_note(m[1]), vel=m[2] / 127.0)
     elif status == 0x80 or (status == 0x90 and m[2] == 0):   # note off
-        amy.send(synth=SYNTH, note=m[1] + _pitch_xpose(), vel=0)
+        amy.send(synth=SYNTH, note=_trig_note(m[1]), vel=0)
     elif status == 0xB0 and m[1] in (120, 123):     # all sound / all notes off
         _flush_notes()
 
@@ -229,20 +230,22 @@ def _all_notes_off():
         _state["note"] = None
 
 
-def _pitch_xpose():
-    # semitone offset from the loaded patch's PITCH macro (drum/perc), else 0
-    for i, m in enumerate(_state["macros"]):
-        if m.get("kind") == "pitch":
-            v = _state["mvals"][i]
-            return int(round(m["min"] + (m["max"] - m["min"]) * v))
-    return 0
+def _trig_note(n):
+    # drums/perc are fixed-pitch: they always fire at DRUM_NOTE so the patch's
+    # freq ratios give its canonical pitch regardless of what note triggers it
+    # (otherwise the kick is a "beep" at whatever note you play). Melodic
+    # patches use the played note as-is.
+    li = _state["loaded"]
+    if li >= 0 and bank.PATCHES[li]["cat"] in (bank.DRUM, bank.PERC):
+        return DRUM_NOTE
+    return n
 
 
 def _note_on(n, vel=0.9):
     # always release whatever is currently sounding first, so a gate arriving
     # mid-audition (or a retrigger) never leaves an orphaned note droning
     _all_notes_off()
-    n = n + _pitch_xpose()
+    n = _trig_note(n)
     amy.send(synth=SYNTH, note=n, vel=vel)
     _state["note"] = n
 
