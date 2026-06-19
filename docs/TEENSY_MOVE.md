@@ -1,4 +1,4 @@
-# Teensy 4.1 — `teensy-move`
+# Teensy 4.1 — `teensy_move`
 
 A Teensy 4.1-based modular synth controller and sound source. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, an on-board 4-voice chord drone synth, and SGTL5000 line passthrough.
 
@@ -52,7 +52,7 @@ Notes:
 
 ## DAC Channel Mapping (Expander)
 
-Configured in [include/teensy-move/pins.h](../include/teensy-move/pins.h):
+Configured in [include/teensy_move/pins.h](../include/teensy_move/pins.h):
 
 - Mod DAC (CS via Q6):
   - Channel B → Mod3
@@ -86,7 +86,7 @@ Pots while on the Chord page:
 - **Pot 3**: Progression within category
 - **Pot 4**: Voicing — Root, Inv1, Inv2, Drop-2, Spread
 
-Chord library: 40 progressions across 5 categories. Defined in [include/teensy-move/chord_library.h](../include/teensy-move/chord_library.h). Real-time chord-name detection ("Am7", "CM7", "Dm" …) shown on row 2 of the OLED.
+Chord library: 40 progressions across 5 categories. Defined in [include/teensy_move/chord_library.h](../include/teensy_move/chord_library.h). Real-time chord-name detection ("Am7", "CM7", "Dm" …) shown on row 2 of the OLED.
 
 ## Drone Mode (Page 3)
 
@@ -142,7 +142,7 @@ Page 2 — Chord                    Page 3 — Drone
 
 ## Calibration
 
-Per-channel linear fits stored in [include/teensy-move/calib_static.h](../include/teensy-move/calib_static.h):
+Per-channel linear fits stored in [include/teensy_move/calib_static.h](../include/teensy_move/calib_static.h):
 
 ```
 volts = m * DAC_code + c    →    code = (volts − c) / m
@@ -153,7 +153,7 @@ Constants for the four Mod (M1..M4) and four Pitch (P1..P4) channels were measur
 - Mod: −5 V to +5 V
 - Pitch: −3 V to +7 V
 
-`USE_STATIC_CALIB` is asserted by the build env, so [src/teensy-move/main.cpp](../src/teensy-move/main.cpp) calls `pitchVoltsToCode_ch()` / `modVoltsToCode_ch()` from this header for all DAC writes.
+`USE_STATIC_CALIB` is asserted by the build env, so [src/teensy_move/main.cpp](../src/teensy_move/main.cpp) calls `pitchVoltsToCode_ch()` / `modVoltsToCode_ch()` from this header for all DAC writes.
 
 ## Build & Upload
 

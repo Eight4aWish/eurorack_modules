@@ -6,7 +6,7 @@ on the 128×128 OLED, press to load, tweak with macros, and play from **CV/Gate*
 or **TRS MIDI**. No menu diving — good sounds are one click away.
 
 ```
-src/amyboard-patchbank/
+src/amyboard_patchbank/
   pbdata.py          the bank: 20 patches + macro defs as portable data (no deps)
   patchbank.py       the app: OLED + encoder UI, CV/gate + MIDI playing, macros
   sketch.py          Tulip autostart shim (the "current sketch")
@@ -127,7 +127,7 @@ calls `patchbank.setup()`, and hands `loop` to Tulip.
 
 ```sh
 git clone https://github.com/shorepine/amy && (cd amy && pip install .)
-cd src/amyboard-patchbank
+cd src/amyboard_patchbank
 python3 render_patches.py      # writes out/*.wav and prints a metrics table
 ```
 

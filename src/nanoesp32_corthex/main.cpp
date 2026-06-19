@@ -56,7 +56,7 @@
 
 // secrets.h is gitignored — copy include/shared/secrets.h.example to
 // include/shared/secrets.h and fill in your WiFi/OTA credentials. Shared
-// across all WiFi-using envs (esp32-clklink, nanoesp32-corthex, ...).
+// across all WiFi-using envs (esp32_clklink, nanoesp32_corthex, ...).
 #include "secrets.h"
 
 // Web server + WebSocket for the diag page (port 80, files embedded in flash).

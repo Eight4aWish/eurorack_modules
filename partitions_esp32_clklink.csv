@@ -1,4 +1,4 @@
-# Custom partition table for esp32-clklink — 2 MB flash.
+# Custom partition table for esp32_clklink — 2 MB flash.
 # Bootloader occupies 0x0..0x9000. After that:
 #   nvs       0x09000  24 KB   (WiFi credentials, NVS storage)
 #   phy_init  0x0f000   4 KB

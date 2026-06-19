@@ -1,4 +1,4 @@
-## IDF Component Manager dependencies for the esp32-clklink main component.
-## Only used by the esp32-clklink env (the only one with framework = arduino, espidf).
+## IDF Component Manager dependencies for the esp32_clklink main component.
+## Only used by the esp32_clklink env (the only one with framework = arduino, espidf).
 dependencies:
   docwilco/esp_abl_link: "~4.0.0-beta4"

@@ -25,8 +25,8 @@ SOFTWARE.
 This repository contains code from several authors under several licenses.
 The MIT terms above cover the original work by the copyright holder. Some
 modules combine that work with third-party libraries under different
-licenses (notably GPL-2.0-or-later for the esp32-clklink module, which
+licenses (notably GPL-2.0-or-later for the esp32_clklink module, which
 links against the Ableton Link library). See `NOTICE.md` for the full
 per-module breakdown of third-party dependencies and their licenses, and
-`LICENSE.esp32-clklink` for the GPL terms that govern that specific
+`LICENSE.esp32_clklink` for the GPL terms that govern that specific
 module's compiled binary.

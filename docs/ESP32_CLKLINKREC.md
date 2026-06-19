@@ -9,7 +9,7 @@ A Eurorack utility that combines two jobs in a single 4 HP module:
    to a Mac-side menu-bar app, which saves the last N seconds of audio
    it was playing. The audio recording itself happens on the Mac.
 
-The module is a successor to [`esp32-clklink`](ESP32_CLKLINK.md) — same
+The module is a successor to [`esp32_clklink`](ESP32_CLKLINK.md) — same
 core Link-sync behaviour, plus the Recorder trigger feature and a
 hardware refresh.
 
@@ -31,7 +31,7 @@ The XIAO ESP32-C5 was chosen over the original ESP32 specifically for
 **dual-band Wi-Fi 6**: the 5 GHz capability lets the module sit on the
 same band as Mac / Push / Move / Note without depending on the router
 to bridge multicast between 2.4 GHz and 5 GHz (an issue we hit on the
-previous `esp32-clklink` build).
+previous `esp32_clklink` build).
 
 ## Front panel (4 HP n8synth control board)
 
@@ -241,7 +241,7 @@ All standard E12 values. Three distinct resistor values across 13 parts.
   POST in the background. The main loop returns immediately so Link's
   beat ticking is not blocked by network round-trip latency.
 
-See [`include/esp32-clklinkrec/pins.h`](../include/esp32-clklinkrec/pins.h)
+See [`include/esp32_clklinkrec/pins.h`](../include/esp32_clklinkrec/pins.h)
 for the canonical pin assignments.
 
 ## Cross-system communication

@@ -1,6 +1,6 @@
 # Recorder Protocol
 
-The wire contract between the `esp32-clklinkrec` Eurorack module and
+The wire contract between the `esp32_clklinkrec` Eurorack module and
 the `seeed-recorder` Mac menu-bar app *over the HTTP/WiFi trigger
 path*. The same Mac app also accepts triggers from the `seeed-recorder`
 RP2040 module over USB-MIDI; that contract lives in
@@ -10,7 +10,7 @@ output are shared.
 
 This document is the source of truth for the HTTP/WiFi side. When the
 protocol changes, edit here first and update both the firmware
-([`src/esp32-clklinkrec/`](../src/esp32-clklinkrec/)) and the Mac app
+([`src/esp32_clklinkrec/`](../src/esp32_clklinkrec/)) and the Mac app
 ([`~/GitHub/seeed-recorder/mac-app/`](https://github.com/Eight4aWish/seeed-recorder/tree/main/mac-app))
 to match.
 

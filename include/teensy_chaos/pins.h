@@ -1,5 +1,5 @@
 #pragma once
-// Teensy 4.1 — teensy-chaos pin assignments (10HP layout).
+// Teensy 4.1 — teensy_chaos pin assignments (10HP layout).
 // Avoid A0 (pin 14, hardware conflict) and A1 (pin 15, Audio Shield volume pot).
 //
 // Panel layout (6 rows × 3 columns):

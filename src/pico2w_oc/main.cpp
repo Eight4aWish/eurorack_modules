@@ -17,10 +17,10 @@
 #include "eurorack_ui/OledHomeMenu.hpp"
 
 // -------------------- Pins / Addresses (moved to header) --------------------
-#include "pico2w-oc/pins.h"
+#include "pico2w_oc/pins.h"
 // Optional static calibration (codes↔volts) from measured fits
 #ifdef USE_STATIC_CALIB
-#include "pico2w-oc/calib_static.h"
+#include "pico2w_oc/calib_static.h"
 #endif
 
 // -------------------- OLED --------------------

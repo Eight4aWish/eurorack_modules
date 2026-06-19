@@ -1,11 +1,11 @@
-# Teensy 4.1 — `teensy-chaos`
+# Teensy 4.1 — `teensy_chaos`
 
 Chaotic / fractal synthesis module exploiting the Teensy 4.1's 600 MHz
 Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 (SGTL5000 codec, I2S).
 
 > **Implemented firmware (current).** The algorithm suite and groups below are
-> the *design roadmap*; the shipping firmware (`src/teensy-chaos/main.cpp`)
+> the *design roadmap*; the shipping firmware (`src/teensy_chaos/main.cpp`)
 > currently has **6 continuous-ODE algorithms** — Rössler, Van der Pol, Lorenz,
 > Chua, Duffing, Coupled Rössler — cycled by short-pressing BTN. `config.h`'s
 > 14-algorithm/group tables are not yet wired up. Recent changes:
@@ -63,7 +63,7 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 | A IN   | Audio in (I2S)    | Line in via SGTL5000                         |
 | OLED   | I2C display       | Algorithm name, phase-space plot, param bars |
 
-Pin assignments TBD — see `include/teensy-chaos/pins.h` once hardware is
+Pin assignments TBD — see `include/teensy_chaos/pins.h` once hardware is
 finalised.
 
 ## Algorithm Suite
@@ -256,14 +256,14 @@ Uses Teensy Audio Library for I2S output to the Audio Shield (SGTL5000).
 ## Code Structure
 
 ```
-src/teensy-chaos/
+src/teensy_chaos/
   main.cpp              — Setup, audio routing, control loop, OLED refresh
   algorithms.h          — ChaosAlgorithm base struct, registry
   algorithms.cpp        — Algorithm implementations (all 14)
   display.h             — OLED rendering (phase plot, parameter bars, nav)
   display.cpp           — Display implementation
 
-include/teensy-chaos/
+include/teensy_chaos/
   pins.h                — Pin assignments (pots, button, CV inputs)
   config.h              — Algorithm count, parameter ranges, defaults
 ```
@@ -296,7 +296,7 @@ struct ChaosAlgorithm {
       Teensy ADC is 10-bit; may want 12-bit for V/Oct tracking.
 - [ ] V/Oct calibration — needed if CV1 is used melodically.
 - [ ] OLED refresh rate — aim for ~30 fps phase plot without blocking
-      audio. Page-at-a-time strategy (as in ksoloti-elements) or
+      audio. Page-at-a-time strategy (as in ksoloti_elements) or
       partial update.
 - [ ] Parameter save/recall — store last-used algorithm + settings in
       EEPROM?

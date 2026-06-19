@@ -4,13 +4,13 @@ This repository contains modules that build on top of other open-source
 projects. This file lists the material third-party code each module
 depends on, by module, with license. The headline thing to know:
 
-> **The `esp32-clklink` firmware binary is licensed GPL-2.0-or-later**
+> **The `esp32_clklink` firmware binary is licensed GPL-2.0-or-later**
 > because it links against Ableton Link. All other modules are
 > permissively licensed (typically MIT) and can be used without that
 > obligation. See [LICENSE](LICENSE) and
-> [LICENSE.esp32-clklink](LICENSE.esp32-clklink) for the legal terms.
+> [LICENSE.esp32_clklink](LICENSE.esp32_clklink) for the legal terms.
 
-## esp32-clklink
+## esp32_clklink
 
 The Eurorack clock / reset / manual-CV module with Ableton Link sync.
 
@@ -24,7 +24,7 @@ The Eurorack clock / reset / manual-CV module with Ableton Link sync.
 | [pioarduino/platform-espressif32](https://github.com/pioarduino/platform-espressif32) | Apache-2.0 | PlatformIO platform fork pinning Arduino 3.x + IDF 5.5 |
 | [Adafruit MCP4728](https://github.com/adafruit/Adafruit_MCP4728) | MIT | DAC driver |
 
-## ksoloti-elements
+## ksoloti_elements
 
 A port of Mutable Instruments Elements to the Ksoloti Big Genes board.
 
@@ -38,7 +38,7 @@ The Mutable Instruments sources are vendored as a git submodule under
 `third_party/eurorack/`. Each file in that tree retains its original
 copyright header and MIT permission notice.
 
-## nanoesp32-corthex
+## nanoesp32_corthex
 
 The AI-driven Eurorack voice with an embedded web UI and Plaits + Swords +
 Four Play patch.
@@ -52,7 +52,7 @@ Four Play patch.
 | [ArduinoJson](https://github.com/bblanchon/ArduinoJson) (Benoît Blanchon) | MIT | JSON parsing for the LLM API responses |
 | [Adafruit MCP4728](https://github.com/adafruit/Adafruit_MCP4728) | MIT | DAC driver |
 
-## pico2w-oc
+## pico2w_oc
 
 The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 + MIDI.
@@ -66,7 +66,7 @@ The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 | [Bounce2](https://github.com/thomasfredericks/Bounce2) (Thomas Ouellet Fredericks) | MIT | button debouncing |
 | [FortySevenEffects MIDI Library](https://github.com/FortySevenEffects/arduino_midi_library) | MIT | MIDI parsing |
 
-## daisy-mfx
+## daisy_mfx
 
 Multi-effects unit on the Electrosmith Daisy Seed.
 
@@ -75,10 +75,10 @@ Multi-effects unit on the Electrosmith Daisy Seed.
 | [DaisyDuino](https://github.com/electro-smith/DaisyDuino) (Electrosmith) | MIT | Daisy hardware abstraction + DSP library |
 | [Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306) + [Adafruit GFX](https://github.com/adafruit/Adafruit-GFX-Library) | BSD-3-Clause / MIT | OLED display |
 
-## teensy-chaos, teensy-move
+## teensy_chaos, teensy_move
 
-Teensy 4.1 modules — chaotic/fractal synthesis (`teensy-chaos`) and
-CV/Chord/Drone utility (`teensy-move`).
+Teensy 4.1 modules — chaotic/fractal synthesis (`teensy_chaos`) and
+CV/Chord/Drone utility (`teensy_move`).
 
 | Component | License | Role |
 |---|---|---|

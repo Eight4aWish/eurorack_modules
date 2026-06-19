@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2026 David Baghurst
 //
-// Pin allocations for the esp32-clklinkrec module, targeted at the Seeed
+// Pin allocations for the esp32_clklinkrec module, targeted at the Seeed
 // Studio XIAO ESP32-C5. Constants are raw ESP32 GPIO numbers, NOT Xiao
 // D-pad numbers — the D-label macros are only defined in the
 // XIAO_ESP32C5 board variant, and under arduino+espidf the build picks

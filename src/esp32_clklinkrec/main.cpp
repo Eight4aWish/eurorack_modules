@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright (c) 2026 David Baghurst
 //
-// esp32-clklinkrec — Ableton Link → Eurorack clock/reset/run-gate,
+// esp32_clklinkrec — Ableton Link → Eurorack clock/reset/run-gate,
 //                    plus Capture → HTTP POST to the seeed-recorder
 //                    Mac app, on the Seeed Xiao ESP32-C5.
 //
 // This module links against the Ableton Link library (GPL-2.0-or-later);
-// the firmware binary is therefore GPL-2.0-or-later. See LICENSE.esp32-clklink.
+// the firmware binary is therefore GPL-2.0-or-later. See LICENSE.esp32_clklink.
 //
 // Behaviour:
 //   Boot: Link disabled. WiFi connects; mDNS discovers the recorder
@@ -60,8 +60,8 @@
 #include <math.h>
 #include <string.h>
 #include "abl_link.h"
-#include "esp32-clklinkrec/pins.h"
-#include "esp32-clklinkrec/secrets.h"
+#include "esp32_clklinkrec/pins.h"
+#include "esp32_clklinkrec/secrets.h"
 
 static inline void assert_out(int p)  { digitalWrite(p, LOW);  }
 static inline void release_out(int p) { digitalWrite(p, HIGH); }
@@ -450,7 +450,7 @@ void setup() {
     uint32_t t0 = millis();
     while (!Serial && millis() - t0 < 3000) { delay(10); }
     delay(100);
-    Serial.println("\n=== esp32-clklinkrec (Link sync + Recorder) ===");
+    Serial.println("\n=== esp32_clklinkrec (Link sync + Recorder) ===");
 
     Serial.setDebugOutput(true);
     esp_log_level_set("*",         ESP_LOG_INFO);

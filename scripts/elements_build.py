@@ -1,11 +1,11 @@
 """
 PlatformIO extra script: compile Mutable Instruments Elements DSP sources
-from third_party/eurorack/ alongside the main ksoloti-elements firmware.
+from third_party/eurorack/ alongside the main ksoloti_elements firmware.
 
 NOTE: third_party/eurorack is a git submodule. Before building, apply the
 resonator resolution patch:
     cd third_party/eurorack
-    git apply ../../patches/ksoloti-elements-resonator-resolution.patch
+    git apply ../../patches/ksoloti_elements-resonator-resolution.patch
 """
 Import("env")
 
@@ -16,10 +16,10 @@ env.Append(CCFLAGS=fpu_flags)
 env.Append(ASFLAGS=fpu_flags)
 env.Append(LINKFLAGS=fpu_flags)
 
-# Local shims (src/ksoloti-elements/) must come BEFORE third_party/eurorack/
+# Local shims (src/ksoloti_elements/) must come BEFORE third_party/eurorack/
 # so our debug_pin.h stub shadows the hardware-dependent original.
 env.Prepend(CPPPATH=[
-    env.subst("$PROJECT_DIR/src/ksoloti-elements"),
+    env.subst("$PROJECT_DIR/src/ksoloti_elements"),
     env.subst("$PROJECT_DIR/third_party/eurorack"),
 ])
 

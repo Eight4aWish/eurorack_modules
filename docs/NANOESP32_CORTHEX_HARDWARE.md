@@ -1,6 +1,6 @@
-# CortHex (nanoesp32-corthex) — Hardware Design
+# CortHex (nanoesp32_corthex) — Hardware Design
 
-The CortHex hardware is a single 10HP Eurorack module that hosts the [`nanoesp32-corthex`](../src/nanoesp32-corthex/) firmware. The current firmware drives an LLM-controlled patch-exploration UI (cloud LLM via Anthropic API, closed-loop sound exploration through tool calls, web UI over WiFi). The hardware was specified to also support an eventual on-device "Surprise Machine" mode (VAE-driven 1-bar phrase generation, hold-to-keep / all-six-held = like) as a future firmware feature on the same board.
+The CortHex hardware is a single 10HP Eurorack module that hosts the [`nanoesp32_corthex`](../src/nanoesp32_corthex/) firmware. The current firmware drives an LLM-controlled patch-exploration UI (cloud LLM via Anthropic API, closed-loop sound exploration through tool calls, web UI over WiFi). The hardware was specified to also support an eventual on-device "Surprise Machine" mode (VAE-driven 1-bar phrase generation, hold-to-keep / all-six-held = like) as a future firmware feature on the same board.
 
 This doc is the canonical hardware spec — pin maps, panel layout, power, and analog conditioning. For firmware behaviour see [NANOESP32_CORTHEX.md](NANOESP32_CORTHEX.md).
 
@@ -550,7 +550,7 @@ void setup() {
 
 ### Phase 1 (complete, 2026-04-29 → 2026-05-02): hardware + bring-up
 
-All hardware is built on the n8synth two-deck stack and validated end-to-end via the `[env:nanoesp32-corthex]` firmware. Status:
+All hardware is built on the n8synth two-deck stack and validated end-to-end via the `[env:nanoesp32_corthex]` firmware. Status:
 
 | Subsystem | Status |
 |---|---|

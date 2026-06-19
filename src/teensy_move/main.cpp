@@ -18,9 +18,9 @@
 #include <Adafruit_SSD1306.h>
 #include <Audio.h>
 #include "spi_bus.h"
-#include "teensy-move/pins.h"
-#include "teensy-move/calib_static.h"
-#include "teensy-move/chord_library.h"
+#include "teensy_move/pins.h"
+#include "teensy_move/calib_static.h"
+#include "teensy_move/chord_library.h"
 
 #define OLED_W 128
 #define OLED_H 32

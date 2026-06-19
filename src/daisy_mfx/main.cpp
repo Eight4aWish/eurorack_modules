@@ -35,7 +35,7 @@ const float OUT_LPF_HZ = 14500.f;
 #define OLED_H 64
 #define OLED_ADDR 0x3C
 Adafruit_SSD1306 oled(OLED_W, OLED_H, &Wire);
-// Pins defined in include/daisy-mfx/pins.h
+// Pins defined in include/daisy_mfx/pins.h
 
 // ================== DSP / utils ==================
 DaisyHardware hw;

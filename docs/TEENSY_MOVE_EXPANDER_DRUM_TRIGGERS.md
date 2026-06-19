@@ -10,7 +10,7 @@ The expander drum outputs are no longer held active for a coarse `millis()` dura
 
 Instead, each drum output uses a **microsecond-based** timeout:
 
-- `DRUM_TRIG_US[]` in [src/teensy-move/main.cpp](../src/teensy-move/main.cpp)
+- `DRUM_TRIG_US[]` in [src/teensy_move/main.cpp](../src/teensy_move/main.cpp)
 
 Default is **500µs (0.5ms)** on all four drum channels.
 

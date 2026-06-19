@@ -1,4 +1,4 @@
-# Env-specific ESP-IDF config overrides for the esp32-clklink build.
+# Env-specific ESP-IDF config overrides for the esp32_clklink build.
 # Picked up automatically by pioarduino when building this env.
 
 # Arduino-as-IDF-component requires 1000 Hz tick rate.

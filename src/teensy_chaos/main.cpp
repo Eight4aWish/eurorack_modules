@@ -7,7 +7,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "teensy-chaos/pins.h"
+#include "teensy_chaos/pins.h"
 
 // ─── ADS1115 (Wire1, 0x48) ────────────────────────────────────────────────────
 #define ADS_ADDR     0x48

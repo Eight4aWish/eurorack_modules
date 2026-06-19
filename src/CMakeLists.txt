@@ -1,6 +1,6 @@
 # IDF main component registration. Used by every env that combines
-# framework = arduino, espidf (currently esp32-clklink and
-# esp32-clklinkrec). Other envs use framework = arduino alone and
+# framework = arduino, espidf (currently esp32_clklink and
+# esp32_clklinkrec). Other envs use framework = arduino alone and
 # ignore this file.
 #
 # Selection: $ENV{PIOENV} is a PIO interpolation token, NOT a system
@@ -10,9 +10,9 @@
 # new arduino+espidf env is introduced.
 
 if(IDF_TARGET STREQUAL "esp32c5")
-    set(module_dir "esp32-clklinkrec")
+    set(module_dir "esp32_clklinkrec")
 elseif(IDF_TARGET STREQUAL "esp32")
-    set(module_dir "esp32-clklink")
+    set(module_dir "esp32_clklink")
 else()
     message(FATAL_ERROR
             "[src/CMakeLists.txt] No module mapped for IDF_TARGET='${IDF_TARGET}'. "

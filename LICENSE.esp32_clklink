@@ -1,5 +1,5 @@
-The `esp32-clklink` module (sources under `src/esp32-clklink/` and headers
-under `include/esp32-clklink/`) links against the Ableton Link library
+The `esp32_clklink` module (sources under `src/esp32_clklink/` and headers
+under `include/esp32_clklink/`) links against the Ableton Link library
 (GPL-2.0-or-later) via the `docwilco/esp_abl_link` ESP-IDF component.
 The compiled firmware is therefore a derivative work and is distributed
 under the GNU General Public License version 2 or (at your option) any

@@ -4,7 +4,7 @@
 // ESP32 Clk/Link — Eurorack clock + reset + manual CV with Ableton Link sync.
 //
 // This module links against the Ableton Link library (GPL-2.0-or-later);
-// the firmware binary is therefore GPL-2.0-or-later. See LICENSE.esp32-clklink.
+// the firmware binary is therefore GPL-2.0-or-later. See LICENSE.esp32_clklink.
 //
 // Hardware: ESP32-Dev driving an MCP4728 quad DAC at 0x60. Output stages are
 // non-inverting unipolar with gain ~2: DAC 0 -> 0 V at jack, DAC 2048 -> +5 V.
@@ -32,7 +32,7 @@
 #include "abl_link.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
-#include "esp32-clklink/pins.h"
+#include "esp32_clklink/pins.h"
 #include "secrets.h"
 
 // --- DAC ------------------------------------------------------------------

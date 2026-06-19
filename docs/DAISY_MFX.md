@@ -35,8 +35,8 @@ This module runs on Electrosmith Daisy (Patch variant) using DaisyDuino. It prov
 ## Build & Upload
 
 ```sh
-pio run -e daisy-mfx
-pio run -e daisy-mfx -t upload   # DFU (daisy platform)
+pio run -e daisy_mfx
+pio run -e daisy_mfx -t upload   # DFU (daisy platform)
 ```
 
 ## Notes

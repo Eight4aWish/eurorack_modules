@@ -4,20 +4,20 @@ Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWis
 
 ## Build
 
-PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w-oc`).
+PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w_oc`).
 
 ```sh
 # Build default env
 pio run
 
 # Build & upload Pico 2 W
-pio run -e pico2w-oc -t upload
+pio run -e pico2w_oc -t upload
 
 # Monitor serial
 pio device monitor -b 115200
 ```
 
-## Teensy 4.1 — `teensy-move`
+## Teensy 4.1 — `teensy_move`
 
 A Teensy 4.1 modular-synth controller and sound source: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, an on-board 4-voice chord drone synth, and SGTL5000 line passthrough. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
 
@@ -27,7 +27,7 @@ A Teensy 4.1 modular-synth controller and sound source: two on-board CV/Gate cha
   - **Page 3 — Drone Mode**: Standalone 4-voice synth (5 waveforms, attack/release/volume on Pot 1–4).
 - **Long-press**: CV pages emit a Reset pulse; Chord/Drone pages toggle the on-board drone on/off.
 - **MIDI clock**: 24 PPQN → quarter-note pulses on `PIN_CLOCK`; Start emits a Reset pulse.
-- **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy-move/calib_static.h](include/teensy-move/calib_static.h)).
+- **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy_move/calib_static.h](include/teensy_move/calib_static.h)).
 
 Build & upload:
 
@@ -38,7 +38,7 @@ pio run -e teensy41 -t upload
 
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, chord library details, and troubleshooting.
 
-## Pico 2 W — `pico2w-oc`
+## Pico 2 W — `pico2w_oc`
 
 This target implements a menu-driven multi-patch Eurorack utility on Raspberry Pi Pico 2 W with an SSD1306 OLED, ADS1115 ADC inputs, and an MCP4728 quad DAC for CV outputs.
 
@@ -50,21 +50,21 @@ This target implements a menu-driven multi-patch Eurorack utility on Raspberry P
 	- Consistent grid-based UI layout for readability on 128x64 OLED.
 
 - Hardware mapping:
-	- See `include/pico2w-oc/pins.h` for physical macros: `CV0_DA_CH..CV3_DA_CH`, `AD0_CH`, `AD1_CH`, `AD_EXT_CLOCK_CH`.
+	- See `include/pico2w_oc/pins.h` for physical macros: `CV0_DA_CH..CV3_DA_CH`, `AD0_CH`, `AD1_CH`, `AD_EXT_CLOCK_CH`.
 	- External clock is detected on rising edges on `AD_EXT_CLOCK_CH` in Clock/Env patches.
 
 - Build & Upload:
 
 ```sh
 # Pico 2 W
-pio run -e pico2w-oc
-pio run -e pico2w-oc -t upload
+pio run -e pico2w_oc
+pio run -e pico2w_oc -t upload
 pio device monitor -b 115200
 ```
 
 See `docs/PICO2W_OC.md` for full UI behavior and patch-specific controls.
 
-## Daisy Seed — `daisy-mfx`
+## Daisy Seed — `daisy_mfx`
 
 This target implements a compact multi-FX for the Electrosmith Daisy Seed with two banks: Reverbs and Delays. It features CV takeover, tap-tempo on CV2 (Delays bank), wet-fade on patch change, shimmer warm-up, OLED sleep/wake, and output filtering.
 
@@ -82,14 +82,14 @@ This target implements a compact multi-FX for the Electrosmith Daisy Seed with t
 - Build & Upload:
 
 ```sh
-# Daisy (daisy-mfx)
-pio run -e daisy-mfx
-pio run -e daisy-mfx -t upload   # DFU
+# Daisy (daisy_mfx)
+pio run -e daisy_mfx
+pio run -e daisy_mfx -t upload   # DFU
 ```
 
 See `docs/DAISY_MFX.md` for patch details and CV/tap behavior.
 
-## ESP32 Clk/Link — `esp32-clklink`
+## ESP32 Clk/Link — `esp32_clklink`
 
 This target turns an ESP32-Dev + MCP4728 board into a Eurorack clock and reset generator that can run standalone or sync to an Ableton Link network on the same WiFi. ON-OFF-ON switch picks OFF / INTERNAL / LINK.
 
@@ -102,16 +102,16 @@ This target turns an ESP32-Dev + MCP4728 board into a Eurorack clock and reset g
 
 ```sh
 # ESP32 Clk/Link
-pio run -e esp32-clklink
-pio run -e esp32-clklink -t upload
+pio run -e esp32_clklink
+pio run -e esp32_clklink -t upload
 pio device monitor -b 115200
 ```
 
 See `docs/ESP32_CLKLINK.md` for the full channel map, LED status patterns, and tuning.
 
-## ESP32 Clk/Link/Rec — `esp32-clklinkrec` (in development)
+## ESP32 Clk/Link/Rec — `esp32_clklinkrec` (in development)
 
-A successor to `esp32-clklink`. Combines the Link-synced clock generator with a **Recorder trigger**: pressing the Capture button on the front panel sends an HTTP POST to a Mac-side menu-bar app that saves the last N seconds of audio it was playing. Same Link sync behaviour, smaller BOM (no DAC, no op-amps), sharper Eurorack triggers via a 74HCT14 Schmitt trigger.
+A successor to `esp32_clklink`. Combines the Link-synced clock generator with a **Recorder trigger**: pressing the Capture button on the front panel sends an HTTP POST to a Mac-side menu-bar app that saves the last N seconds of audio it was playing. Same Link sync behaviour, smaller BOM (no DAC, no op-amps), sharper Eurorack triggers via a 74HCT14 Schmitt trigger.
 
 - **Hardware**: Seeed Studio XIAO ESP32-C5 (dual-band Wi-Fi 6, USB-C) + 74HCT14 hex inverting Schmitt trigger. 4 HP n8synth control board panel — two cells with LED + momentary button, four cells for jacks.
 - **Outputs**: Clock, Reset, Running (all 0/+5 V triggers via the Schmitt trigger).
@@ -121,7 +121,7 @@ A successor to `esp32-clklink`. Combines the Link-synced clock generator with a 
 
 See [docs/ESP32_CLKLINKREC.md](docs/ESP32_CLKLINKREC.md) for the hardware design, pin allocation, and netlist. The wire protocol between the firmware and the Mac app lives in [docs/RECORDER_PROTOCOL.md](docs/RECORDER_PROTOCOL.md).
 
-## AI Module (CortHex) — `nanoesp32-corthex`
+## AI Module (CortHex) — `nanoesp32_corthex`
 
 A Eurorack voice driven by an LLM. Talks to the user via three web pages, drives a Plaits + Swords + T03 patch through six calibrated CV outputs, and uses panel buttons 1–6 as a 6-slot patch bank that an LLM populates with variations on a prompt.
 
@@ -137,17 +137,17 @@ Build & upload:
 
 ```sh
 # First flash via DFU (USB)
-pio run -e nanoesp32-corthex -t upload
+pio run -e nanoesp32_corthex -t upload
 
 # Subsequent OTA flashes (over WiFi, mDNS hostname from secrets.h)
-AI_MODULE_OTA_PASS='your-ota-password' pio run -e nanoesp32-corthex-ota -t upload
+AI_MODULE_OTA_PASS='your-ota-password' pio run -e nanoesp32_corthex_ota -t upload
 ```
 
-WiFi credentials and OTA password live in `src/nanoesp32-corthex/secrets.h` (gitignored — copy from `secrets.h.example`).
+WiFi credentials and OTA password live in `src/nanoesp32_corthex/secrets.h` (gitignored — copy from `secrets.h.example`).
 
 See [docs/NANOESP32_CORTHEX.md](docs/NANOESP32_CORTHEX.md) for the firmware architecture, HTTP API, and per-page usage notes.
 
-## AMYboard — `amyboard-patchbank`
+## AMYboard — `amyboard_patchbank`
 
 A **MicroPython / Tulip** app (not a PlatformIO env) for the shorepine AMYboard (ESP32-S3 + the AMY synth engine). Turns the board into a browse-and-play synth voice: spin the rotary encoder through a curated bank of **10 pads + 10 basses** on the 128×128 OLED, press to load, tweak via a one-screen macro page, and play from CV/Gate or TRS MIDI.
 
@@ -158,9 +158,9 @@ A **MicroPython / Tulip** app (not a PlatformIO env) for the shorepine AMYboard 
 
 Deploy is over the board's MicroPython REPL, not `pio`: copy `pbdata.py` + `patchbank.py` to `/user/`, and `sketch.py` to `/user/current/sketch.py` to make it the boot app (`mpremote` fights this board's USB-CDC — copy over the raw REPL).
 
-See [src/amyboard-patchbank/README.md](src/amyboard-patchbank/README.md) for hardware bring-up, the macro/MIDI details, deployment, and the desktop sound-rendering harness.
+See [src/amyboard_patchbank/README.md](src/amyboard_patchbank/README.md) for hardware bring-up, the macro/MIDI details, deployment, and the desktop sound-rendering harness.
 
-## Ksoloti Big Genes — `ksoloti-elements`
+## Ksoloti Big Genes — `ksoloti_elements`
 
 A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
 
@@ -182,20 +182,20 @@ git submodule update --init --recursive
 
 # Apply the resonator resolution patch
 cd third_party/eurorack
-git apply ../../patches/ksoloti-elements-resonator-resolution.patch
+git apply ../../patches/ksoloti_elements-resonator-resolution.patch
 cd ../..
 
 # Build
-pio run -e ksoloti-elements
+pio run -e ksoloti_elements
 
 # Flash via DFU (board must be in DFU mode)
-pio run -e ksoloti-elements -t upload
+pio run -e ksoloti_elements -t upload
 ```
 
 ### Architecture
 
 ```
-src/ksoloti-elements/
+src/ksoloti_elements/
   main.cc              — Entry point, Elements DSP, control loop, parameter mapping
   adc.cc / adc.h       — ADC1 DMA (10ch) + ADC3 polled (4ch) + button GPIO
   codec.cc / codec.h   — SAI1 + ADAU1961 driver (I2C2, DMA double-buffer)
@@ -208,7 +208,7 @@ scripts/
   elements_build.py    — PlatformIO build script (FPU flags, extra source dirs)
 
 patches/
-  ksoloti-elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
+  ksoloti_elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core
@@ -222,16 +222,16 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 ## Credits & Licenses
 
 Original work in this repository is **MIT-licensed** — see [`LICENSE`](LICENSE).
-The exception is the [`esp32-clklink`](src/esp32-clklink/) module, which
+The exception is the [`esp32_clklink`](src/esp32_clklink/) module, which
 links against the Ableton Link library and is therefore distributed as
-**GPL-2.0-or-later** — see [`LICENSE.esp32-clklink`](LICENSE.esp32-clklink).
+**GPL-2.0-or-later** — see [`LICENSE.esp32_clklink`](LICENSE.esp32_clklink).
 
 The full list of third-party code each module depends on, with licenses,
 is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 
-- **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32-clklink` work. This is what triggers the GPL on that module.
-- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti-elements` ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti-elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
-- **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32-clklink` and `nanoesp32-corthex`.
-- **DaisyDuino** (MIT, Electrosmith) — for `daisy-mfx`.
-- **Teensyduino** (MIT, PJRC) — for `teensy-chaos` and `teensy-move`.
+- **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32_clklink` work. This is what triggers the GPL on that module.
+- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti_elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
+- **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
+- **DaisyDuino** (MIT, Electrosmith) — for `daisy_mfx`.
+- **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

@@ -150,7 +150,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `ksoloti-elements.bin` from the [latest Ksoloti Elements release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/ksoloti-elements-v1.0).
+Download `ksoloti_elements.bin` from the [latest Ksoloti Elements release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/ksoloti_elements-v1.0).
 
 ### Step 2: Install dfu-util
 
@@ -174,7 +174,7 @@ The module's LEDs and screen will be off — this is normal. Your computer shoul
 Open a terminal and run:
 
 ```sh
-dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave -D ksoloti-elements.bin
+dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave -D ksoloti_elements.bin
 ```
 
 You should see a progress bar. When it says "File downloaded successfully", the module will automatically restart and begin running Elements.
@@ -199,14 +199,14 @@ git submodule update --init --recursive
 
 # Apply resonator resolution patch
 cd third_party/eurorack
-git apply ../../patches/ksoloti-elements-resonator-resolution.patch
+git apply ../../patches/ksoloti_elements-resonator-resolution.patch
 cd ../..
 
 # Build
-pio run -e ksoloti-elements
+pio run -e ksoloti_elements
 
 # Flash via DFU (hold E1/S1 while plugging USB-C into the prog socket to enter DFU mode)
-pio run -e ksoloti-elements -t upload
+pio run -e ksoloti_elements -t upload
 ```
 
 DFU device serial: `305D355B3233`
@@ -214,7 +214,7 @@ DFU device serial: `305D355B3233`
 ## Architecture
 
 ```
-src/ksoloti-elements/
+src/ksoloti_elements/
   main.cc              — Entry point, DSP integration, control loop, parameter mapping
   adc.cc / adc.h       — ADC1 DMA (10ch) + ADC3 polled (4ch) + button GPIO
   codec.cc / codec.h   — SAI1 + ADAU1961 driver (I2C2, DMA double-buffer, 32 kHz)
@@ -227,7 +227,7 @@ scripts/
   elements_build.py    — PlatformIO build script (FPU flags, Elements source dirs)
 
 patches/
-  ksoloti-elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
+  ksoloti_elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core

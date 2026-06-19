@@ -75,8 +75,8 @@ forces a re-sync to the Link beat phase on the next tick.
 ## Build & flash
 
 ```sh
-pio run -e esp32-clklink
-pio run -e esp32-clklink -t upload --upload-port /dev/cu.usbserial-XXXX
+pio run -e esp32_clklink
+pio run -e esp32_clklink -t upload --upload-port /dev/cu.usbserial-XXXX
 pio device monitor -b 115200
 ```
 
@@ -89,7 +89,7 @@ takes a few minutes. Subsequent builds are quick.
 
 ## INTERNAL mode tuning
 
-Constants at the top of [src/esp32-clklink/main.cpp](../src/esp32-clklink/main.cpp):
+Constants at the top of [src/esp32_clklink/main.cpp](../src/esp32_clklink/main.cpp):
 
 - `clock_high` / `clock_low` — DAC values for +5 V / 0 V at the jack
 - `PULSE_WIDTH_US` — clock and reset pulse width (default 10 ms)
