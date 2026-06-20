@@ -66,15 +66,6 @@ The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 | [Bounce2](https://github.com/thomasfredericks/Bounce2) (Thomas Ouellet Fredericks) | MIT | button debouncing |
 | [FortySevenEffects MIDI Library](https://github.com/FortySevenEffects/arduino_midi_library) | MIT | MIDI parsing |
 
-## daisy_mfx
-
-Multi-effects unit on the Electrosmith Daisy Seed.
-
-| Component | License | Role |
-|---|---|---|
-| [DaisyDuino](https://github.com/electro-smith/DaisyDuino) (Electrosmith) | MIT | Daisy hardware abstraction + DSP library |
-| [Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306) + [Adafruit GFX](https://github.com/adafruit/Adafruit-GFX-Library) | BSD-3-Clause / MIT | OLED display |
-
 ## teensy_chaos, teensy_move
 
 Teensy 4.1 modules — chaotic/fractal synthesis (`teensy_chaos`) and

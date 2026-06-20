@@ -64,31 +64,6 @@ pio device monitor -b 115200
 
 See `docs/PICO2W_OC.md` for full UI behavior and patch-specific controls.
 
-## Daisy Seed — `daisy_mfx`
-
-This target implements a compact multi-FX for the Electrosmith Daisy Seed with two banks: Reverbs and Delays. It features CV takeover, tap-tempo on CV2 (Delays bank), wet-fade on patch change, shimmer warm-up, OLED sleep/wake, and output filtering.
-
-- Features:
-	- Banks: A) Reverb (Classic, Plate with predelay, Tank with light modulation, Shimmer); B) Delays (Ping, Tape with LP feedback, MultiTap, EchoVerb).
-	- Controls: Button short cycles patch; long toggles Bank/Patch UI. `P1=Mix`, `P2=Decay/Predelay/Time`, `P3=Tone/Feedback/Macro`.
-	- CV takeover: `CV1` can take over `P2`, `CV2` can take over `P3` with hysteresis; CV2 also supports tap-tempo in Delay bank.
-	- OLED UI with low-contrast theme, active/idle frame pacing, sleep after inactivity.
-	- Audio: 48 kHz; DC-block + gentle LPF on outputs to tame HF.
-
-- Hardware mapping (from firmware):
-	- I2C OLED: `SCL=D11`, `SDA=D12`, addr `0x3C`. Button `D1` (pullup), LED `D13`.
-	- Pots: `A5`, `A3`, `A2`. CV inputs: `A1`, `A0` (mapped to volts in code).
-
-- Build & Upload:
-
-```sh
-# Daisy (daisy_mfx)
-pio run -e daisy_mfx
-pio run -e daisy_mfx -t upload   # DFU
-```
-
-See `docs/DAISY_MFX.md` for patch details and CV/tap behavior.
-
 ## ESP32 Clk/Link — `esp32_clklink`
 
 This target turns an ESP32-Dev + MCP4728 board into a Eurorack clock and reset generator that can run standalone or sync to an Ableton Link network on the same WiFi. ON-OFF-ON switch picks OFF / INTERNAL / LINK.
@@ -232,6 +207,5 @@ is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 - **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32_clklink` work. This is what triggers the GPL on that module.
 - **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti_elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
-- **DaisyDuino** (MIT, Electrosmith) — for `daisy_mfx`.
 - **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

@@ -33,9 +33,6 @@ Use the `Diag` patch to capture raw ADS codes and raw MCP codes directly on the 
   - DAC: Set two frames per channel (e.g., code 4095 for ~−4 V, code 0 for ~+4 V). Capture measured volts and fit V→code.
   - ADC: If using analog inputs or external ADCs, apply the 2‑point method to each input.
   - Storage: Teensy EEPROM; serialize `CalibPack` via `pack()`.
-- Daisy (DaisyDuino):
-  - ADC/DAC: Apply 2‑point method per used channel.
-  - Storage: Flash/QSPI or a small reserved area; persist the packed bytes.
 - ESP32 (MCP4728):
   - DAC: Same as Pico. ADC as needed.
   - Storage: NVS (Preferences) or EEPROM emulation.
