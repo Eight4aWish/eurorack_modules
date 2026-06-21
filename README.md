@@ -38,13 +38,32 @@ pio run -e teensy41 -t upload
 
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, chord library details, and troubleshooting.
 
+## Teensy 4.1 — `teensy_chaos`
+
+A 10 HP chaotic / fractal synthesis voice that exploits the Teensy 4.1's 600 MHz Cortex-M7 (hardware FPU, RK4 per audio sample) for stereo output via the Teensy Audio Shield (SGTL5000, I2S). Two attractor state variables drive the stereo audio out and a pair of MCP4822 CV outputs (X/Y); four CV inputs arrive through an ADS1115.
+
+- **Algorithms**: the shipping firmware cycles **6 continuous-ODE attractors** — Rössler, Van der Pol, Lorenz, Chua, Duffing, Coupled Rössler — by short-pressing BTN. (A larger 14-algorithm suite across Melodic / Percussive / Texture groups is the design roadmap, not yet wired up.)
+- **Controls**: CHAOS (bifurcation), RATE (integration step / frequency), CHAR (secondary parameter), DEPTH (mix / envelope decay). MOD adds bipolar modulation to CHAOS; ASGN is a menu-assignable mod target.
+- **V/Oct by oversampling**: CLK pitch raises the integration sub-step count per sample rather than enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over several octaves without diverging.
+- **Onboard AD envelope (VCA)**, off by default: long-press BTN opens the **ENV page** where CHAOS toggles it on/off and CHAR / DEPTH set Attack / Decay. When on, an RST rising edge fires a one-shot for a self-contained percussion voice; when off the module is a free-running drone.
+- **Display**: SSD1306 128×64 OLED — algorithm name, real-time phase-space plot, and parameter bars.
+
+Build & upload:
+
+```sh
+pio run -e teensy_chaos
+pio run -e teensy_chaos -t upload
+```
+
+See [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algorithm control detail, audio architecture, and the algorithm-suite roadmap.
+
 ## Pico 2 W — `pico2w_oc`
 
 This target implements a menu-driven multi-patch Eurorack utility on Raspberry Pi Pico 2 W with an SSD1306 OLED, ADS1115 ADC inputs, and an MCP4728 quad DAC for CV outputs.
 
 - Features:
 	- OLED UI with short/long press navigation (menu and in-patch controls).
-	- Patches: Clock, Quant, Euclid, Env (dual envelopes), QuadLFO, Scope, Calib, Diag.
+	- Patches: Clock, Quant, Euclid, Env (dual envelopes), QuadLFO, Scope, Diag.
 	- Inputs: Two analog inputs via ADS1115 plus an external clock input (`AD_EXT_CLOCK_CH`).
 	- Outputs: Four CVs via MCP4728 (calibrated mapping for bipolar/unipolar where applicable). Timing patches use fixed gate codes for crisp edges.
 	- Consistent grid-based UI layout for readability on 128x64 OLED.
@@ -192,7 +211,8 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 ## Libraries
 
-- expander I/O: `libs/expander_io` — 74HC595 expander driver (`Expander595`) and MCP4822 helper (`Mcp4822Expander`). See `libs/expander_io/README.md` for API and wiring.
+- **expander I/O**: `libs/expander_io` — 74HC595 expander driver (`Expander595`) and MCP4822 helper (`Mcp4822Expander`). See [libs/expander_io/README.md](libs/expander_io/README.md) for API and wiring.
+- **OLED UI**: `libs/eurorack_ui` — reusable SSD1306 menu helpers (`OledMenu`, `OledHomeMenu`, `OledHelpers`) for short/long-press menu navigation. Used by `pico2w_oc`.
 
 ## Credits & Licenses
 
