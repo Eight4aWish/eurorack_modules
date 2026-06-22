@@ -657,27 +657,28 @@ void clock_render() {
 Patch patch_clock = { "Clock", clock_enter, clock_tick, clock_render, true };
 // -- Placeholder patch stubs for menu entries (lightweight)
 
-// ---- Euclid patch: Euclidean drum triggers on up to 4 MCP outputs ----
-static int euclid_steps = 8;
-static int euclid_pulses = 3;
-static int euclid_rotation = 0;
-static int euclid_prev_rotation = 0; // track previous rotation for rebuild
-static int euclid_step_idx = 0;
-static int euclid_ch_step_idx[4] = {0,0,0,0}; // per-channel step counters for complex mode
-static uint32_t euclid_next_ms = 0;
+// ---- Euclid patch: 4 independent Euclidean rhythm generators (CV0..CV3) ----
+// Page model (short-press cycles): page 0 = TEMPO (Pot1 = internal BPM); pages
+// 1..4 = edit channel 0..3, where Pot1 = Steps, Pot2 = Pulses, Pot3 = Rotation.
+// Each pot has one fixed job per page; soft-takeover only kicks in on a page
+// switch so stored values aren't snapped to the knob positions.
+static const int EUCLID_MAXSTEPS = 16;
+static int euclid_steps_n[4]    = {8, 16, 4, 8};   // vertices        (1..EUCLID_MAXSTEPS)
+static int euclid_pulses_n[4]   = {5, 4, 1, 3};    // active vertices (0..steps)
+static int euclid_rotation_n[4] = {0, 0, 0, 2};    // rotation offset (0..steps-1)
+static bool euclid_patterns[4][EUCLID_MAXSTEPS];
+static int euclid_step_idx[4]   = {0,0,0,0};       // per-channel playhead
 static uint32_t euclid_pulse_end_ms[4] = {0,0,0,0};
 static bool euclid_state[4] = {false,false,false,false};
-static bool euclid_patterns[4][16]; // max 16 steps
-static int euclid_selected_param = 0; // 0=Steps,1=Pulses,2=Rotation,3=BPM
-// Euclid modes: 0=simple (shared params), 1=complex (per-channel params)
-static int euclid_mode = 0;
-static int euclid_ch_steps[4] = {8,8,8,8};
-static int euclid_ch_pulses[4] = {3,3,3,3};
-static int euclid_ch_rotation[4] = {0,1,2,3};
-// Selection in complex mode: (channel, param)
-static int euclid_sel_channel = 0; // 0..3
-static int euclid_bpm = 120; // cached for render
-static PotPickup euclid_pickup; // soft-takeover for Pot3 across param/mode/channel
+static int euclid_bpm = 120;                       // internal tempo (Pot1, tempo page)
+static uint32_t euclid_int_next_ms = 0;            // next internal clock fire
+static int euclid_page = 0;                        // 0 = tempo, 1..4 = edit channel
+static PotPickup euclid_pickup;                    // soft-takeover across page switches
+// External-clock detection (overrides internal tempo when patched on AD_EXT_CLOCK_CH).
+static bool euclid_ext_gate = false;
+static uint32_t euclid_ext_last_edge_ms = 0;
+static float euclid_ext_interval_smooth = 0.0f;
+static uint32_t euclid_ext_interval_ms = 0;
 
 void build_euclid_pattern(bool *out, int steps, int pulses, int rotate) {
   // simple even-distribution algorithm
@@ -697,196 +698,206 @@ void build_euclid_pattern(bool *out, int steps, int pulses, int rotate) {
   }
 }
 
+// Rebuild channel ch's pattern array from its steps/pulses/rotation.
+void euclid_rebuild(int ch) {
+  int steps = euclid_steps_n[ch];
+  if (steps < 1) steps = 1; if (steps > EUCLID_MAXSTEPS) steps = EUCLID_MAXSTEPS;
+  int pulses = euclid_pulses_n[ch];
+  if (pulses < 0) pulses = 0; if (pulses > steps) pulses = steps;
+  int rot = euclid_rotation_n[ch] % steps; if (rot < 0) rot += steps;
+  bool base[EUCLID_MAXSTEPS] = {0};
+  build_euclid_pattern(base, steps, pulses, 0);
+  for (int i = 0; i < steps; i++) euclid_patterns[ch][i] = base[(i - rot + steps) % steps];
+  for (int i = steps; i < EUCLID_MAXSTEPS; i++) euclid_patterns[ch][i] = false;
+}
+
 void euclid_enter() {
   resetPotSmooth();
-  euclid_steps = 8; euclid_pulses = 3; euclid_rotation = 0; euclid_prev_rotation = 0;
-  euclid_step_idx = 0; euclid_next_ms = millis(); euclid_bpm = 120;
-  for (int c=0;c<4;c++) { euclid_pulse_end_ms[c]=0; euclid_state[c]=false; euclid_ch_step_idx[c]=0; }
-  pickup_setLive(euclid_pickup); // Pot3 live for the initial parameter
+  euclid_page = 0;
+  euclid_bpm = 120;
+  euclid_int_next_ms = millis();
+  euclid_ext_gate = false; euclid_ext_last_edge_ms = 0;
+  euclid_ext_interval_smooth = 0.0f; euclid_ext_interval_ms = 0;
+  for (int ch = 0; ch < 4; ch++) {
+    euclid_step_idx[ch] = 0; euclid_state[ch] = false; euclid_pulse_end_ms[ch] = 0;
+    euclid_rebuild(ch);
+  }
+  pickup_setLive(euclid_pickup);
+  // Continuous ADS read on the ext-clock channel for non-blocking edge detection.
+  if (haveADS) ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
 }
 
 void euclid_tick() {
-  // read pots (smoothed, inverted) Pot1=BPM, Pot2=mode, Pot3=param
-  float p_bpm  = readPotNormSmooth(PIN_POT1, 0);
-  float p_mode = readPotNormSmooth(PIN_POT2, 1);
-  float p_param= readPotNormSmooth(PIN_POT3, 2);
-  int raw1 = (int)(p_bpm   * 4095.0f);
-  int raw2 = (int)(p_mode  * 4095.0f);
-  int raw3 = (int)(p_param * 4095.0f);
-  // Mode selection via Pot2 (coarse split): <50% simple, >=50% complex.
-  // On a mode flip, arm Pot3 pickup — the selected parameter's meaning changes.
-  int newMode = (raw2 >= 2048) ? 1 : 0;
-  if (newMode != euclid_mode) {
-    euclid_mode = newMode;
-    pickup_arm(euclid_pickup, p_bpm, p_mode, p_param);
-  }
-
-  int steps = euclid_steps;
-  int pulses = euclid_pulses;
-  int bpm = 30 + (int)(((long)raw1 * (300-30)) / 4095);
-
-  // Normalized (0..1) position of the selected Pot3 parameter, for soft-takeover.
-  float p3target;
-  if (euclid_mode == 0) {
-    switch (euclid_selected_param) {
-      case 0:  p3target = (float)(euclid_steps - 1) / 15.0f; break;
-      case 1:  p3target = (euclid_steps > 0) ? (float)euclid_pulses   / (float)euclid_steps : 0.0f; break;
-      case 2:  p3target = (euclid_steps > 0) ? (float)euclid_rotation / (float)euclid_steps : 0.0f; break;
-      default: p3target = p_param; break; // BPM page: Pot3 is a no-op
-    }
-  } else {
-    int ch = euclid_sel_channel;
-    int sc = euclid_ch_steps[ch]; if (sc < 1) sc = 1;
-    switch (euclid_selected_param) {
-      case 0:  p3target = (float)(euclid_ch_steps[ch] - 1) / 15.0f; break;
-      case 1:  p3target = (float)euclid_ch_pulses[ch]   / (float)sc; break;
-      default: p3target = (float)euclid_ch_rotation[ch] / (float)sc; break; // param 2
-    }
-  }
-  bool p3live = pickup_update(euclid_pickup, 2, p_param, p3target);
-
-  if (euclid_mode == 0) {
-    // Simple mode: shared params — selected param edited via Pot3
-    switch (euclid_selected_param) {
-      case 0: if (p3live) steps  = 1 + (raw3 * 15) / 4095; break; // 1..16
-      case 1: if (p3live) pulses = (raw3 * euclid_steps) / 4095; break; // 0..steps
-      case 2: if (p3live) euclid_rotation = (raw3 * euclid_steps) / 4095; break; // 0..steps-1 approx
-      case 3: /* BPM via Pot1 */ break;
-    }
-  } else {
-    // Complex mode: per-channel params; Pot3 edits selected (channel,param)
-    int ch = euclid_sel_channel;
-    switch (euclid_selected_param) {
-      case 0: if (p3live) euclid_ch_steps[ch]   = 1 + (raw3 * 15) / 4095; break;
-      case 1: if (p3live) euclid_ch_pulses[ch]  = (raw3 * euclid_ch_steps[ch]) / 4095; break;
-      case 2: if (p3live) euclid_ch_rotation[ch]= (raw3 * euclid_ch_steps[ch]) / 4095; break;
-      case 3: /* BPM via Pot1 */ break;
-    }
-  }
-  if (bpm <= 0) bpm = 120;
-
-  // short-press cycles selected parameter (and channel in complex mode); arm
-  // Pot3 pickup so it doesn't snap the newly-selected parameter.
-  if (patchShortPressed) {
-    if (euclid_mode == 0) {
-      euclid_selected_param = (euclid_selected_param + 1) % 4;
-    } else {
-      // cycle Steps/Pulses/Rotation; advance channel when wrapping
-      euclid_selected_param = (euclid_selected_param + 1) % 3;
-      if (euclid_selected_param == 0) euclid_sel_channel = (euclid_sel_channel + 1) % 4;
-    }
-    patchShortPressed = false;
-    pickup_arm(euclid_pickup, p_bpm, p_mode, p_param);
-  }
-
-  euclid_bpm = bpm; // cache for render
-
-  // rebuild patterns if needed (steps, pulses, OR rotation changed)
-  if (euclid_mode == 0 && (steps != euclid_steps || pulses != euclid_pulses || euclid_rotation != euclid_prev_rotation)) {
-    euclid_steps = steps;
-    euclid_pulses = pulses;
-    euclid_prev_rotation = euclid_rotation;
-    // build a base pattern and make 4 rotated variants
-    bool base[16] = {0};
-    build_euclid_pattern(base, euclid_steps, euclid_pulses, 0);
-    for (int ch=0; ch<4; ch++) {
-      int ro = (euclid_rotation + ch) % euclid_steps;
-      // copy & rotate into pattern
-      for (int i=0;i<euclid_steps;i++) euclid_patterns[ch][i] = base[(i - ro + euclid_steps) % euclid_steps];
-    }
-  }
-  if (euclid_mode == 1) {
-    // per-channel patterns
-    for (int ch=0; ch<4; ch++) {
-      int steps_c = euclid_ch_steps[ch]; if (steps_c < 1) steps_c = 1; if (steps_c > 16) steps_c = 16;
-      int pulses_c = euclid_ch_pulses[ch]; if (pulses_c < 0) pulses_c = 0; if (pulses_c > steps_c) pulses_c = steps_c;
-      int rot_c = euclid_ch_rotation[ch]; if (rot_c < 0) rot_c = 0; if (rot_c >= steps_c) rot_c = steps_c-1;
-      bool base[16] = {0};
-      build_euclid_pattern(base, steps_c, pulses_c, 0);
-      for (int i=0;i<steps_c;i++) euclid_patterns[ch][i] = base[(i - rot_c + steps_c) % steps_c];
-      // zero out remainder to avoid stray triggers
-      for (int i=steps_c;i<16;i++) euclid_patterns[ch][i] = false;
-    }
-  }
-
+  float p1 = readPotNormSmooth(PIN_POT1, 0);
+  float p2 = readPotNormSmooth(PIN_POT2, 1);
+  float p3 = readPotNormSmooth(PIN_POT3, 2);
+  int raw1 = (int)(p1 * 4095.0f);
+  int raw2 = (int)(p2 * 4095.0f);
+  int raw3 = (int)(p3 * 4095.0f);
   uint32_t now = millis();
-  uint32_t interval_ms = 60000 / bpm;
-  if (now >= euclid_next_ms) {
-    euclid_next_ms = now + interval_ms;
-    if (euclid_mode == 0) {
-      // Simple mode: single shared step index wrapping at euclid_steps
-      euclid_step_idx = (euclid_step_idx + 1) % (euclid_steps > 0 ? euclid_steps : 1);
-      for (int ch=0; ch<4; ch++) {
-        if (euclid_steps > 0 && euclid_patterns[ch][euclid_step_idx]) {
-          euclid_state[ch] = true;
-          euclid_pulse_end_ms[ch] = now + 30;
+
+  // Short-press cycles the page; arm pickup so pots don't snap the new page's
+  // values (each pot edits a different parameter on each page).
+  if (patchShortPressed) {
+    euclid_page = (euclid_page + 1) % 5;
+    patchShortPressed = false;
+    pickup_arm(euclid_pickup, p1, p2, p3);
+  }
+
+  // --- Parameter editing: one pot per parameter on its page ---
+  if (euclid_page == 0) {
+    // Tempo page: Pot1 = internal BPM (30..300), soft-takeover on entry.
+    float bpmTarget = (float)(euclid_bpm - 30) / 270.0f;
+    if (pickup_update(euclid_pickup, 0, p1, bpmTarget)) {
+      euclid_bpm = 30 + (int)(((long)raw1 * 270) / 4095);
+      if (euclid_bpm < 30) euclid_bpm = 30;
+    }
+  } else {
+    int ch = euclid_page - 1;
+    int steps = euclid_steps_n[ch]; if (steps < 1) steps = 1;
+    float tSteps  = (float)(steps - 1) / (float)(EUCLID_MAXSTEPS - 1);
+    float tPulses = (float)(euclid_pulses_n[ch] + 0.5f) / (float)(steps + 1);
+    float tRot    = ((float)euclid_rotation_n[ch] + 0.5f) / (float)steps;
+    if (pickup_update(euclid_pickup, 0, p1, tSteps))
+      euclid_steps_n[ch] = 1 + (raw1 * (EUCLID_MAXSTEPS - 1)) / 4095; // 1..16
+    int st = euclid_steps_n[ch]; if (st < 1) st = 1;
+    if (pickup_update(euclid_pickup, 1, p2, tPulses))
+      euclid_pulses_n[ch] = (raw2 * (st + 1)) / 4096;                 // 0..steps
+    if (pickup_update(euclid_pickup, 2, p3, tRot))
+      euclid_rotation_n[ch] = (raw3 * st) / 4096;                     // 0..steps-1
+  }
+
+  // Clamp every channel and rebuild its pattern each tick (cheap, glitch-free).
+  for (int ch = 0; ch < 4; ch++) {
+    int st = euclid_steps_n[ch];
+    if (st < 1) st = 1; if (st > EUCLID_MAXSTEPS) st = EUCLID_MAXSTEPS;
+    euclid_steps_n[ch] = st;
+    if (euclid_pulses_n[ch] < 0) euclid_pulses_n[ch] = 0;
+    if (euclid_pulses_n[ch] > st) euclid_pulses_n[ch] = st;
+    if (euclid_rotation_n[ch] < 0) euclid_rotation_n[ch] = 0;
+    if (euclid_rotation_n[ch] > st - 1) euclid_rotation_n[ch] = st - 1;
+    if (euclid_step_idx[ch] >= st) euclid_step_idx[ch] = 0;
+    euclid_rebuild(ch);
+  }
+
+  // --- Clock: external edges on AD_EXT_CLOCK_CH override the internal tempo ---
+  bool advance = false;
+  if (haveADS) {
+    int16_t a0 = ads.getLastConversionResults(); // non-blocking (continuous mode)
+    bool gate_now = euclid_ext_gate ? (a0 < kGateOffThresh) : (a0 < kGateOnThresh);
+    if (gate_now && !euclid_ext_gate) {           // rising edge -> advance one step
+      if (euclid_ext_last_edge_ms) {
+        uint32_t raw = now - euclid_ext_last_edge_ms;
+        if (raw >= 50 && raw <= 2000) {
+          euclid_ext_interval_ms = raw;
+          if (euclid_ext_interval_smooth < 1.0f) euclid_ext_interval_smooth = (float)raw;
+          else euclid_ext_interval_smooth = 0.7f * euclid_ext_interval_smooth + 0.3f * (float)raw;
         }
       }
-    } else {
-      // Complex mode: per-channel step counters wrapping at their own step counts
-      for (int ch=0; ch<4; ch++) {
-        int sc = euclid_ch_steps[ch]; if (sc < 1) sc = 1;
-        euclid_ch_step_idx[ch] = (euclid_ch_step_idx[ch] + 1) % sc;
-        if (euclid_patterns[ch][euclid_ch_step_idx[ch]]) {
-          euclid_state[ch] = true;
-          euclid_pulse_end_ms[ch] = now + 30;
-        }
-      }
+      euclid_ext_last_edge_ms = now;
+      advance = true;
+      euclid_int_next_ms = now + (60000 / (euclid_bpm > 0 ? euclid_bpm : 120));
+    }
+    euclid_ext_gate = gate_now;
+  }
+  bool ext_active = (euclid_ext_interval_ms > 0) && euclid_ext_last_edge_ms
+                    && (now - euclid_ext_last_edge_ms <= kExtClockTimeoutMs);
+  if (!ext_active) {
+    euclid_ext_interval_ms = 0; euclid_ext_interval_smooth = 0.0f;
+    if (now >= euclid_int_next_ms) {
+      euclid_int_next_ms = now + (60000 / (euclid_bpm > 0 ? euclid_bpm : 120));
+      advance = true;
     }
   }
 
-  // expire pulses
-  for (int ch=0; ch<4; ch++) {
+  // --- Advance playheads and fire pulses ---
+  if (advance) {
+    for (int ch = 0; ch < 4; ch++) {
+      int st = euclid_steps_n[ch]; if (st < 1) st = 1;
+      euclid_step_idx[ch] = (euclid_step_idx[ch] + 1) % st;
+      if (euclid_patterns[ch][euclid_step_idx[ch]]) {
+        euclid_state[ch] = true;
+        euclid_pulse_end_ms[ch] = now + 30;
+      }
+    }
+  }
+  for (int ch = 0; ch < 4; ch++) {
     if (euclid_state[ch] && now >= euclid_pulse_end_ms[ch]) euclid_state[ch] = false;
   }
 
-  // write MCP outputs (direct codes: low~2047, high~0)
+  // --- Write the four gate outputs (direct codes: low~2047, high~0) ---
   if (haveMCP) {
-    uint16_t out0 = euclid_state[0] ? kGateHighCode : kGateLowCode;
-    uint16_t out1 = euclid_state[1] ? kGateHighCode : kGateLowCode;
-    uint16_t out2 = euclid_state[2] ? kGateHighCode : kGateLowCode;
-    uint16_t out3 = euclid_state[3] ? kGateHighCode : kGateLowCode;
-    mcp_values[CV0_DA_CH]=out0; mcp_values[CV1_DA_CH]=out1; mcp_values[CV2_DA_CH]=out2; mcp_values[CV3_DA_CH]=out3;
+    mcp_values[CV0_DA_CH] = euclid_state[0] ? kGateHighCode : kGateLowCode;
+    mcp_values[CV1_DA_CH] = euclid_state[1] ? kGateHighCode : kGateLowCode;
+    mcp_values[CV2_DA_CH] = euclid_state[2] ? kGateHighCode : kGateLowCode;
+    mcp_values[CV3_DA_CH] = euclid_state[3] ? kGateHighCode : kGateLowCode;
     mcp_writeAll();
   }
 }
 
+// Hagiwo-style polygon for channel ch: vertices round a circle, filled discs on
+// active steps, edges joining the active steps in order, a tick at the step-0
+// start position, and a ring on the moving playhead.
+static void euclid_draw_polygon(int cx, int cy, int r, int ch) {
+  int steps = euclid_steps_n[ch]; if (steps < 1) steps = 1;
+  int vx[EUCLID_MAXSTEPS], vy[EUCLID_MAXSTEPS];
+  for (int i = 0; i < steps; i++) {
+    float a = -PI / 2.0f + (2.0f * PI * i) / steps; // step 0 at top, clockwise
+    vx[i] = cx + (int)lroundf(r * cosf(a));
+    vy[i] = cy + (int)lroundf(r * sinf(a));
+  }
+  // Edges connect active steps in play order (closing the loop) -> the polygon.
+  int firstA = -1, prevA = -1;
+  for (int i = 0; i < steps; i++) {
+    if (!euclid_patterns[ch][i]) continue;
+    if (prevA >= 0) oled.drawLine(vx[prevA], vy[prevA], vx[i], vy[i], SSD1306_WHITE);
+    else firstA = i;
+    prevA = i;
+  }
+  if (firstA >= 0 && prevA != firstA)
+    oled.drawLine(vx[prevA], vy[prevA], vx[firstA], vy[firstA], SSD1306_WHITE);
+  // Vertices: filled disc if active, dot if not; ring on the playhead.
+  for (int i = 0; i < steps; i++) {
+    if (euclid_patterns[ch][i]) oled.fillCircle(vx[i], vy[i], 2, SSD1306_WHITE);
+    else                        oled.drawPixel(vx[i], vy[i], SSD1306_WHITE);
+    if (i == euclid_step_idx[ch]) oled.drawCircle(vx[i], vy[i], 3, SSD1306_WHITE);
+  }
+  // Start marker: tick just outside the step-0 (top) vertex.
+  oled.drawLine(vx[0], vy[0] - 3, vx[0], vy[0] - 6, SSD1306_WHITE);
+}
+
 void euclid_render() {
   oled.clearDisplay(); oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 70, "Euclid");
-  oled.setCursor(78, 0);
-  oled.print(euclid_mode == 0 ? "Smp " : "Cpx "); oled.print(euclid_bpm);
+  bool ext = (euclid_ext_interval_ms > 0);
 
-  // One row per channel: step boxes (filled = pulse), playhead tick under the
-  // current step, live-gate marker, and a '>' on the selected channel (complex).
-  const int sz = 5, gap = 1, x0 = 14;
-  for (int ch = 0; ch < 4; ch++) {
-    int y = 16 + ch * 10; // keep below the 16px yellow title band
-    int steps  = (euclid_mode == 0) ? euclid_steps : euclid_ch_steps[ch];
-    int curIdx = (euclid_mode == 0) ? euclid_step_idx : euclid_ch_step_idx[ch];
-    oled.setCursor(0, y + 1);
-    oled.print((euclid_mode == 1 && ch == euclid_sel_channel) ? ">" : " ");
-    oled.print(ch);
-    if (euclid_state[ch]) oled.fillRect(11, y, 2, sz, SSD1306_WHITE); // live gate
-    for (int i = 0; i < steps && i < 16; i++) {
-      int x = x0 + i * (sz + gap);
-      if (x + sz > OLED_W) break;
-      if (euclid_patterns[ch][i]) oled.fillRect(x, y, sz, sz, SSD1306_WHITE);
-      else                        oled.drawRect(x, y, sz, sz, SSD1306_WHITE);
-      if (i == curIdx) oled.drawFastHLine(x, y + sz + 1, sz, SSD1306_WHITE);
+  // Title band (top 16px): name, page, clock source.
+  ui::printClipped(0, 0, 58, "Euclid");
+  oled.setCursor(62, 0);
+  if (euclid_page == 0) oled.print("TEMPO");
+  else { oled.print("CH"); oled.print(euclid_page - 1); }
+  oled.setCursor(104, 0);
+  oled.print(ext ? "EXT" : "INT");
+
+  if (euclid_page == 0) {
+    // Tempo overview: big BPM + a 2x2 channel summary (hits/steps + rotation).
+    oled.setTextSize(2); oled.setCursor(6, 20);
+    oled.print(euclid_bpm);
+    oled.setTextSize(1); oled.print(" BPM");
+    for (int ch = 0; ch < 4; ch++) {
+      oled.setCursor(6 + (ch % 2) * 64, 46 + (ch / 2) * 9);
+      oled.print(ch); oled.print(':');
+      oled.print(euclid_pulses_n[ch]); oled.print('/'); oled.print(euclid_steps_n[ch]);
+      oled.print(" r"); oled.print(euclid_rotation_n[ch]);
     }
+  } else {
+    int ch = euclid_page - 1;
+    euclid_draw_polygon(30, 41, 20, ch);
+    const int x = 64;
+    oled.setCursor(x, 18); oled.print("Steps "); oled.print(euclid_steps_n[ch]);
+    oled.setCursor(x, 30); oled.print("Hits  "); oled.print(euclid_pulses_n[ch]);
+    oled.setCursor(x, 42); oled.print("Rot   "); oled.print(euclid_rotation_n[ch]);
+    oled.setCursor(x, 54); oled.print(ext ? "ext clk" : "int clk");
   }
-
-  // Status: the parameter currently being edited + its value.
-  oled.setCursor(0, 56);
-  if (euclid_mode == 1) { oled.print("CH"); oled.print(euclid_sel_channel); oled.print(" "); }
-  oled.print((euclid_selected_param==0)?"Steps ":(euclid_selected_param==1)?"Puls ":(euclid_selected_param==2)?"Rot ":"BPM ");
-  int pv;
-  if (euclid_selected_param == 3)      pv = euclid_bpm;
-  else if (euclid_mode == 0)           pv = (euclid_selected_param==0)?euclid_steps:(euclid_selected_param==1)?euclid_pulses:euclid_rotation;
-  else                                 pv = (euclid_selected_param==0)?euclid_ch_steps[euclid_sel_channel]:(euclid_selected_param==1)?euclid_ch_pulses[euclid_sel_channel]:euclid_ch_rotation[euclid_sel_channel];
-  oled.print(pv);
-
   oled.display();
 }
 Patch patch_euclid = { "Euclid", euclid_enter, euclid_tick, euclid_render, false };
