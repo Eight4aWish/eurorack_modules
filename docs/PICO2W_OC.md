@@ -42,17 +42,14 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot pickup: After selecting a different channel with Pot2, Pot3 stays inactive until it crosses (or already matches) that channel's stored division, so divisions aren't clobbered when scanning channels.
 
 ### Euclid
-- Purpose: Euclidean drum triggers on up to 4 outputs.
-- Outputs: 30 ms gates on CV0..CV3 (fixed gate codes as above).
-- Modes (shown on title right):
-  - Simple: Shared Steps/Pulses/Rotation; 4 channels are rotated variants.
-  - Complex: Per-channel Steps/Pulses/Rotation.
-- Controls:
-  - Pot1: BPM (30–300).
-  - Pot2: Mode select — <50%: Simple, ≥50%: Complex.
-  - Pot3: Adjusts the currently selected parameter (Steps/Pulses/Rotation).
-  - Short press: Cycles the selected parameter. In Complex mode, when the cycle wraps, the selected channel advances (CH0→CH1→CH2→CH3).
-  - Pot pickup: After cycling to a new parameter (or switching Simple/Complex with Pot2), Pot3 stays inactive until it crosses (or already matches) that parameter's stored value, so the previous parameter isn't clobbered.
+- Purpose: Four independent Euclidean rhythm generators, one per output, with a Hagiwo-style polygon display.
+- Outputs: 30 ms gates on CV0..CV3 (fixed gate codes as above), one channel per generator.
+- Clock: advances one step per rising edge on the external clock input (`AD_EXT_CLOCK_CH`); when no external clock is patched it free-runs at the internal BPM. Title-right shows `EXT`/`INT`.
+- Pages (short press cycles `TEMPO → CH0 → CH1 → CH2 → CH3 → TEMPO`; title-right shows the active page). Each pot has one fixed job per page:
+  - `TEMPO`: Pot1 = internal BPM (30–300). Display shows the BPM large plus a 2×2 overview of all four channels as `hits/steps r<rotation>`.
+  - `CH0..CH3` (edit one channel): Pot1 = Steps (vertices, 1–16), Pot2 = Pulses (active vertices, 0–Steps), Pot3 = Rotation (0–Steps−1).
+- Polygon display (on each channel page): vertices are spaced evenly round a circle with step 0 at the top; active steps are filled discs joined by edges into the polygon; inactive steps are dots. A tick above the top vertex marks the step-0 start, so turning Rotation visibly rotates the pattern against it. A ring rides the current step as the playhead. The right column lists Steps / Hits / Rot and the clock source.
+- Pot pickup: switching pages arms soft-takeover, so each pot stays inactive until it crosses (or already matches) the new page parameter's stored value — values aren't clobbered when paging. Within a page the pots track immediately.
 
 ### Env (Dual Envelopes)
 - Purpose: Two independent macro ADSR-style envelopes.
