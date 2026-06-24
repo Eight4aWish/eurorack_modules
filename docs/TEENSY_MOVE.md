@@ -1,6 +1,6 @@
 # Teensy 4.1 — `teensy_move`
 
-A Teensy 4.1-based modular synth controller and sound source. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, an on-board 4-voice chord drone synth, and SGTL5000 line passthrough.
+An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
 
 ## Operating Modes
 
@@ -10,10 +10,12 @@ The OLED has four pages. Short-press the front button to cycle through them.
 |------|------|--------|
 | 0 | CV — Channels 1–2 | MIDI ch 1–2 → main-board Gate/Pitch/Mod |
 | 1 | CV — Channels 3–4 | MIDI ch 3–4 → expander Gate/Pitch/Mod |
-| 2 | Chord | MIDI ch 6 white keys → 4-voice chord on all Pitch/Gate outputs + on-board drone synth |
-| 3 | Drone | Standalone 4-voice drone synth (set waveform / attack / release / volume) |
+| 2 | Chord | MIDI ch 6 white keys → 4-voice chord on all Pitch/Gate outputs |
+| 3 | FX | Pots control the stereo Filter → Delay → Reverb send on the audio passthrough |
 
-Long-press behaviour depends on page: CV pages emit a Reset pulse on `PIN_RESET`; Chord and Drone pages toggle the on-board drone on/off.
+The CV bridge (MIDI ch 1–4) runs on **all pages except Chord** — page 3 (FX) keeps the bridge live underneath, so you can adjust effects while playing. Chord mode is page 2 only. The audio FX send is **always-on** regardless of page (page 3 just gives the pots control of it).
+
+Long-press the front button emits a Reset pulse on `PIN_RESET` (on every page).
 
 Drum triggers (MIDI ch 10, notes 36–39 → Q2..Q5) work on every page.
 
@@ -86,32 +88,34 @@ Pots while on the Chord page:
 - **Pot 3**: Progression within category
 - **Pot 4**: Voicing — Root, Inv1, Inv2, Drop-2, Spread
 
-Chord library: 40 progressions across 5 categories. Defined in [include/teensy_move/chord_library.h](../include/teensy_move/chord_library.h). Real-time chord-name detection ("Am7", "CM7", "Dm" …) shown on row 2 of the OLED.
+Chord library: 40 progressions across 5 categories. Defined in [include/teensy_move/chord_library.h](../include/teensy_move/chord_library.h). Real-time chord-name detection ("Am7", "CM7", "Dm" …) shown on row 2 of the OLED. Chord mode drives only the CV outputs (pitch/gate) — there is no on-board synth voice.
 
-## Drone Mode (Page 3)
+## FX Mode (Page 3)
 
-A 4-voice on-board synth (8 sawtooth/square/triangle/sine/pulse oscillators, two detuned per voice) routed through per-voice envelopes and a master amp into the SGTL5000 output mix. Pitched from the active chord voices, so it tracks chord-mode triggers as well as standalone use.
+A stereo **Filter → Delay → Reverb** send on the line passthrough, processing the Move's audio on its way to the Eurorack-level outputs. The FX runs always-on, concurrent with the CV bridge; page 3 just gives the pots control of it. Defaults are fully clean (open filter, no delay/reverb), so the passthrough stays a transparent level-shifted send until you dial FX in.
 
-Pots while on the Drone page:
+Pots while on the FX page:
 
-- **Pot 1**: Waveform (SAW / SQR / TRI / SIN / PUL)
-- **Pot 2**: Envelope attack (10 ms – 2000 ms)
-- **Pot 3**: Envelope release (50 ms – 3000 ms)
-- **Pot 4**: Master volume (0 – ~1.5×)
+- **Pot 1**: Filter cutoff (low-pass, ~80 Hz – 12 kHz, log)
+- **Pot 2**: Delay time (~20 – 400 ms)
+- **Pot 3**: Delay amount (wet level + feedback; 0 = no delay)
+- **Pot 4**: Reverb mix (freeverb wet level)
 
-Long-press the front button on the Chord or Drone page to toggle the drone on/off.
+The first time you visit the FX page the effects snap to the current pot positions (no soft-takeover). A wide pot deadband (~80 codes) keeps a noisy ADC from jittering the values.
 
 ## Audio
 
 USB mode: `USB_MIDI_SERIAL` (composite MIDI + Serial; no USB Audio class).
 
-Signal chain:
+Signal chain — a stereo FX send on the line passthrough:
 
-- I2S in (SGTL5000) → output mixer (passthrough channel)
-- Drone synth (4 voices × 2 detuned oscs → per-voice envelope → master amp) → output mixer (drone channel)
-- Output mixer → I2S out (SGTL5000)
+- I2S in (SGTL5000 LINE IN) → per-channel state-variable low-pass filter
+- → delay line with feedback → output mix (dry filtered + delay wet)
+- + stereo reverb (freeverb) wet → I2S out (SGTL5000 LINE OUT)
 
-Audio is sample-rate 44.1 kHz via the standard Teensy Audio Library.
+44.1 kHz via the Teensy Audio Library; `AudioMemory(320)` sizes the pool for the two delay lines.
+
+**DC handling.** The SGTL5000 ADC high-pass filter is *frozen* (`adcHighPassFilterFreeze`) to block input-side DC offset. The output side is a hardware fix: the SGTL LINE OUT sits on a ~1.5 V VAG bias, so the Eurorack output gain stage must be **AC-coupled** (series cap into the op-amp + a resistor to ground) or it amplifies that bias into a DC offset at the jack.
 
 ## MIDI Clock
 
@@ -122,7 +126,9 @@ Audio is sample-rate 44.1 kHz via the standard Teensy Audio Library.
 
 ## OLED
 
-128×32 SSD1306, 4 rows × ~21 chars. Refresh rate 150 ms with row caching and partial updates to keep MIDI timing tight.
+128×32 SSD1306, 4 rows × ~21 chars. Refresh 250 ms with row caching and partial updates to keep MIDI timing tight.
+
+**Screen sleep.** The panel powers down (`DISPLAYOFF`, which stops the charge-pump and the I2C refresh bursts) after 10 s of inactivity — this is the main software mitigation for OLED switching noise coupling into the audio. On the CV pages the **button** wakes it, so the screen stays dark and quiet while you play; on the Chord/FX pages a deliberate **pot move** also wakes/holds it so you keep the readout while editing. The first wake press only wakes (no page change). The clean cure is a power rework (clean/buck-converted analog rail) — a v3 item.
 
 Page layouts (4 rows each):
 
@@ -133,11 +139,11 @@ Page 0 — CV Channels 1–2          Page 1 — CV Channels 3–4
   Drums:#### CLK:#                   Drums:#### RST:#
   MIDI ch:1 n:60 v:100               MIDI ch:1 n:60 v:100
 
-Page 2 — Chord                    Page 3 — Drone
-  CHORD C Pop P:1                    DRONE  [ON]  SAW
-  V:Root -> CM7                      Wave: SAW
-  Drone:ON  Vol:67%                  A:350ms R:600ms
-  G:#### D:----                      Volume: 67%
+Page 2 — Chord                    Page 3 — FX
+  CHORD C Pop P:1                    FX  Filt>Dly>Verb
+  V:Root -> CM7                      Cut:12000Hz Dly:250
+  Trig note: 60                      Fb: 0% Verb: 0%
+  G:#### D:----                      P1cut P2dly P3fb P4vb
 ```
 
 ## Calibration
@@ -178,4 +184,6 @@ Upload protocol is `teensy-cli`.
 - **DACs not responding** — Verify Q6/Q7 CS polarity (active-low) and shared SPI continuity.
 - **Drum triggers missing** — Confirm Channel 10, note range 36..39.
 - **Chord mode silent** — Send notes on MIDI **channel 6** specifically; other channels do not trigger chords.
-- **Drone won't sound** — Long-press the front button on the Chord or Drone page to toggle it on; check Pot 4 (volume) is non-zero in Drone mode.
+- **FX not heard** — The passthrough defaults to clean; dial FX in on page 3 (Pot 1 cutoff / Pot 2 delay time / Pot 3 delay amount / Pot 4 reverb mix).
+- **DC offset on the audio output** — The LINE OUT gain stage must be AC-coupled (see [Audio](#audio)); the SGTL LINE OUT carries a ~1.5 V VAG bias.
+- **Audible noise that tracks the screen** — OLED charge-pump/I2C coupling; the screen sleeps after 10 s (button or pot to wake). A clean/buck-converted analog rail is the hardware fix.

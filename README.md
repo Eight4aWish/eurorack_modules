@@ -19,13 +19,14 @@ pio device monitor -b 115200
 
 ## Teensy 4.1 — `teensy_move`
 
-A Teensy 4.1 modular-synth controller and sound source: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, an on-board 4-voice chord drone synth, and SGTL5000 line passthrough. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
+A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo passthrough with a Filter → Delay → Reverb FX send. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
 
 - **Four OLED pages**, cycled by short-pressing the front button:
   - **Page 0 / 1 — CV Mode**: MIDI ch 1–4 → Gate + Pitch CV (V/Oct) + Mod CV (velocity). Ch 10 notes 36–39 → drum triggers.
-  - **Page 2 — Chord Mode**: MIDI ch 6 white keys trigger 4-voice chords on all Pitch/Gate outputs and feed the on-board drone synth. 40 progressions × 5 categories × 5 voicings, with Pot 1–4 selecting root / category / progression / voicing.
-  - **Page 3 — Drone Mode**: Standalone 4-voice synth (5 waveforms, attack/release/volume on Pot 1–4).
-- **Long-press**: CV pages emit a Reset pulse; Chord/Drone pages toggle the on-board drone on/off.
+  - **Page 2 — Chord Mode**: MIDI ch 6 white keys trigger 4-voice chords on all Pitch/Gate outputs. 40 progressions × 5 categories × 5 voicings, with Pot 1–4 selecting root / category / progression / voicing.
+  - **Page 3 — FX Mode**: Stereo Filter → Delay → Reverb send on the audio passthrough (Pot 1–4 = cutoff / delay time / delay amount / reverb mix). Always-on and clean by default; the CV bridge keeps running underneath.
+- **Long-press**: emits a Reset pulse (on every page).
+- **OLED sleeps** after 10 s (button-wake on CV pages, pot-wake on Chord/FX) to keep the panel's switching noise off the audio.
 - **MIDI clock**: 24 PPQN → quarter-note pulses on `PIN_CLOCK`; Start emits a Reset pulse.
 - **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy_move/calib_static.h](include/teensy_move/calib_static.h)).
 
