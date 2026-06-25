@@ -215,12 +215,14 @@ private:
 // integration steps per audio sample (fractional via an accumulator), so V/Oct
 // raises pitch by oversampling at a safe dt rather than enlarging dt itself.
 //
-// An audio-rate exponential AD envelope acts as a VCA on the output. It rests
-// fully open (level 1) until first triggered, so untriggered/drone patches are
-// unaffected; a trigger fires Attack→Decay and then holds closed until the next.
+// An audio-rate envelope acts as a VCA on the output, driven by the RST input
+// used as a GATE. Two macros shape it (pico-Env / Plaits style): AD = attack +
+// decay front, SR = sustain level + release tail. Disabled by default — then the
+// VCA stays fully open and the module is a free-running drone. A short trigger on
+// RST gives an AD-style hit; a sustained gate gives full attack/sustain/release.
 class AudioChaosEngine : public AudioStream {
 public:
-    enum EnvStage : uint8_t { ENV_OPEN, ENV_ATTACK, ENV_DECAY, ENV_CLOSED };
+    enum EnvStage : uint8_t { ENV_OPEN, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE, ENV_CLOSED };
 
     AudioChaosEngine() : AudioStream(0, nullptr) {}
 
@@ -238,17 +240,20 @@ public:
 
     void  setStepsPerSample(float s) { stepsPerSample_ = (s < 1.0f) ? 1.0f : s; }
     void  setEnvEnabled(bool e)      { envEnabled_ = e; }   // off → VCA stays open (drone)
-    void  triggerEnv()               { envTrig_ = true; }   // called from loop() on RST edge
+    void  setEnvGate(bool g)         { envGate_ = g; }      // RST used as a gate
     EnvStage envStage() const        { return envStage_; }
 
-    // Attack is linear (snappy); decay is exponential to ~ -60 dB.
-    void setEnvTimes(float atkMs, float decMs) {
-        float atkSamp = atkMs * (44100.0f / 1000.0f);
-        float decSamp = decMs * (44100.0f / 1000.0f);
-        if (atkSamp < 1.0f) atkSamp = 1.0f;
-        if (decSamp < 1.0f) decSamp = 1.0f;
+    // Attack linear; decay/release exponential (~ -60 dB). Decay approaches the
+    // sustain level, release falls from there to zero.
+    void setEnvADSR(float atkMs, float decMs, float sustain, float relMs) {
+        const float sr = 44100.0f / 1000.0f;
+        float atkSamp = atkMs * sr; if (atkSamp < 1.0f) atkSamp = 1.0f;
+        float decSamp = decMs * sr; if (decSamp < 1.0f) decSamp = 1.0f;
+        float relSamp = relMs * sr; if (relSamp < 1.0f) relSamp = 1.0f;
         envAtkInc_ = 1.0f / atkSamp;
         envDecMul_ = expf(-6.908f / decSamp);   // ln(0.001) ≈ -6.908
+        envRelMul_ = expf(-6.908f / relSamp);
+        envSus_    = (sustain < 0.0f) ? 0.0f : (sustain > 1.0f ? 1.0f : sustain);
     }
 
     void update() override {
@@ -259,11 +264,16 @@ public:
         audio_block_t* bR = allocate();
         if (!bR) { release(bL); return; }
 
+        // Enable / gate-edge handling (block rate — inaudible latency).
         if (!envEnabled_) {
-            // Disabled: VCA fully open (original drone behaviour), ignore triggers.
-            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envTrig_ = false;
-        } else if (envTrig_) {
-            envTrig_ = false; envStage_ = ENV_ATTACK;
+            // Disabled: VCA fully open (original drone behaviour), ignore the gate.
+            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envGatePrev_ = envGate_;
+        } else {
+            if (envStage_ == ENV_OPEN) { envStage_ = ENV_CLOSED; envLevel_ = 0.0f; }
+            bool g = envGate_;
+            if (g && !envGatePrev_)       envStage_ = ENV_ATTACK;   // gate rising → (re)trigger
+            else if (!g && envGatePrev_ && envStage_ != ENV_CLOSED) envStage_ = ENV_RELEASE; // gate falling
+            envGatePrev_ = g;
         }
 
         float gL = a->gainL, gR = a->gainR;
@@ -297,7 +307,12 @@ private:
                 if (envLevel_ >= 1.0f) { envLevel_ = 1.0f; envStage_ = ENV_DECAY; }
                 break;
             case ENV_DECAY:
-                envLevel_ *= envDecMul_;
+                envLevel_ = envSus_ + (envLevel_ - envSus_) * envDecMul_;
+                if (envLevel_ - envSus_ <= 0.0008f) { envLevel_ = envSus_; envStage_ = ENV_SUSTAIN; }
+                break;
+            case ENV_SUSTAIN: envLevel_ = envSus_; break;
+            case ENV_RELEASE:
+                envLevel_ *= envRelMul_;
                 if (envLevel_ <= 0.0008f) { envLevel_ = 0.0f; envStage_ = ENV_CLOSED; }
                 break;
             case ENV_OPEN:   envLevel_ = 1.0f; break;
@@ -308,13 +323,16 @@ private:
     ChaosBase* algo_ = nullptr;
     float dcL_ = 0.0f, dcR_ = 0.0f;
     float stepsPerSample_ = 1.0f, stepAcc_ = 0.0f;
-    // Envelope (VCA)
+    // Envelope (VCA) — gate-driven AD/SR
     volatile bool envEnabled_ = false;   // off by default — module is a drone voice
-    volatile bool envTrig_ = false;
+    volatile bool envGate_ = false;      // RST gate level
+    bool  envGatePrev_ = false;
     EnvStage envStage_ = ENV_OPEN;
     float envLevel_  = 1.0f;
     float envAtkInc_ = 1.0f;      // per-sample linear attack increment
-    float envDecMul_ = 0.999f;    // per-sample exponential decay multiplier
+    float envDecMul_ = 0.999f;    // per-sample exponential decay-to-sustain
+    float envRelMul_ = 0.999f;    // per-sample exponential release
+    float envSus_    = 0.0f;      // sustain level
 };
 
 // ─── ChaosChua ────────────────────────────────────────────────────────────────
@@ -570,11 +588,15 @@ void dacWriteVolts(uint8_t ch, float volts) {
 }
 
 // ─── Envelope + control tunables ──────────────────────────────────────────────
-static constexpr float    ENV_ATK_MIN_MS = 0.5f,  ENV_ATK_MAX_MS = 200.0f;
-static constexpr float    ENV_DEC_MIN_MS = 2.0f,  ENV_DEC_MAX_MS = 4000.0f;
+// AD macro spans attack + decay; SR macro spans sustain level + release.
+static constexpr float    ENV_ATK_MIN_MS = 0.5f,  ENV_ATK_MAX_MS = 1000.0f;
+static constexpr float    ENV_DEC_MIN_MS = 2.0f,  ENV_DEC_MAX_MS = 2000.0f;
+static constexpr float    ENV_REL_MIN_MS = 2.0f,  ENV_REL_MAX_MS = 4000.0f;
 static constexpr float    OVERSAMPLE_MAX = 64.0f;  // cap steps/sample (~6 oct above dtBase)
 static constexpr uint16_t BTN_LONG_MS    = 500;    // long-press toggles the ENV page
-static constexpr int16_t  RST_THRESH     = 10820;  // ADS code at ~+1V (trigger threshold)
+// RST used as a gate: lower ADS code = higher Eurorack voltage (inverting front-end).
+static constexpr int16_t  RST_ON  = 10820;  // ~+1V — gate goes high
+static constexpr int16_t  RST_OFF = 11600;  // lower V — gate goes low (hysteresis)
 
 // CV input calibration (measured 2026-04-07; inverting front-end: higher V → lower code)
 static constexpr float CV_MOD_ZERO  = 13236.0f, CV_MOD_CPV  = 2414.0f;
@@ -677,19 +699,19 @@ void loop() {
     //    char/depth; on the ENV page CHAOS becomes the envelope ON/OFF switch and
     //    CHAR/DEPTH become Attack/Decay. Page-dependent pots use soft-takeover.
     static float ctlChaosNorm = 0.5f, ctlCharNorm = 0.3f, ctlDepthNorm = 0.8f;
-    static float ctlAtkNorm   = 0.0f, ctlDecNorm  = 0.45f;
-    static bool  envEnabled   = false;   // AD envelope off by default
+    static float ctlAdNorm    = 0.3f, ctlSrNorm   = 0.4f;
+    static bool  envEnabled   = false;   // gate-driven AD/SR envelope off by default
     if (!envPage) {
         if (pickup3_update(pagePickup, 0, p1n, ctlChaosNorm)) ctlChaosNorm = p1n;
         if (pickup3_update(pagePickup, 1, p3n, ctlCharNorm))  ctlCharNorm  = p3n;
         if (pickup3_update(pagePickup, 2, p4n, ctlDepthNorm)) ctlDepthNorm = p4n;
     } else {
-        // CHAOS pot is the enable switch (deadband around centre); CHAR/DEPTH
-        // set Attack/Decay with soft-takeover.
+        // CHAOS pot is the enable switch (deadband around centre); CHAR = AD macro
+        // (attack+decay), DEPTH = SR macro (sustain+release), with soft-takeover.
         if (p1n > 0.55f)      envEnabled = true;
         else if (p1n < 0.45f) envEnabled = false;
-        if (pickup3_update(pagePickup, 1, p3n, ctlAtkNorm))   ctlAtkNorm   = p3n;
-        if (pickup3_update(pagePickup, 2, p4n, ctlDecNorm))   ctlDecNorm   = p4n;
+        if (pickup3_update(pagePickup, 1, p3n, ctlAdNorm))    ctlAdNorm    = p3n;
+        if (pickup3_update(pagePickup, 2, p4n, ctlSrNorm))    ctlSrNorm    = p4n;
     }
 
     // ── Apply controls to the active algorithm ──
@@ -715,23 +737,26 @@ void loop() {
         engine.setStepsPerSample(steps);
     }
 
-    // DEPTH = output amplitude; CHAR/DEPTH env page sets Attack/Decay times.
+    // DEPTH = output amplitude; on the ENV page CHAR/DEPTH are the AD/SR macros.
     float depth = 0.1f + ctlDepthNorm * 0.9f;
     ampL.gain(depth);
     ampR.gain(depth);
-    float atkMs = expoMap(ctlAtkNorm, ENV_ATK_MIN_MS, ENV_ATK_MAX_MS);
-    float decMs = expoMap(ctlDecNorm, ENV_DEC_MIN_MS, ENV_DEC_MAX_MS);
-    engine.setEnvTimes(atkMs, decMs);
+    float atkMs   = expoMap(ctlAdNorm, ENV_ATK_MIN_MS, ENV_ATK_MAX_MS);  // AD → attack
+    float decMs   = expoMap(ctlAdNorm, ENV_DEC_MIN_MS, ENV_DEC_MAX_MS);  // AD → decay
+    float sustain = ctlSrNorm;                                           // SR → sustain level
+    float relMs   = expoMap(ctlSrNorm, ENV_REL_MIN_MS, ENV_REL_MAX_MS);  // SR → release
+    engine.setEnvADSR(atkMs, decMs, sustain, relMs);
     engine.setEnvEnabled(envEnabled);
 
-    // RST: rising edge above ~1V resets the attractor (percussive transient) and
-    // fires the AD envelope — together a self-contained perc voice.
-    static int16_t lastRst = 0;
-    if (cv[3] < RST_THRESH && lastRst >= RST_THRESH) {
-        if (algo) algo->init();
-        engine.triggerEnv();
-    }
-    lastRst = cv[3];
+    // RST used as a GATE: rising edge re-inits the attractor (percussive transient)
+    // and opens the envelope; held high it sustains, and it releases when RST falls.
+    // A short trigger gives an AD-style hit; a sustained gate gives full ASR.
+    static bool gateHigh = false;
+    bool prevGate = gateHigh;
+    if (!gateHigh && cv[3] < RST_ON)      gateHigh = true;
+    else if (gateHigh && cv[3] > RST_OFF) gateHigh = false;
+    if (gateHigh && !prevGate && algo) algo->init();   // attractor re-init on attack
+    engine.setEnvGate(gateHigh);
 
     // Phase plot ring buffer — sampled every loop iteration
     #define PLOT_W  128
@@ -790,13 +815,15 @@ void loop() {
                 display.print("L"); display.print((int)(lv * 9));
                 display.print(" R"); display.print((int)(rv * 9));
             } else {
-                // ENV page: Attack / Decay times
+                // ENV page: AD (attack/decay) and SR (sustain level/release)
                 display.setCursor(0, 44);
-                display.print("A:"); display.print(atkMs, 1); display.print("ms");
+                display.print("A:"); display.print(atkMs, 0);
+                display.print(" D:"); display.print(decMs, 0);
                 display.setCursor(0, 54);
-                display.print("D:");
-                if (decMs >= 1000.0f) { display.print(decMs / 1000.0f, 2); display.print('s'); }
-                else                  { display.print(decMs, 0); display.print("ms"); }
+                display.print("S:"); display.print((int)(sustain * 100)); display.print('%');
+                display.print(" R:");
+                if (relMs >= 1000.0f) { display.print(relMs / 1000.0f, 1); display.print('s'); }
+                else                  { display.print(relMs, 0); display.print("ms"); }
             }
         }
 

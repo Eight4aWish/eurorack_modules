@@ -14,13 +14,15 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   raise pitch by running more integration sub-steps per sample rather than
 >   enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over
 >   several octaves without diverging.
-> - **Onboard AD envelope (VCA), off by default.** An audio-rate exponential
->   Attack–Decay envelope can shape the output. When **off** (default) the VCA is
->   fully open and the module behaves exactly as before (drone). When **on**, an
->   RST rising edge fires it (plus the attractor re-init transient) for a
->   self-contained percussion voice.
+> - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
+>   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
+>   front, **SR** = sustain level + release tail. When **off** (default) the VCA
+>   is fully open and the module behaves exactly as before (drone). When **on**,
+>   RST acts as a **gate** — a rising edge re-inits the attractor and opens the
+>   envelope, it sustains while held, and releases when RST falls. A short trigger
+>   gives an AD-style hit; a sustained gate gives full attack/sustain/release.
 > - **Long-press BTN = ENV page.** While on the ENV page: **CHAOS** = envelope
->   ON/OFF switch (low = off, high = on), **CHAR** = Attack, **DEPTH** = Decay
+>   ON/OFF switch (low = off, high = on), **CHAR** = AD macro, **DEPTH** = SR macro
 >   (pots soft-takeover so values aren't snapped on the page switch). Short press
 >   still cycles algorithm.
 
@@ -55,7 +57,7 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 | MOD    | CV in (ADS1115)   | Chaos modulation — bipolar mod of CHAOS      |
 | ASGN   | CV in (ADS1115)   | Assignable mod target (selectable via menu)  |
 | CLK    | CV in (ADS1115)   | Clock / V-Oct — locks rate or tracks pitch   |
-| RST    | CV in (ADS1115)   | Reset / trigger — snaps to initial conditions|
+| RST    | CV in (ADS1115)   | Gate/trigger — re-inits attractor + drives the envelope |
 | X      | CV out (MCP4822)  | Attractor x-axis / oscillator 1              |
 | Y      | CV out (MCP4822)  | Attractor y-axis / oscillator 2              |
 | L OUT  | Audio out (I2S)   | Attractor x-axis (audio rate)                |
@@ -147,7 +149,7 @@ Algorithm-dependent second parameter:
 
 - **Short press:** Cycle to next algorithm.
 - **Long press (>500 ms):** Toggle the **ENV page** — CHAOS becomes the envelope
-  ON/OFF switch, CHAR becomes Attack and DEPTH becomes Decay for the onboard AD
+  ON/OFF switch, CHAR becomes the AD macro and DEPTH the SR macro for the onboard
   envelope (pots soft-takeover so they don't snap on the switch). *(Roadmap:
   group navigation once groups exist.)*
 
@@ -158,26 +160,31 @@ Algorithm-dependent second parameter:
   this quantises pitch; for percussive algorithms it sets repetition rate.
 - Detection threshold: ~1V rising edge.
 
-### RST — Reset / Trigger
+### RST — Gate / Trigger
 
-- Rising edge (>~1 V) resets all state variables to initial conditions **and**
-  fires the onboard AD envelope (see below).
+- Used as a **gate** (with hysteresis ~1 V on / lower V off). A rising edge
+  resets all state variables to initial conditions **and** opens the onboard
+  envelope (see below); the level is held while RST stays high and releases when
+  it falls.
 - The re-init creates a percussive transient as the trajectory diverges from the
-  starting point back toward the attractor; the AD envelope shapes it into a hit.
-- Useful for rhythmic use — clock CLK, trigger RST on downbeats.
+  starting point back toward the attractor; the envelope shapes it into a hit.
+- A short trigger gives an AD-style one-shot; a sustained gate gives full
+  attack/sustain/release. Useful for rhythmic use — clock CLK, gate/trigger RST.
 
-### AD Envelope (VCA)
+### AD/SR Envelope (VCA)
 
-- Audio-rate exponential Attack–Decay envelope on the stereo output, **off by
-  default**.
+- Audio-rate gate-driven envelope (linear attack, exponential decay/release) on
+  the stereo output, **off by default**. Two macros (pico-Env / Plaits style):
+  **AD** = attack + decay, **SR** = sustain level + release.
 - **Off:** VCA fully open — the module is a drone/free-running voice (original
   behaviour). RST still re-inits the attractor (percussive transient) but the
   output isn't VCA-shaped.
-- **On:** rests open until the first RST trigger, then each trigger runs
-  Attack→Decay and holds closed until the next (classic one-shot perc). Long
-  Decay ≈ sustain.
+- **On:** opens on an RST rising edge (attack → decay to the sustain level),
+  **sustains while RST is held**, then **releases** when RST falls. A short
+  trigger collapses this into an AD-style hit.
 - Configured on the **ENV page** (long-press BTN): CHAOS = ON/OFF (low/high),
-  CHAR = Attack (~0.5–200 ms, linear), DEPTH = Decay (~2 ms–4 s, exponential).
+  CHAR = AD macro (attack ~0.5–1000 ms, decay ~2–2000 ms), DEPTH = SR macro
+  (sustain 0–100 %, release ~2 ms–4 s).
 
 ### MOD — Chaos Modulation
 
