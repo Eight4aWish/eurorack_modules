@@ -2,7 +2,7 @@
 
 An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
 
-> **v3** — this revision removed the on-board drone synth, redirected chord mode to CV-only, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. Possible v4 — software: move gate/clock/drum edge timing into a timer ISR off the main loop (the original jitter concern), keeping the 74HC595 and arbitrating the shared SPI bus. Hardware: a clean/buck-converted analog rail to cure the OLED noise at source.
+> **v3** — this revision removed the on-board drone synth, redirected chord mode to CV-only, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. The OLED switching noise was resolved with grounding (star/single-point return) + screen-sleep; a dedicated OLED supply LDO was tried and barely helped, which ruled out the supply rail (the coupling is ground/radiated). Possible v4 (software, optional): move gate/clock/drum edge timing into a timer ISR off the main loop (the original jitter concern), keeping the 74HC595 and arbitrating the shared SPI bus.
 
 ## Operating Modes
 
@@ -130,7 +130,7 @@ Signal chain — a stereo FX send on the line passthrough:
 
 128×32 SSD1306, 4 rows × ~21 chars. Refresh 250 ms with row caching and partial updates to keep MIDI timing tight.
 
-**Screen sleep.** The panel powers down (`DISPLAYOFF`, which stops the charge-pump and the I2C refresh bursts) after 10 s of inactivity — this is the main software mitigation for OLED switching noise coupling into the audio. On the CV pages the **button** wakes it, so the screen stays dark and quiet while you play; on the Chord/FX pages a deliberate **pot move** also wakes/holds it so you keep the readout while editing. The first wake press only wakes (no page change). The clean cure is a power rework (clean/buck-converted analog rail) — a v3 item.
+**Screen sleep.** The panel powers down (`DISPLAYOFF`, which stops the charge-pump and the I2C refresh bursts) after 10 s of inactivity — this is the main software mitigation for OLED switching noise coupling into the audio. On the CV pages the **button** wakes it, so the screen stays dark and quiet while you play; on the Chord/FX pages a deliberate **pot move** also wakes/holds it so you keep the readout while editing. The first wake press only wakes (no page change). Combined with hardware grounding (star/single-point return) this brings the noise to an acceptable level; a dedicated OLED supply LDO was tried and barely helped, confirming the coupling is ground/radiated rather than the supply rail.
 
 Page layouts (4 rows each):
 
@@ -188,4 +188,4 @@ Upload protocol is `teensy-cli`.
 - **Chord mode silent** — Send notes on MIDI **channel 6** specifically; other channels do not trigger chords.
 - **FX not heard** — The passthrough defaults to clean; dial FX in on page 3 (Pot 1 cutoff / Pot 2 delay time / Pot 3 delay amount / Pot 4 reverb mix).
 - **DC offset on the audio output** — The LINE OUT gain stage must be AC-coupled (see [Audio](#audio)); the SGTL LINE OUT carries a ~1.5 V VAG bias.
-- **Audible noise that tracks the screen** — OLED charge-pump/I2C coupling; the screen sleeps after 10 s (button or pot to wake). A clean/buck-converted analog rail is the hardware fix.
+- **Audible noise that tracks the screen** — OLED charge-pump/I2C coupling; the screen sleeps after 10 s (button or pot to wake). Addressed with star/single-point grounding plus screen-sleep; supply-rail isolation made little difference (the coupling is ground/radiated).

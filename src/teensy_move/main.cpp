@@ -5,9 +5,10 @@
 // v3: removed the drone synth, chord mode drives CV only, added a stereo
 //     Filter->Delay->Reverb FX send on the passthrough, fixed the audio-out DC
 //     (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep.
-//     Possible v4 — software: timer-ISR gate/clock/drum timing off the main
-//     loop (keep the 595, arbitrate the shared SPI bus). Hardware: clean/buck
-//     analog rail to cure OLED noise at source.
+//     OLED switching noise is handled by grounding (star return) + screen-sleep
+//     (a dedicated OLED supply LDO was tried and barely helped, ruling out the
+//     supply rail). Possible v4 (software, optional): timer-ISR gate/clock/drum
+//     timing off the main loop, keeping the 595 and arbitrating the shared SPI bus.
 // - 4x MIDI-to-CV (gate / pitch / mod) on ch1-4, 4 drum triggers on ch10
 // - Chord mode on ch6 (4-voice chord -> pitch/gate CVs)
 // - Stereo line passthrough with a Filter->Delay->Reverb FX send (four pots)
