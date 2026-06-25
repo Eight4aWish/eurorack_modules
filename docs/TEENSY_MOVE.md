@@ -2,7 +2,7 @@
 
 An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
 
-> **v3** — this revision removed the on-board drone synth, redirected chord mode to CV-only, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. Possible v4 (hardware): a clean/buck-converted analog rail to cure the OLED noise at source, and moving gate/clock/drum timing into a timer ISR off the main loop.
+> **v3** — this revision removed the on-board drone synth, redirected chord mode to CV-only, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. Possible v4 — software: move gate/clock/drum edge timing into a timer ISR off the main loop (the original jitter concern). Hardware: a clean/buck-converted analog rail to cure the OLED noise at source (optionally paired with dropping the 74HC595 to direct-drive).
 
 ## Operating Modes
 
