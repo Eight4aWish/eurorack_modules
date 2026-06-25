@@ -72,6 +72,9 @@ finalised.
 
 Algorithms are grouped by character to aid live navigation.
 
+> Planned expansion into fractal/digital percussion and a MIDI/trigger drum-kit
+> mode is captured in [TEENSY_CHAOS_FRACTALBITS.md](TEENSY_CHAOS_FRACTALBITS.md).
+
 ### Group 1 — Melodic (pitched, tuneable)
 
 These have a clear oscillatory core. Frequency is controllable via RATE
