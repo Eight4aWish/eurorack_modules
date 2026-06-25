@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 David Baghurst
 //
-// Teensy Move — Ableton Move <-> Eurorack bridge
+// Teensy Move v3 — Ableton Move <-> Eurorack bridge
+// v3: removed the drone synth, chord mode drives CV only, added a stereo
+//     Filter->Delay->Reverb FX send on the passthrough, fixed the audio-out DC
+//     (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep.
+//     Possible v4 (hardware): clean/buck analog rail to cure OLED noise at
+//     source; timer-ISR gate/clock/drum timing off the main loop.
 // - 4x MIDI-to-CV (gate / pitch / mod) on ch1-4, 4 drum triggers on ch10
 // - Chord mode on ch6 (4-voice chord -> pitch/gate CVs)
 // - Stereo line passthrough with a Filter->Delay->Reverb FX send (four pots)
