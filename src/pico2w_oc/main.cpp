@@ -12,6 +12,9 @@
 #include <EEPROM.h>
 #include <Adafruit_TinyUSB.h>
 #include <MIDI.h>
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <AppleMIDI.h>
 
 #include "eurorack_ui/OledHelpers.hpp"
 #include "eurorack_ui/OledHomeMenu.hpp"
@@ -33,6 +36,27 @@ Adafruit_MCP4728  mcp;    // MCP on Wire1 (I2C1)
 // -------------------- USB MIDI --------------------
 Adafruit_USBD_MIDI usb_midi;
 MIDI_CREATE_INSTANCE(Adafruit_USBD_MIDI, usb_midi, MIDI);
+
+// -------------------- WiFi credentials (Net MIDI patch) --------------------
+// Copy include/pico2w_oc/secrets.h.example -> secrets.h and fill in your WiFi.
+// The build still succeeds without it (falls back to the placeholder SSID and
+// the Net patch just reports "no WiFi" on the OLED).
+#if __has_include("secrets.h")
+  #include "secrets.h"
+#endif
+#ifndef WIFI_SSID
+  #define WIFI_SSID "your-network-name"
+  #define WIFI_PASS "your-network-password"
+#endif
+#ifndef NET_MIDI_NAME
+  #define NET_MIDI_NAME "Pico2W-OC"
+#endif
+
+// -------------------- Network MIDI (RTP-MIDI / AppleMIDI over WiFi) --------------------
+// Creates a session object `AppleNetMIDI` and a MIDI parser interface `NetMIDI`,
+// both distinct from the USB `MIDI` instance above so the two coexist. The
+// Pico 2 W's CYW43439 radio + WiFiUDP provide the transport.
+APPLEMIDI_CREATE_INSTANCE(WiFiUDP, NetMIDI, NET_MIDI_NAME, DEFAULT_CONTROL_PORT);
 
 // -------------------- Button --------------------
 Bounce btn;
@@ -1720,6 +1744,187 @@ void midi_render() {
 
 Patch patch_midi = { "MIDI", midi_enter, midi_tick, midi_render, true };
 
+// -------------------- Patch: Net MIDI (RTP-MIDI over WiFi) --------------------
+// Wireless twin of the USB MIDI patch: receives RTP-MIDI (AppleMIDI / "Network
+// MIDI") over WiFi and drives the same CV0=pitch / CV1=gate / CV2=vel / CV3=mod
+// outputs. Connect from macOS Audio MIDI Setup (Network) or Tobias Erichsen's
+// rtpMIDI on Windows by adding the module's IP (shown on the OLED), port 5004.
+//
+// WiFi association and the RTP listener are brought up lazily on patch entry and
+// persist across patch switches; inbound MIDI is only serviced while this patch
+// is on screen (NetMIDI.read() runs in its tick), so the session idles out if
+// you navigate away and comes back when you return.
+static uint8_t nm_note_stack[16];
+static uint8_t nm_note_stack_count = 0;
+static uint8_t nm_vel = 0;            // velocity of current note
+static uint8_t nm_mod = 0;            // CC1 mod wheel
+static uint8_t nm_channel = 0;        // 0 = OMNI, 1-16 = specific channel (software filter)
+static bool    nm_gate = false;
+static bool    nm_dirty = true;
+static uint8_t nm_last_note = 60;
+static volatile int nm_peers = 0;     // active RTP-MIDI sessions (controllers connected)
+
+// Bring-up state — persists across patch re-entry so we don't re-associate or
+// re-bind the UDP listener each time the patch is opened.
+static bool     nm_wifi_begun    = false;
+static bool     nm_session_begun = false;
+static uint32_t nm_wifi_retry_ms = 0;
+
+static void nm_push_note(uint8_t note) {
+  for (uint8_t i = 0; i < nm_note_stack_count; i++) {
+    if (nm_note_stack[i] == note) {
+      for (uint8_t j = i; j < nm_note_stack_count - 1; j++) nm_note_stack[j] = nm_note_stack[j+1];
+      nm_note_stack_count--;
+      break;
+    }
+  }
+  if (nm_note_stack_count < 16) nm_note_stack[nm_note_stack_count++] = note;
+}
+static void nm_remove_note(uint8_t note) {
+  for (uint8_t i = 0; i < nm_note_stack_count; i++) {
+    if (nm_note_stack[i] == note) {
+      for (uint8_t j = i; j < nm_note_stack_count - 1; j++) nm_note_stack[j] = nm_note_stack[j+1];
+      nm_note_stack_count--;
+      return;
+    }
+  }
+}
+
+static void nm_handleNoteOff(byte channel, byte pitch, byte velocity);
+static void nm_handleNoteOn(byte channel, byte pitch, byte velocity) {
+  if (nm_channel != 0 && channel != nm_channel) return; // software channel filter
+  if (velocity == 0) { nm_handleNoteOff(channel, pitch, velocity); return; }
+  nm_push_note(pitch);
+  nm_vel = velocity; nm_gate = true; nm_last_note = pitch; nm_dirty = true;
+}
+static void nm_handleNoteOff(byte channel, byte pitch, byte velocity) {
+  (void)velocity;
+  if (nm_channel != 0 && channel != nm_channel) return;
+  nm_remove_note(pitch);
+  if (nm_note_stack_count == 0) nm_gate = false;
+  else nm_last_note = nm_note_stack[nm_note_stack_count - 1]; // last-note priority
+  nm_dirty = true;
+}
+static void nm_handleCC(byte channel, byte cc, byte value) {
+  if (nm_channel != 0 && channel != nm_channel) return;
+  if (cc == 1) { nm_mod = value; nm_dirty = true; } // mod wheel
+}
+
+// Session up/down — track peer count and drop any held gate when a controller
+// disconnects so a lost session can't leave a note stuck on.
+static void nm_onConnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc, const char* name) {
+  (void)ssrc; (void)name; nm_peers++;
+}
+static void nm_onDisconnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc) {
+  (void)ssrc;
+  if (nm_peers > 0) nm_peers--;
+  nm_note_stack_count = 0; nm_gate = false; nm_dirty = true;
+}
+
+void netmidi_enter() {
+  resetPotSmooth();
+  nm_note_stack_count = 0;
+  nm_vel = 0; nm_mod = 0; nm_gate = false; nm_dirty = true; nm_last_note = 60;
+  nm_channel = 0; // OMNI
+
+  // Zero all outputs
+  for (int i = 0; i < 4; i++) mcp_values[i] = kGateLowCode;
+  if (haveMCP) mcp_writeAll();
+
+  // Kick off WiFi association once (the CYW43 init inside here can take a few
+  // hundred ms; patch entry isn't audio-critical so that's fine).
+  if (!nm_wifi_begun) {
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    nm_wifi_begun = true;
+    nm_wifi_retry_ms = millis();
+  }
+}
+
+void netmidi_tick() {
+  uint32_t now = millis();
+
+  // Pot2 selects the MIDI channel filter (OMNI or 1-16). Applied in software so
+  // we never tear down an active RTP session with a re-begin.
+  float p_ch = readPotNormSmooth(PIN_POT2, 1);
+  uint8_t newCh = (uint8_t)(p_ch * 16.99f); // 0=OMNI, 1-16
+  if (newCh != nm_channel) { nm_channel = newCh; nm_dirty = true; }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    // Start the RTP-MIDI listener once, after the network is up.
+    if (!nm_session_begun) {
+      AppleNetMIDI.setHandleConnected(nm_onConnected);
+      AppleNetMIDI.setHandleDisconnected(nm_onDisconnected);
+      NetMIDI.setHandleNoteOn(nm_handleNoteOn);
+      NetMIDI.setHandleNoteOff(nm_handleNoteOff);
+      NetMIDI.setHandleControlChange(nm_handleCC);
+      NetMIDI.begin(MIDI_CHANNEL_OMNI); // accept all channels; filter in software
+      nm_session_begun = true;
+    }
+    NetMIDI.read(); // service inbound RTP-MIDI; fires the callbacks above
+  } else if (now - nm_wifi_retry_ms > 5000) {
+    // Association dropped or never completed — retry periodically.
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    nm_wifi_retry_ms = now;
+  }
+
+  if (!haveMCP) return;
+  if (!nm_dirty) return;
+  nm_dirty = false;
+
+  uint8_t activeNote = nm_gate ? nm_note_stack[nm_note_stack_count - 1] : nm_last_note;
+  mcp_values[CV0_DA_CH] = voltsToDac(0, midiNoteToVolts(activeNote));           // CV0 pitch 1V/oct
+  mcp_values[CV1_DA_CH] = nm_gate ? kGateHighCode : kGateLowCode;               // CV1 gate
+  mcp_values[CV2_DA_CH] = voltsToDac(2, (nm_vel / 127.0f) * 5.0f);              // CV2 velocity
+  mcp_values[CV3_DA_CH] = voltsToDac(3, (nm_mod / 127.0f) * 5.0f);              // CV3 mod wheel
+  mcp_writeAll();
+}
+
+void netmidi_render() {
+  oled.clearDisplay();
+  oled.setTextSize(1);
+  oled.setTextColor(SSD1306_WHITE);
+  oled.setTextWrap(false);
+  ui::printClipped(0, 0, 40, "Net");
+
+  // Channel filter on the title's right edge.
+  oled.setCursor(96, 0);
+  if (nm_channel == 0) oled.print("OMNI"); else { oled.print("CH"); oled.print(nm_channel); }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    oled.setCursor(44, 0);  oled.print("WiFi..");
+    oled.setCursor(0, 18);  oled.print("Joining");
+    oled.setCursor(0, 28);  ui::printClipped(0, 28, 128, WIFI_SSID);
+    oled.setCursor(0, 44);  oled.print("Set SSID/pass in");
+    oled.setCursor(0, 54);  oled.print("secrets.h");
+    oled.display();
+    return;
+  }
+
+  // Connected: session link state + IP (add this in rtpMIDI / macOS) + note info.
+  oled.setCursor(44, 0);
+  oled.print(nm_peers > 0 ? "LINK" : "wait");
+
+  oled.setCursor(0, 16);
+  oled.print("IP "); oled.print(WiFi.localIP());
+
+  uint8_t dispNote = nm_gate ? nm_note_stack[nm_note_stack_count - 1] : nm_last_note;
+  oled.setCursor(0, 28);
+  oled.print(nm_gate ? "ON " : "-- ");
+  oled.print(midiNoteName(dispNote)); oled.print(midiNoteOctave(dispNote));
+  oled.setCursor(64, 28);
+  oled.print(midiNoteToVolts(dispNote), 2); oled.print("V");
+
+  oled.setCursor(0, 40); oled.print("Vel "); oled.print(nm_vel);
+  drawBar(44, 40, 82, 6, nm_vel / 127.0f);
+  oled.setCursor(0, 50); oled.print("Mod "); oled.print(nm_mod);
+  drawBar(44, 50, 82, 6, nm_mod / 127.0f);
+
+  oled.display();
+}
+
+Patch patch_netmidi = { "Net", netmidi_enter, netmidi_tick, netmidi_render, true };
+
 // -------------------- Patch: Turing (dual Turing Machine) --------------------
 // Two independent Music-Thing-style looping shift registers producing quantised
 // pitch + variable gates. Clock-in on AD0 advances both voices; reset-in on AD1
@@ -2309,14 +2514,14 @@ void ac_render() {
 Patch patch_acid = { "Acid", ac_enter, ac_tick, ac_render, true };
 
 // Arrange the bank so indexes match the home-menu ordering below.
-Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_turing, &patch_acid, &patch_diag }, 10 };
+Bank bank_util = { "Util", { &patch_clock, &patch_quant, &patch_euclid, &patch_mod, &patch_env, &patch_scope, &patch_midi, &patch_netmidi, &patch_turing, &patch_acid, &patch_diag }, 11 };
 Bank* banks[] = { &bank_util };
 static uint8_t bankIdx  = 0;
 static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Turing", "Acid", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Net", "Turing", "Acid", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;

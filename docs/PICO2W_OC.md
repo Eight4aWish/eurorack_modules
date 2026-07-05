@@ -91,6 +91,24 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot1/Pot3: No effect.
 - Notes: Pitch is calibrated via `voltsToDac()`; the device enumerates as "Pico2W OC MIDI".
 
+### Net (Network MIDI-to-CV over WiFi)
+- Purpose: The wireless twin of the MIDI patch — a monophonic RTP-MIDI ("AppleMIDI" / Apple's Network MIDI) receiver. Same last-note-priority note stack, same CV mapping, but notes arrive over WiFi instead of USB.
+- Outputs: CV0 = pitch (1 V/oct, MIDI note 36/C2 = 0 V), CV1 = gate (+5 V on / 0 V off), CV2 = velocity (0–5 V), CV3 = mod wheel / CC1 (0–5 V) — identical to the USB MIDI patch.
+- Display:
+  - Joining: shows `WiFi..` and the target SSID while it associates; if you see the placeholder SSID, `secrets.h` is missing (see Setup below).
+  - Connected: the module's IP address, session state (`LINK` once a controller has an active RTP session, `wait` otherwise), and the live note name/octave, pitch volts, and velocity/mod bars.
+- Controls:
+  - Pot2: MIDI channel filter — `OMNI` (<1/17 of travel) or `CH1`..`CH16`. Applied in software so changing it never drops the network session.
+  - Pot1/Pot3: No effect.
+- Connecting a controller:
+  - **macOS**: Audio MIDI Setup → MIDI Studio → Network. Add the module by IP (port 5004) under "Directory", or connect once it appears, then create a session.
+  - **Windows**: Tobias Erichsen's [rtpMIDI](https://www.tobias-erichsen.de/software/rtpmidi.html) → add a new session → enter the module's IP and port 5004.
+  - The session name the module advertises is `NET_MIDI_NAME` from `secrets.h` (default `Pico2W-OC`).
+- Notes:
+  - The Pico 2 W radio is **2.4 GHz only** — point `WIFI_SSID` at a 2.4 GHz network.
+  - Inbound MIDI is only serviced while this patch is on screen (its `tick()` pumps the RTP session). Navigate away and the session idles/drops; return and it re-establishes. WiFi association itself persists across patch switches once it has connected.
+  - If a connected controller disconnects, any held gate is released so a note can't get stuck on.
+
 ### Turing (Dual Turing Machine)
 - Purpose: Two independent Music-Thing-style looping shift registers generating quantised pitch + variable gates (TB3PO-ish), clocked and reset from the CV inputs.
 - Inputs: `AD0` = clock in (rising edge advances both voices), `AD1` = reset in (rising edge realigns both loop phases to the top of the loop). An internal 120 BPM clock runs only until the first external clock edge is seen (bench fallback); once externally clocked the module follows that clock and **holds when the clock stops** (no internal free-run takeover). Re-enter the patch to get the internal clock back.
@@ -125,7 +143,22 @@ This guide covers navigation, controls, and behavior for the current functional 
 - Physical Mapping: DAC channels use physical macros `CV0_DA_CH..CV3_DA_CH`; ADS channels use `AD0_CH`, `AD1_CH`, and `AD_EXT_CLOCK_CH` in `include/pico2w_oc/pins.h`.
 - External Clocking: Provide clean rising edges into `AD_EXT_CLOCK_CH` for reliable detection.
 - OLED Grid: Keep titles at `y=0`; use rows `16/26/36/46/56` for content.
-- Menu: Currently 9 patches — `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `MIDI`, `Turing`, `Diag`.
+- Menu: `Clock`, `Quant`, `Euclid`, `LFO`, `Env`, `Scope`, `MIDI`, `Net`, `Turing`, `Acid`, `Diag`.
+
+## WiFi Setup (for the `Net` patch)
+
+The network MIDI patch needs your WiFi credentials. They live in a gitignored
+`secrets.h`:
+
+```sh
+cp include/pico2w_oc/secrets.h.example include/pico2w_oc/secrets.h
+# then edit include/pico2w_oc/secrets.h with your 2.4 GHz SSID/password
+```
+
+`secrets.h` defines `WIFI_SSID`, `WIFI_PASS`, and the advertised session name
+`NET_MIDI_NAME`. If the file is absent the firmware still builds (so CI stays
+green) — the `Net` patch just falls back to a placeholder SSID and reports that
+it can't join. Every other patch works with or without WiFi credentials.
 
 ## PlatformIO Quick Commands
 

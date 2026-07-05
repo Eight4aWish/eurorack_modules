@@ -65,6 +65,7 @@ The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 | [Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306) + [Adafruit GFX](https://github.com/adafruit/Adafruit-GFX-Library) | BSD-3-Clause / MIT | OLED display |
 | [Bounce2](https://github.com/thomasfredericks/Bounce2) (Thomas Ouellet Fredericks) | MIT | button debouncing |
 | [FortySevenEffects MIDI Library](https://github.com/FortySevenEffects/arduino_midi_library) | MIT | MIDI parsing |
+| [Arduino-AppleMIDI-Library](https://github.com/lathoub/Arduino-AppleMIDI-Library) (lathoub) | MIT | RTP-MIDI / AppleMIDI transport for the `Net` patch |
 
 ## teensy_chaos, teensy_move
 

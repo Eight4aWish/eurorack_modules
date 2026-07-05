@@ -32,14 +32,21 @@ void OledHomeMenu::draw(){
   uint8_t cols = (count_ > 3) ? 2 : 1;
   uint8_t rows = (count_ + cols - 1) / cols;
   int cellW = oled_->width() / cols;
+  // Row pitch adapts to the item count so tall lists stay on-screen: 10px when
+  // it fits, compressed down to a 7px floor (still legible) when there are
+  // enough rows that a fixed 10px grid would spill past the bottom edge.
+  int availH = oled_->height() - top_margin_;
+  int pitch = (rows > 0) ? (availH / rows) : 10;
+  if(pitch > 10) pitch = 10;
+  if(pitch < 7)  pitch = 7;
   for(uint8_t i=0;i<count_;++i){
     uint8_t col = i / rows;
     uint8_t row = i % rows;
     int x = col * cellW + 2;
-    // start items at top_margin_ so the top band remains above the list; use 10px grid
-    int y = top_margin_ + row * 10;
+    // start items at top_margin_ so the top band remains above the list
+    int y = top_margin_ + row * pitch;
     if(i == index_){
-      oled_->fillRect(col * cellW, y, cellW, 10, SSD1306_WHITE);
+      oled_->fillRect(col * cellW, y, cellW, pitch, SSD1306_WHITE);
       oled_->setTextColor(SSD1306_BLACK);
       oled_->setCursor(x, y+1);
       oled_->print(items_[i]);
