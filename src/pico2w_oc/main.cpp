@@ -1554,376 +1554,282 @@ void scope_render() {
 }
 Patch patch_scope = { "Scope", scope_enter, scope_tick, scope_render, false };
 
-// -------------------- Patch: MIDI-to-CV --------------------
-// USB MIDI input -> CV0 pitch, CV1 gate, CV2 velocity, CV3 mod wheel
-// Monophonic last-note-priority with a note stack for proper release behaviour.
+// -------------------- Shared MIDI-to-CV engine --------------------
+// Backs both the USBMidi and NetMidi patches (they differ only in transport).
+// Short-press toggles between two modes:
+//   DUAL   - CV0/1 = voice A pitch/gate, CV2/3 = voice B pitch/gate (two channels)
+//   CLKVOX - CV0 = clock, CV1 = reset, CV2/3 = voice pitch/gate (one channel)
+// Both patches receive OMNI and the engine routes by channel per voice (Pot2/Pot3).
 
 static const uint8_t kMidiNoteStackSize = 16;
-static uint8_t midi_note_stack[kMidiNoteStackSize];
-static uint8_t midi_note_stack_count = 0;
-static uint8_t midi_vel = 0;         // velocity of current note
-static uint8_t midi_mod = 0;         // CC1 mod wheel
-static uint8_t midi_channel = 0;     // 0 = OMNI, 1-16 = specific channel
-static bool    midi_gate = false;    // gate state
-static bool    midi_dirty = true;    // flag to update DAC outputs
-static uint8_t midi_last_note = 60;  // for display when gate is off
 
-// MIDI note -> Eurorack voltage (1V/oct, C2=0V, range roughly -2V to +8V)
-// MIDI note 36 (C2) = 0V, each semitone = 1/12 V
-static float midiNoteToVolts(uint8_t note) {
-  return (note - 36) / 12.0f;   // C2=0V, C3=1V, C4=2V, etc.
+// MIDI note <-> Eurorack voltage (1V/oct, MIDI 36 / C2 = 0V) + display helpers.
+static float midiNoteToVolts(uint8_t note) { return (note - 36) / 12.0f; }
+static const char* midiNoteName(uint8_t note) {
+  static const char* names[] = { "C","C#","D","D#","E","F","F#","G","G#","A","A#","B" };
+  return names[note % 12];
 }
+static int midiNoteOctave(uint8_t note) { return (note / 12) - 1; }
 
-static void midi_handleNoteOff(byte channel, byte pitch, byte velocity);
+enum MidiCvMode : uint8_t { MCV_DUAL = 0, MCV_CLKVOX = 1 };
 
-static void midi_push_note(uint8_t note) {
-  // Remove if already in stack (re-trigger)
-  for (uint8_t i = 0; i < midi_note_stack_count; i++) {
-    if (midi_note_stack[i] == note) {
-      for (uint8_t j = i; j < midi_note_stack_count - 1; j++)
-        midi_note_stack[j] = midi_note_stack[j+1];
-      midi_note_stack_count--;
-      break;
-    }
+// Clock divisions (in 24-PPQN ticks) selectable by Pot3 in CLKVOX mode.
+static const uint8_t kMcvDiv[]     = { 6, 12, 24, 48 };
+static const char*   kMcvDivName[] = { "1/16", "1/8", "1/4", "1/2" };
+static const uint8_t kMcvDivCount  = 4;
+
+struct MidiVoice {
+  uint8_t stack[kMidiNoteStackSize];
+  uint8_t count = 0;
+  uint8_t channel = 1;       // 1-16
+  bool    gate = false;
+  uint8_t lastNote = 60;
+  void reset() { count = 0; gate = false; lastNote = 60; }
+  void noteOn(uint8_t note) {
+    for (uint8_t i = 0; i < count; i++)
+      if (stack[i] == note) { for (uint8_t j = i; j < count-1; j++) stack[j] = stack[j+1]; count--; break; }
+    if (count < kMidiNoteStackSize) stack[count++] = note;
+    gate = true; lastNote = note;
   }
-  if (midi_note_stack_count < kMidiNoteStackSize) {
-    midi_note_stack[midi_note_stack_count++] = note;
+  void noteOff(uint8_t note) {
+    bool found = false;
+    for (uint8_t i = 0; i < count; i++)
+      if (stack[i] == note) { for (uint8_t j = i; j < count-1; j++) stack[j] = stack[j+1]; count--; found = true; break; }
+    if (!found) return;
+    if (count == 0) gate = false; else lastNote = stack[count-1];
+  }
+  uint8_t activeNote() const { return (gate && count > 0) ? stack[count-1] : lastNote; }
+};
+
+struct MidiCvEngine {
+  MidiCvMode mode = MCV_DUAL;
+  MidiVoice  a, b;
+  uint32_t   clockTicks = 0;
+  uint8_t    divIdx = 2;            // default 1/4
+  bool       clkPulse = false; uint32_t clkUntil = 0;
+  bool       rstPulse = false; uint32_t rstUntil = 0;
+  bool       dirty = true;
+};
+
+static void mcv_reset(MidiCvEngine& e) {
+  e.a.reset(); e.b.reset();
+  e.clockTicks = 0; e.clkPulse = false; e.rstPulse = false; e.dirty = true;
+}
+static void mcv_noteOff(MidiCvEngine& e, byte ch, byte note) {
+  if (ch == e.a.channel)                       { e.a.noteOff(note); e.dirty = true; }
+  if (e.mode == MCV_DUAL && ch == e.b.channel) { e.b.noteOff(note); e.dirty = true; }
+}
+static void mcv_noteOn(MidiCvEngine& e, byte ch, byte note, byte vel) {
+  if (vel == 0) { mcv_noteOff(e, ch, note); return; }
+  if (ch == e.a.channel)                       { e.a.noteOn(note); e.dirty = true; }
+  if (e.mode == MCV_DUAL && ch == e.b.channel) { e.b.noteOn(note); e.dirty = true; }
+}
+static void mcv_clock(MidiCvEngine& e) {
+  if (e.mode != MCV_CLKVOX) return;
+  if (++e.clockTicks >= kMcvDiv[e.divIdx]) {
+    e.clockTicks = 0;
+    e.clkPulse = true; e.clkUntil = millis() + 10; e.dirty = true;
   }
 }
-
-static void midi_remove_note(uint8_t note) {
-  for (uint8_t i = 0; i < midi_note_stack_count; i++) {
-    if (midi_note_stack[i] == note) {
-      for (uint8_t j = i; j < midi_note_stack_count - 1; j++)
-        midi_note_stack[j] = midi_note_stack[j+1];
-      midi_note_stack_count--;
-      return;
-    }
-  }
+static void mcv_start(MidiCvEngine& e) {
+  if (e.mode != MCV_CLKVOX) return;
+  e.clockTicks = 0;
+  e.rstPulse = true; e.rstUntil = millis() + 10; e.dirty = true;
 }
 
-static void midi_handleNoteOn(byte channel, byte pitch, byte velocity) {
-  (void)channel;
-  if (velocity == 0) { midi_handleNoteOff(channel, pitch, velocity); return; }
-  midi_push_note(pitch);
-  midi_vel = velocity;
-  midi_gate = true;
-  midi_last_note = pitch;
-  midi_dirty = true;
-}
-
-static void midi_handleNoteOff(byte channel, byte pitch, byte velocity) {
-  (void)channel; (void)velocity;
-  midi_remove_note(pitch);
-  if (midi_note_stack_count == 0) {
-    midi_gate = false;
+// Pot2/Pot3 (as 0..1 norms) set channels / clock division for the current mode.
+static void mcv_readControls(MidiCvEngine& e, float p2, float p3) {
+  uint8_t chA = 1 + (uint8_t)(p2 * 15.99f);          // 1-16
+  if (chA != e.a.channel) { e.a.channel = chA; e.dirty = true; }
+  if (e.mode == MCV_DUAL) {
+    uint8_t chB = 1 + (uint8_t)(p3 * 15.99f);
+    if (chB != e.b.channel) { e.b.channel = chB; e.dirty = true; }
   } else {
-    // Last-note priority: switch to the most recent held note
-    midi_last_note = midi_note_stack[midi_note_stack_count - 1];
+    uint8_t di = (uint8_t)(p3 * (kMcvDivCount - 0.01f));
+    if (di >= kMcvDivCount) di = kMcvDivCount - 1;
+    if (di != e.divIdx) { e.divIdx = di; e.dirty = true; }
   }
-  midi_dirty = true;
 }
 
-static void midi_handleCC(byte channel, byte cc, byte value) {
-  (void)channel;
-  if (cc == 1) { midi_mod = value; midi_dirty = true; } // mod wheel
+// Expire clock/reset pulses and write the four CVs for the current mode.
+static void mcv_writeOutputs(MidiCvEngine& e) {
+  if (!haveMCP) return;
+  uint32_t now = millis();
+  if (e.clkPulse && (int32_t)(now - e.clkUntil) >= 0) { e.clkPulse = false; e.dirty = true; }
+  if (e.rstPulse && (int32_t)(now - e.rstUntil) >= 0) { e.rstPulse = false; e.dirty = true; }
+  if (!e.dirty) return;
+  e.dirty = false;
+
+  if (e.mode == MCV_DUAL) {
+    mcp_values[CV0_DA_CH] = voltsToDac(0, midiNoteToVolts(e.a.activeNote()));
+    mcp_values[CV1_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
+    mcp_values[CV2_DA_CH] = voltsToDac(2, midiNoteToVolts(e.b.activeNote()));
+    mcp_values[CV3_DA_CH] = e.b.gate ? kGateHighCode : kGateLowCode;
+  } else {
+    mcp_values[CV0_DA_CH] = e.clkPulse ? kGateHighCode : kGateLowCode;
+    mcp_values[CV1_DA_CH] = e.rstPulse ? kGateHighCode : kGateLowCode;
+    mcp_values[CV2_DA_CH] = voltsToDac(2, midiNoteToVolts(e.a.activeNote()));
+    mcp_values[CV3_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
+  }
+  mcp_writeAll();
+}
+
+// Shared OLED body (rows 20/34/52); caller draws the title row.
+static void mcv_renderBody(MidiCvEngine& e) {
+  if (e.mode == MCV_DUAL) {
+    uint8_t na = e.a.activeNote(), nb = e.b.activeNote();
+    oled.setCursor(0, 20);  oled.print("A ch"); oled.print(e.a.channel);
+    oled.setCursor(64, 20); oled.print(e.a.gate ? "ON " : "-- ");
+    oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
+    oled.setCursor(0, 34);  oled.print("B ch"); oled.print(e.b.channel);
+    oled.setCursor(64, 34); oled.print(e.b.gate ? "ON " : "-- ");
+    oled.print(midiNoteName(nb)); oled.print(midiNoteOctave(nb));
+    oled.setCursor(0, 52);  oled.print("Pot2 chA  Pot3 chB");
+  } else {
+    uint8_t na = e.a.activeNote();
+    oled.setCursor(0, 20);  oled.print("CLK "); oled.print(kMcvDivName[e.divIdx]);
+    oled.setCursor(74, 20); oled.print(e.clkPulse ? "C" : " ");
+    oled.print(e.rstPulse ? "R" : " ");
+    oled.setCursor(0, 34);  oled.print("V ch"); oled.print(e.a.channel);
+    oled.setCursor(64, 34); oled.print(e.a.gate ? "ON " : "-- ");
+    oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
+    oled.setCursor(0, 52);  oled.print("Pot2 ch  Pot3 div");
+  }
+}
+
+// -------------------- Patch: USBMidi (USB MIDI-to-CV) --------------------
+static MidiCvEngine usbEng;
+
+static void usb_onNoteOn (byte ch, byte n, byte v) { mcv_noteOn(usbEng, ch, n, v); }
+static void usb_onNoteOff(byte ch, byte n, byte v) { (void)v; mcv_noteOff(usbEng, ch, n); }
+static void usb_onClock  ()                          { mcv_clock(usbEng); }
+static void usb_onStart  ()                          { mcv_start(usbEng); }
+static void usb_registerHandlers() {
+  MIDI.setHandleNoteOn(usb_onNoteOn);
+  MIDI.setHandleNoteOff(usb_onNoteOff);
+  MIDI.setHandleClock(usb_onClock);
+  MIDI.setHandleStart(usb_onStart);
+  MIDI.setHandleContinue(usb_onStart);
 }
 
 void midi_enter() {
   resetPotSmooth();
-  midi_note_stack_count = 0;
-  midi_vel = 0;
-  midi_mod = 0;
-  midi_gate = false;
-  midi_dirty = true;
-  midi_last_note = 60;
-  midi_channel = 0; // OMNI
-
-  // Register MIDI callbacks
-  MIDI.setHandleNoteOn(midi_handleNoteOn);
-  MIDI.setHandleNoteOff(midi_handleNoteOff);
-  MIDI.setHandleControlChange(midi_handleCC);
-
-  // Zero all outputs
+  mcv_reset(usbEng);
+  MIDI.begin(MIDI_CHANNEL_OMNI);   // receive all channels; engine routes per voice
+  usb_registerHandlers();
   for (int i = 0; i < 4; i++) mcp_values[i] = kGateLowCode;
   if (haveMCP) mcp_writeAll();
 }
 
 void midi_tick() {
-  // Poll USB MIDI — callbacks fire here
   MIDI.read();
-
-  // Pot2 selects MIDI channel (OMNI or 1-16)
-  float p_ch = readPotNormSmooth(PIN_POT2, 1);
-  uint8_t newCh = (uint8_t)(p_ch * 16.99f); // 0=OMNI, 1-16
-  if (newCh != midi_channel) {
-    midi_channel = newCh;
-    // Re-begin MIDI on new channel
-    MIDI.begin(midi_channel == 0 ? MIDI_CHANNEL_OMNI : midi_channel);
-    MIDI.setHandleNoteOn(midi_handleNoteOn);
-    MIDI.setHandleNoteOff(midi_handleNoteOff);
-    MIDI.setHandleControlChange(midi_handleCC);
-    midi_dirty = true;
+  if (patchShortPressed) {
+    patchShortPressed = false;
+    usbEng.mode = (usbEng.mode == MCV_DUAL) ? MCV_CLKVOX : MCV_DUAL;
+    mcv_reset(usbEng);
   }
-
-  if (!haveMCP) return;
-  if (!midi_dirty) return;
-  midi_dirty = false;
-
-  // CV0 = pitch (1V/oct)
-  uint8_t activeNote = midi_gate ? midi_note_stack[midi_note_stack_count - 1] : midi_last_note;
-  float pitchV = midiNoteToVolts(activeNote);
-  mcp_values[CV0_DA_CH] = voltsToDac(0, pitchV);
-
-  // CV1 = gate (+5V on / 0V off)
-  mcp_values[CV1_DA_CH] = midi_gate ? kGateHighCode : kGateLowCode;
-
-  // CV2 = velocity (0-5V)
-  float velV = (midi_vel / 127.0f) * 5.0f;
-  mcp_values[CV2_DA_CH] = voltsToDac(2, velV);
-
-  // CV3 = mod wheel (0-5V)
-  float modV = (midi_mod / 127.0f) * 5.0f;
-  mcp_values[CV3_DA_CH] = voltsToDac(3, modV);
-
-  mcp_writeAll();
+  mcv_readControls(usbEng, readPotNormSmooth(PIN_POT2, 1), readPotNormSmooth(PIN_POT3, 2));
+  mcv_writeOutputs(usbEng);
 }
-
-static const char* midiNoteName(uint8_t note) {
-  static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
-  return names[note % 12];
-}
-static int midiNoteOctave(uint8_t note) { return (note / 12) - 1; }
 
 void midi_render() {
   oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setTextWrap(false);
-  ui::printClipped(0, 0, 48, "MIDI");
-
-  // Channel display
-  oled.setCursor(50, 0);
-  if (midi_channel == 0) oled.print("OMNI");
-  else { oled.print("CH"); oled.print(midi_channel); }
-
-  // Gate indicator
-  oled.setCursor(100, 0);
-  oled.print(midi_gate ? "ON" : "--");
-
-  // Note + octave (large)
-  oled.setTextSize(2);
-  uint8_t dispNote = midi_gate ? midi_note_stack[midi_note_stack_count - 1] : midi_last_note;
-  oled.setCursor(0, 18);
-  oled.print(midiNoteName(dispNote));
-  oled.setTextSize(1);
-  oled.print(midiNoteOctave(dispNote));
-
-  // Voltage readout
-  oled.setCursor(50, 18);
-  float vDisp = midiNoteToVolts(dispNote);
-  oled.print(vDisp, 2); oled.print("V");
-
-  // Velocity bar
-  oled.setTextSize(1);
-  oled.setCursor(0, 38);
-  oled.print("Vel "); oled.print(midi_vel);
-  drawBar(40, 38, 86, 6, midi_vel / 127.0f);
-
-  // Mod wheel bar
-  oled.setCursor(0, 48);
-  oled.print("Mod "); oled.print(midi_mod);
-  drawBar(40, 48, 86, 6, midi_mod / 127.0f);
-
-  // Note stack count
-  oled.setCursor(0, 58);
-  oled.print("Notes: "); oled.print(midi_note_stack_count);
-
+  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 84, "USBMidi");
+  oled.setCursor(102, 0);
+  oled.print(usbEng.mode == MCV_DUAL ? "DUO" : "CLK");
+  mcv_renderBody(usbEng);
   oled.display();
 }
 
-Patch patch_midi = { "MIDI", midi_enter, midi_tick, midi_render, true };
+Patch patch_midi = { "USBMidi", midi_enter, midi_tick, midi_render, true };
 
-// -------------------- Patch: Net MIDI (RTP-MIDI over WiFi) --------------------
-// Wireless twin of the USB MIDI patch: receives RTP-MIDI (AppleMIDI / "Network
-// MIDI") over WiFi and drives the same CV0=pitch / CV1=gate / CV2=vel / CV3=mod
-// outputs. Connect from macOS Audio MIDI Setup (Network) or Tobias Erichsen's
-// rtpMIDI on Windows by adding the module's IP (shown on the OLED), port 5004.
-//
-// WiFi association and the RTP listener are brought up lazily on patch entry and
-// persist across patch switches; inbound MIDI is only serviced while this patch
-// is on screen (NetMIDI.read() runs in its tick), so the session idles out if
-// you navigate away and comes back when you return.
-static uint8_t nm_note_stack[16];
-static uint8_t nm_note_stack_count = 0;
-static uint8_t nm_vel = 0;            // velocity of current note
-static uint8_t nm_mod = 0;            // CC1 mod wheel
-static uint8_t nm_channel = 0;        // 0 = OMNI, 1-16 = specific channel (software filter)
-static bool    nm_gate = false;
-static bool    nm_dirty = true;
-static uint8_t nm_last_note = 60;
-static volatile int nm_peers = 0;     // active RTP-MIDI sessions (controllers connected)
-
-// Bring-up state — persists across patch re-entry so we don't re-associate or
-// re-bind the UDP listener each time the patch is opened.
+// -------------------- Patch: NetMidi (RTP-MIDI over WiFi) --------------------
+// Wireless twin of USBMidi: receives RTP-MIDI (AppleMIDI / "Network MIDI") over
+// WiFi and drives the same two-mode CV engine. Connect from macOS Audio MIDI
+// Setup (Network) or Tobias Erichsen's rtpMIDI (Windows) via the module's IP
+// (shown on the OLED), port 5004. WiFi + the RTP listener come up lazily on
+// entry and persist; inbound MIDI is serviced only while the patch is on screen.
+static MidiCvEngine netEng;
+static volatile int nm_peers = 0;     // active RTP-MIDI sessions
 static bool     nm_wifi_begun    = false;
 static bool     nm_session_begun = false;
 static uint32_t nm_wifi_retry_ms = 0;
 
-static void nm_push_note(uint8_t note) {
-  for (uint8_t i = 0; i < nm_note_stack_count; i++) {
-    if (nm_note_stack[i] == note) {
-      for (uint8_t j = i; j < nm_note_stack_count - 1; j++) nm_note_stack[j] = nm_note_stack[j+1];
-      nm_note_stack_count--;
-      break;
-    }
-  }
-  if (nm_note_stack_count < 16) nm_note_stack[nm_note_stack_count++] = note;
-}
-static void nm_remove_note(uint8_t note) {
-  for (uint8_t i = 0; i < nm_note_stack_count; i++) {
-    if (nm_note_stack[i] == note) {
-      for (uint8_t j = i; j < nm_note_stack_count - 1; j++) nm_note_stack[j] = nm_note_stack[j+1];
-      nm_note_stack_count--;
-      return;
-    }
-  }
-}
-
-static void nm_handleNoteOff(byte channel, byte pitch, byte velocity);
-static void nm_handleNoteOn(byte channel, byte pitch, byte velocity) {
-  if (nm_channel != 0 && channel != nm_channel) return; // software channel filter
-  if (velocity == 0) { nm_handleNoteOff(channel, pitch, velocity); return; }
-  nm_push_note(pitch);
-  nm_vel = velocity; nm_gate = true; nm_last_note = pitch; nm_dirty = true;
-}
-static void nm_handleNoteOff(byte channel, byte pitch, byte velocity) {
-  (void)velocity;
-  if (nm_channel != 0 && channel != nm_channel) return;
-  nm_remove_note(pitch);
-  if (nm_note_stack_count == 0) nm_gate = false;
-  else nm_last_note = nm_note_stack[nm_note_stack_count - 1]; // last-note priority
-  nm_dirty = true;
-}
-static void nm_handleCC(byte channel, byte cc, byte value) {
-  if (nm_channel != 0 && channel != nm_channel) return;
-  if (cc == 1) { nm_mod = value; nm_dirty = true; } // mod wheel
-}
-
-// Session up/down — track peer count and drop any held gate when a controller
-// disconnects so a lost session can't leave a note stuck on.
-static void nm_onConnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc, const char* name) {
+static void net_onNoteOn (byte ch, byte n, byte v) { mcv_noteOn(netEng, ch, n, v); }
+static void net_onNoteOff(byte ch, byte n, byte v) { (void)v; mcv_noteOff(netEng, ch, n); }
+static void net_onClock  ()                          { mcv_clock(netEng); }
+static void net_onStart  ()                          { mcv_start(netEng); }
+static void net_onConnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc, const char* name) {
   (void)ssrc; (void)name; nm_peers++;
 }
-static void nm_onDisconnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc) {
-  (void)ssrc;
-  if (nm_peers > 0) nm_peers--;
-  nm_note_stack_count = 0; nm_gate = false; nm_dirty = true;
+static void net_onDisconnected(const APPLEMIDI_NAMESPACE::ssrc_t & ssrc) {
+  (void)ssrc; if (nm_peers > 0) nm_peers--; mcv_reset(netEng);
 }
 
 void netmidi_enter() {
   resetPotSmooth();
-  nm_note_stack_count = 0;
-  nm_vel = 0; nm_mod = 0; nm_gate = false; nm_dirty = true; nm_last_note = 60;
-  nm_channel = 0; // OMNI
-
-  // Zero all outputs
+  mcv_reset(netEng);
   for (int i = 0; i < 4; i++) mcp_values[i] = kGateLowCode;
   if (haveMCP) mcp_writeAll();
-
-  // Kick off WiFi association once (the CYW43 init inside here can take a few
-  // hundred ms; patch entry isn't audio-critical so that's fine).
   if (!nm_wifi_begun) {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    nm_wifi_begun = true;
-    nm_wifi_retry_ms = millis();
+    nm_wifi_begun = true; nm_wifi_retry_ms = millis();
   }
 }
 
 void netmidi_tick() {
   uint32_t now = millis();
-
-  // Pot2 selects the MIDI channel filter (OMNI or 1-16). Applied in software so
-  // we never tear down an active RTP session with a re-begin.
-  float p_ch = readPotNormSmooth(PIN_POT2, 1);
-  uint8_t newCh = (uint8_t)(p_ch * 16.99f); // 0=OMNI, 1-16
-  if (newCh != nm_channel) { nm_channel = newCh; nm_dirty = true; }
-
+  if (patchShortPressed) {
+    patchShortPressed = false;
+    netEng.mode = (netEng.mode == MCV_DUAL) ? MCV_CLKVOX : MCV_DUAL;
+    mcv_reset(netEng);
+  }
   if (WiFi.status() == WL_CONNECTED) {
-    // Start the RTP-MIDI listener once, after the network is up.
     if (!nm_session_begun) {
-      AppleNetMIDI.setHandleConnected(nm_onConnected);
-      AppleNetMIDI.setHandleDisconnected(nm_onDisconnected);
-      NetMIDI.setHandleNoteOn(nm_handleNoteOn);
-      NetMIDI.setHandleNoteOff(nm_handleNoteOff);
-      NetMIDI.setHandleControlChange(nm_handleCC);
-      NetMIDI.begin(MIDI_CHANNEL_OMNI); // accept all channels; filter in software
+      AppleNetMIDI.setHandleConnected(net_onConnected);
+      AppleNetMIDI.setHandleDisconnected(net_onDisconnected);
+      NetMIDI.setHandleNoteOn(net_onNoteOn);
+      NetMIDI.setHandleNoteOff(net_onNoteOff);
+      NetMIDI.setHandleClock(net_onClock);
+      NetMIDI.setHandleStart(net_onStart);
+      NetMIDI.setHandleContinue(net_onStart);
+      NetMIDI.begin(MIDI_CHANNEL_OMNI); // accept all channels; engine routes per voice
       nm_session_begun = true;
     }
     NetMIDI.read(); // service inbound RTP-MIDI; fires the callbacks above
   } else if (now - nm_wifi_retry_ms > 5000) {
-    // Association dropped or never completed — retry periodically.
     WiFi.begin(WIFI_SSID, WIFI_PASS);
     nm_wifi_retry_ms = now;
   }
-
-  if (!haveMCP) return;
-  if (!nm_dirty) return;
-  nm_dirty = false;
-
-  uint8_t activeNote = nm_gate ? nm_note_stack[nm_note_stack_count - 1] : nm_last_note;
-  mcp_values[CV0_DA_CH] = voltsToDac(0, midiNoteToVolts(activeNote));           // CV0 pitch 1V/oct
-  mcp_values[CV1_DA_CH] = nm_gate ? kGateHighCode : kGateLowCode;               // CV1 gate
-  mcp_values[CV2_DA_CH] = voltsToDac(2, (nm_vel / 127.0f) * 5.0f);              // CV2 velocity
-  mcp_values[CV3_DA_CH] = voltsToDac(3, (nm_mod / 127.0f) * 5.0f);              // CV3 mod wheel
-  mcp_writeAll();
+  mcv_readControls(netEng, readPotNormSmooth(PIN_POT2, 1), readPotNormSmooth(PIN_POT3, 2));
+  mcv_writeOutputs(netEng);
 }
 
 void netmidi_render() {
   oled.clearDisplay();
-  oled.setTextSize(1);
-  oled.setTextColor(SSD1306_WHITE);
-  oled.setTextWrap(false);
-  ui::printClipped(0, 0, 40, "Net");
-
-  // Channel filter on the title's right edge.
-  oled.setCursor(96, 0);
-  if (nm_channel == 0) oled.print("OMNI"); else { oled.print("CH"); oled.print(nm_channel); }
+  oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
+  ui::printClipped(0, 0, 72, "NetMidi");
 
   if (WiFi.status() != WL_CONNECTED) {
-    oled.setCursor(44, 0);  oled.print("WiFi..");
-    oled.setCursor(0, 18);  oled.print("Joining");
-    oled.setCursor(0, 28);  ui::printClipped(0, 28, 128, WIFI_SSID);
-    oled.setCursor(0, 44);  oled.print("Set SSID/pass in");
-    oled.setCursor(0, 54);  oled.print("secrets.h");
+    oled.setCursor(78, 0);  oled.print("WiFi..");
+    oled.setCursor(0, 22);  oled.print("Joining");
+    oled.setCursor(0, 34);  ui::printClipped(0, 34, 128, WIFI_SSID);
+    oled.setCursor(0, 50);  oled.print("(set secrets.h)");
     oled.display();
     return;
   }
 
-  // Connected: session link state + IP (add this in rtpMIDI / macOS) + note info.
-  oled.setCursor(44, 0);
-  oled.print(nm_peers > 0 ? "LINK" : "wait");
-
-  oled.setCursor(0, 16);
-  oled.print("IP "); oled.print(WiFi.localIP());
-
-  uint8_t dispNote = nm_gate ? nm_note_stack[nm_note_stack_count - 1] : nm_last_note;
-  oled.setCursor(0, 28);
-  oled.print(nm_gate ? "ON " : "-- ");
-  oled.print(midiNoteName(dispNote)); oled.print(midiNoteOctave(dispNote));
-  oled.setCursor(64, 28);
-  oled.print(midiNoteToVolts(dispNote), 2); oled.print("V");
-
-  oled.setCursor(0, 40); oled.print("Vel "); oled.print(nm_vel);
-  drawBar(44, 40, 82, 6, nm_vel / 127.0f);
-  oled.setCursor(0, 50); oled.print("Mod "); oled.print(nm_mod);
-  drawBar(44, 50, 82, 6, nm_mod / 127.0f);
-
+  // Connected: mode + link on the title row, IP on row 10, then the mode body.
+  oled.setCursor(78, 0);  oled.print(nm_peers > 0 ? "LINK" : "wait");
+  oled.setCursor(108, 0); oled.print(netEng.mode == MCV_DUAL ? "DUO" : "CLK");
+  oled.setCursor(0, 10);  oled.print("IP "); oled.print(WiFi.localIP());
+  mcv_renderBody(netEng);
   oled.display();
 }
 
-Patch patch_netmidi = { "Net", netmidi_enter, netmidi_tick, netmidi_render, true };
+Patch patch_netmidi = { "NetMidi", netmidi_enter, netmidi_tick, netmidi_render, true };
 
 // -------------------- Patch: Turing (dual Turing Machine) --------------------
 // Two independent Music-Thing-style looping shift registers producing quantised
@@ -2521,7 +2427,7 @@ static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "MIDI", "Net", "Turing", "Acid", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "USBMidi", "NetMidi", "Turing", "Acid", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;

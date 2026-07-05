@@ -82,24 +82,28 @@ This guide covers navigation, controls, and behavior for the current functional 
   - Pot2: Horizontal window (32..128 samples).
   - Pot3: Midpoint offset.
 
-### MIDI (USB MIDI-to-CV)
-- Purpose: Monophonic USB-MIDI to CV/gate converter (last-note priority with a held-note stack).
-- Outputs: CV0 = pitch (1 V/oct, MIDI note 36/C2 = 0 V), CV1 = gate (+5 V on / 0 V off), CV2 = velocity (0–5 V), CV3 = mod wheel / CC1 (0–5 V).
-- Display: Note name + octave, pitch volts, velocity and mod bars, held-note count, and the active channel.
-- Controls:
-  - Pot2: MIDI channel — `OMNI` (<1/17 of travel) or `CH1`..`CH16`.
-  - Pot1/Pot3: No effect.
-- Notes: Pitch is calibrated via `voltsToDac()`; the device enumerates as "Pico2W OC MIDI".
+### MIDI-to-CV modes (USBMidi and NetMidi)
 
-### Net (Network MIDI-to-CV over WiFi)
-- Purpose: The wireless twin of the MIDI patch — a monophonic RTP-MIDI ("AppleMIDI" / Apple's Network MIDI) receiver. Same last-note-priority note stack, same CV mapping, but notes arrive over WiFi instead of USB.
-- Outputs: CV0 = pitch (1 V/oct, MIDI note 36/C2 = 0 V), CV1 = gate (+5 V on / 0 V off), CV2 = velocity (0–5 V), CV3 = mod wheel / CC1 (0–5 V) — identical to the USB MIDI patch.
+Both MIDI patches share one CV engine with **two modes, toggled by short-press** (the title-right shows `DUO`/`CLK`). They differ only in transport — USBMidi over USB, NetMidi over WiFi. Channels are routed in software, so both receive all channels (OMNI) and split by channel per voice.
+
+| Mode | CV0 | CV1 | CV2 | CV3 | Pot2 | Pot3 |
+|------|-----|-----|-----|-----|------|------|
+| **DUO** (dual voice) | voice A pitch | voice A gate | voice B pitch | voice B gate | voice A channel (1–16) | voice B channel (1–16) |
+| **CLK** (clock + voice) | clock | reset | voice pitch | voice gate | voice channel (1–16) | clock division (1/16, 1/8, 1/4, 1/2) |
+
+- **DUO** gives two independent monophonic gate/pitch voices, each with its own last-note-priority stack, on two MIDI channels.
+- **CLK** derives clock + reset from MIDI System-Realtime: CV0 pulses per clock division (24 PPQN → 1/4 = 24 ticks, etc.), CV1 pulses on Start/Continue; CV2/CV3 remain a gate/pitch voice.
+- Pitch is 1 V/oct, MIDI note 36/C2 = 0 V, calibrated via `voltsToDac()`.
+
+### USBMidi (USB MIDI-to-CV)
+- The engine above, over USB MIDI. The device enumerates as "Pico2W OC MIDI".
+- Display: title `USBMidi` + mode, then per-voice channel/note/gate (DUO) or clock division + voice (CLK).
+
+### NetMidi (Network MIDI-to-CV over WiFi)
+- The same engine, over RTP-MIDI ("AppleMIDI" / Apple's Network MIDI) received on the Pico 2 W's WiFi.
 - Display:
   - Joining: shows `WiFi..` and the target SSID while it associates; if you see the placeholder SSID, `secrets.h` is missing (see Setup below).
-  - Connected: the module's IP address, session state (`LINK` once a controller has an active RTP session, `wait` otherwise), and the live note name/octave, pitch volts, and velocity/mod bars.
-- Controls:
-  - Pot2: MIDI channel filter — `OMNI` (<1/17 of travel) or `CH1`..`CH16`. Applied in software so changing it never drops the network session.
-  - Pot1/Pot3: No effect.
+  - Connected: the module's IP address, session state (`LINK` once a controller has an active RTP session, `wait` otherwise), plus the mode body.
 - Connecting a controller:
   - **macOS**: Audio MIDI Setup → MIDI Studio → Network. Add the module by IP (port 5004) under "Directory", or connect once it appears, then create a session.
   - **Windows**: Tobias Erichsen's [rtpMIDI](https://www.tobias-erichsen.de/software/rtpmidi.html) → add a new session → enter the module's IP and port 5004.
