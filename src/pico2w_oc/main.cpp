@@ -1555,7 +1555,7 @@ void scope_render() {
 Patch patch_scope = { "Scope", scope_enter, scope_tick, scope_render, false };
 
 // -------------------- Shared MIDI-to-CV engine --------------------
-// Backs both the USBMidi and NetMidi patches (they differ only in transport).
+// Backs both the UsbMIDI and NetMIDI patches (they differ only in transport).
 // Short-press toggles between two modes:
 //   DUAL   - CV0/1 = voice A pitch/gate, CV2/3 = voice B pitch/gate (two channels)
 //   CLKVOX - CV0 = clock, CV1 = reset, CV2/3 = voice pitch/gate (one channel)
@@ -1697,7 +1697,7 @@ static void mcv_renderBody(MidiCvEngine& e) {
   }
 }
 
-// -------------------- Patch: USBMidi (USB MIDI-to-CV) --------------------
+// -------------------- Patch: UsbMIDI (USB MIDI-to-CV) --------------------
 static MidiCvEngine usbEng;
 
 static void usb_onNoteOn (byte ch, byte n, byte v) { mcv_noteOn(usbEng, ch, n, v); }
@@ -1735,17 +1735,17 @@ void midi_tick() {
 void midi_render() {
   oled.clearDisplay();
   oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 84, "USBMidi");
+  ui::printClipped(0, 0, 84, "UsbMIDI");
   oled.setCursor(102, 0);
   oled.print(usbEng.mode == MCV_DUAL ? "DUO" : "CLK");
   mcv_renderBody(usbEng);
   oled.display();
 }
 
-Patch patch_midi = { "USBMidi", midi_enter, midi_tick, midi_render, true };
+Patch patch_midi = { "UsbMIDI", midi_enter, midi_tick, midi_render, true };
 
-// -------------------- Patch: NetMidi (RTP-MIDI over WiFi) --------------------
-// Wireless twin of USBMidi: receives RTP-MIDI (AppleMIDI / "Network MIDI") over
+// -------------------- Patch: NetMIDI (RTP-MIDI over WiFi) --------------------
+// Wireless twin of UsbMIDI: receives RTP-MIDI (AppleMIDI / "Network MIDI") over
 // WiFi and drives the same two-mode CV engine. Connect from macOS Audio MIDI
 // Setup (Network) or Tobias Erichsen's rtpMIDI (Windows) via the module's IP
 // (shown on the OLED), port 5004. WiFi + the RTP listener come up lazily on
@@ -1810,7 +1810,7 @@ void netmidi_tick() {
 void netmidi_render() {
   oled.clearDisplay();
   oled.setTextSize(1); oled.setTextColor(SSD1306_WHITE); oled.setTextWrap(false);
-  ui::printClipped(0, 0, 72, "NetMidi");
+  ui::printClipped(0, 0, 72, "NetMIDI");
 
   if (WiFi.status() != WL_CONNECTED) {
     oled.setCursor(78, 0);  oled.print("WiFi..");
@@ -1829,7 +1829,7 @@ void netmidi_render() {
   oled.display();
 }
 
-Patch patch_netmidi = { "NetMidi", netmidi_enter, netmidi_tick, netmidi_render, true };
+Patch patch_netmidi = { "NetMIDI", netmidi_enter, netmidi_tick, netmidi_render, true };
 
 // -------------------- Patch: Turing (dual Turing Machine) --------------------
 // Two independent Music-Thing-style looping shift registers producing quantised
@@ -2427,7 +2427,7 @@ static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
 // Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
-static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "USBMidi", "NetMidi", "Turing", "Acid", "Diag" };
+static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "UsbMIDI", "NetMIDI", "Turing", "Acid", "Diag" };
 static eurorack_ui::OledHomeMenu homeMenu;
 static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;
