@@ -19,7 +19,9 @@ OUT3   OUT4    <- gate row
 - **Columns are voices/channels**: column A = Pot2 + IN1 + OUT1/OUT3; column B = Pot3 + IN2 + OUT2/OUT4. Two-voice patches put voice A's pitch on OUT1 and gate on OUT3 (left column), voice B on OUT2/OUT4 (right column) — so OUT1/OUT2 form the pitch row and OUT3/OUT4 the gate row.
 - **Jack names**: user-facing labels are `IN1/IN2` and `OUT1..OUT4` (panel reading order). Code aliases live in `include/pico2w_oc/pins.h`; calibration indices `voltsToDac(0..3)` correspond to OUT1..OUT4.
 - Pots are read inverted so clockwise increases value; most patches smooth them, and page/target switches use soft-takeover ("pot pickup") so stored values aren't clobbered.
-- Layout Grid: Title at `y=0`. Content rows at `y=16, 26, 36, 46, 56`. Some patches show mode/status on the right of the title line.
+- **Two-tone displays**: the split (yellow/blue) SSD1306 has a 16px yellow band. Rows `y=0` (title/status) and `y=8` (secondary status, e.g. NetMIDI's IP) live in the yellow band; patch content starts at `y>=16` and must never straddle the `y=16` boundary.
+- **Screens mirror the panel**: where a patch's info maps to jacks, it is laid out in the same two-column grid — left half of the screen = column A (OUT1/OUT3), right half = column B (OUT2/OUT4). Two-voice patches (UsbMIDI/NetMIDI, Env) draw side-by-side panes with a divider; four-output patches (Clock, LFO, Euclid TEMPO, Diag) use a 2×2 grid in jack order.
+- Layout Grid: Title at `y=0`. Content rows at `y=16, 26, 36, 46, 56` (panes may use a tighter 9px pitch). Some patches show mode/status on the right of the title line.
 
 ## Navigation Summary
 
@@ -69,7 +71,7 @@ OUT3   OUT4    <- gate row
   - Pot1: Velocity (amplitude) for the selected envelope.
   - Pot2: AD macro — Attack and Decay are linked; turning clockwise lengthens both. Short settings are punchy.
   - Pot3: S/R macro — Sustain level and Release time together; higher values raise sustain and lengthen release.
-  - Short press: Toggle which envelope is edited (E1/E2). Header shows the active target; first row displays `Vel <n>%` for the selected envelope.
+  - Short press: Toggle which envelope is edited (E1/E2). The display draws two side-by-side panes matching the panel columns (E1 `i1>o1` left, E2 `i2>o2` right) with V/A/D/S/R per pane; `>` marks the envelope being edited.
   - Pot pickup: After switching envelopes, each pot stays inactive until it crosses (or already matches) the selected envelope's stored value, so the other envelope's settings aren't clobbered.
 - Envelope Model:
   - Attack(ms) = 1 + (AD²) × 2000.
@@ -81,7 +83,7 @@ OUT3   OUT4    <- gate row
 - Purpose: 2-channel semitone quantizer (1 V/oct).
 - Inputs: IN1, IN2 (mapped to volts via calibration if available).
 - Outputs: OUT1, OUT2 (columns: IN1→OUT1, IN2→OUT2; mapped back to DAC codes via calibration).
-- Display: In0/Out0 and In1/Out1 values plus current DAC codes.
+- Display: two full-width channel strips (labelled 1 and 2 for the IN1→OUT1 / IN2→OUT2 columns) — kept stacked rather than side-by-side so the 12-semitone strip retains its resolution.
 - Controls: None (always-on behavior).
 
 ### Scope
@@ -105,7 +107,7 @@ Outputs follow the panel's column convention (voice A = left column under Pot2/I
 
 - **DUO** gives two independent monophonic gate/pitch voices, each with its own last-note-priority stack, on two MIDI channels — voice A on OUT1/OUT3, voice B on OUT2/OUT4.
 - **CLK** derives clock + reset from MIDI System-Realtime on the right column: OUT2 pulses per clock division (24 PPQN → 1/4 = 24 ticks, etc.), OUT4 pulses on Start/Continue; the left column stays a gate/pitch voice.
-- Pitch is 1 V/oct, MIDI note 36/C2 = 0 V, calibrated via `voltsToDac()`. The display shows each row's jacks as `o1+3` / `o2+4`.
+- Pitch is 1 V/oct, MIDI note 36/C2 = 0 V, calibrated via `voltsToDac()`. The display draws two side-by-side panes matching the panel columns (left = voice A `o1+o3`, right = voice B / clock `o2+o4`) with the pot hints along the bottom.
 
 ### UsbMIDI (USB MIDI-to-CV)
 - The engine above, over USB MIDI. The device enumerates as "Pico2W OC MIDI".

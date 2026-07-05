@@ -1278,20 +1278,24 @@ void env_render() {
   calc_params(env_params_AD[0], env_params_SR[0], Ams0, Dms0, S0, Rms0);
   calc_params(env_params_AD[1], env_params_SR[1], Ams1, Dms1, S1, Rms1);
 
-  // Row 1 after title: velocity percentage of the selected envelope
-  oled.setCursor(0,16);
-  int vperc = (int)(env_params_Vel[env_edit_idx] * 100.0f + 0.5f);
-  if (vperc < 0) vperc = 0; if (vperc > 100) vperc = 100;
-  oled.print("Vel "); oled.print(vperc); oled.print("%");
+  // Two side-by-side panes mirroring the panel columns: E1 = IN1 trigger ->
+  // OUT1 (left), E2 = IN2 -> OUT2 (right). '>' marks the envelope being edited.
+  oled.drawFastVLine(63, 16, 48, SSD1306_WHITE);
+  const int xr = 68;
+  int v0 = (int)(env_params_Vel[0] * 100.0f + 0.5f); if (v0 > 100) v0 = 100;
+  int v1 = (int)(env_params_Vel[1] * 100.0f + 0.5f); if (v1 > 100) v1 = 100;
 
-  // E1 rows
-  oled.setCursor(0,26);  oled.print(env_edit_idx==0?">E1 ":" E1 ");
-  oled.print("A "); oled.print((int)Ams0); oled.print(" D "); oled.print((int)Dms0);
-  oled.setCursor(0,36);  oled.print("    S "); oled.print(S0); oled.print("% R "); oled.print((int)Rms0);
-  // E2 rows
-  oled.setCursor(0,46);  oled.print(env_edit_idx==1?">E2 ":" E2 ");
-  oled.print("A "); oled.print((int)Ams1); oled.print(" D "); oled.print((int)Dms1);
-  oled.setCursor(0,56);  oled.print("    S "); oled.print(S1); oled.print("% R "); oled.print((int)Rms1);
+  oled.setCursor(0,17);   oled.print(env_edit_idx==0?">":" "); oled.print("E1 i1>o1");
+  oled.setCursor(0,26);   oled.print("V "); oled.print(v0); oled.print("%");
+  oled.setCursor(0,35);   oled.print("A "); oled.print((int)Ams0);
+  oled.setCursor(0,44);   oled.print("D "); oled.print((int)Dms0);
+  oled.setCursor(0,53);   oled.print("S"); oled.print(S0); oled.print(" R"); oled.print((int)Rms0);
+
+  oled.setCursor(xr,17);  oled.print(env_edit_idx==1?">":" "); oled.print("E2 i2>o2");
+  oled.setCursor(xr,26);  oled.print("V "); oled.print(v1); oled.print("%");
+  oled.setCursor(xr,35);  oled.print("A "); oled.print((int)Ams1);
+  oled.setCursor(xr,44);  oled.print("D "); oled.print((int)Dms1);
+  oled.setCursor(xr,53);  oled.print("S"); oled.print(S1); oled.print(" R"); oled.print((int)Rms1);
 
   oled.display();
 }
@@ -1435,8 +1439,10 @@ void quant_render() {
   const Scale& sc = kScales[g_scale];
   for (int i = 0; i < sc.size; i++) inScale[((int)g_root + sc.semis[i]) % 12] = true;
 
-  quant_draw_channel(16, "0", quant_vin0, quant_vq0, inScale);
-  quant_draw_channel(40, "1", quant_vin1, quant_vq1, inScale);
+  // Channel 1 = IN1->OUT1, channel 2 = IN2->OUT2 (panel columns); the strips
+  // stay full-width + stacked for semitone resolution.
+  quant_draw_channel(16, "1", quant_vin0, quant_vq0, inScale);
+  quant_draw_channel(40, "2", quant_vin1, quant_vq1, inScale);
 
   oled.display();
 }
@@ -1684,31 +1690,38 @@ static void mcv_writeOutputs(MidiCvEngine& e) {
   mcp_writeAll();
 }
 
-// Shared OLED body (rows 20/34/52); caller draws the title row.
-// "o1+3" / "o2+4" show which panel column each voice/function drives.
+// Shared OLED body: two side-by-side panes mirroring the panel columns
+// (left pane = Pot2 + OUT1/OUT3, right pane = Pot3 + OUT2/OUT4), with a
+// divider line between them and a full-width pot-hint footer.
 static void mcv_renderBody(MidiCvEngine& e) {
+  oled.drawFastVLine(63, 16, 32, SSD1306_WHITE);  // pane divider
+  const int xr = 70;                              // right pane text x
   if (e.mode == MCV_DUAL) {
     uint8_t na = e.a.activeNote(), nb = e.b.activeNote();
-    oled.setCursor(0, 20);  oled.print("A ch"); oled.print(e.a.channel);
-    oled.setCursor(48, 20); oled.print("o1+3");
-    oled.setCursor(86, 20); oled.print(e.a.gate ? "ON " : "-- ");
+    // Left pane: voice A
+    oled.setCursor(0, 20);   oled.print("A ch"); oled.print(e.a.channel);
+    oled.setCursor(0, 32);   oled.print(e.a.gate ? "ON " : "-- ");
     oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
-    oled.setCursor(0, 34);  oled.print("B ch"); oled.print(e.b.channel);
-    oled.setCursor(48, 34); oled.print("o2+4");
-    oled.setCursor(86, 34); oled.print(e.b.gate ? "ON " : "-- ");
+    oled.setCursor(0, 44);   oled.print("o1+o3");
+    // Right pane: voice B
+    oled.setCursor(xr, 20);  oled.print("B ch"); oled.print(e.b.channel);
+    oled.setCursor(xr, 32);  oled.print(e.b.gate ? "ON " : "-- ");
     oled.print(midiNoteName(nb)); oled.print(midiNoteOctave(nb));
-    oled.setCursor(0, 52);  oled.print("Pot2 chA  Pot3 chB");
+    oled.setCursor(xr, 44);  oled.print("o2+o4");
+    oled.setCursor(0, 56);   oled.print("Pot2 chA   Pot3 chB");
   } else {
     uint8_t na = e.a.activeNote();
-    oled.setCursor(0, 20);  oled.print("V ch"); oled.print(e.a.channel);
-    oled.setCursor(48, 20); oled.print("o1+3");
-    oled.setCursor(86, 20); oled.print(e.a.gate ? "ON " : "-- ");
+    // Left pane: the voice
+    oled.setCursor(0, 20);   oled.print("V ch"); oled.print(e.a.channel);
+    oled.setCursor(0, 32);   oled.print(e.a.gate ? "ON " : "-- ");
     oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
-    oled.setCursor(0, 34);  oled.print("CLK "); oled.print(kMcvDivName[e.divIdx]);
-    oled.setCursor(48, 34); oled.print("o2+4");
-    oled.setCursor(86, 34); oled.print(e.clkPulse ? "C" : " ");
-    oled.print(e.rstPulse ? "R" : " ");
-    oled.setCursor(0, 52);  oled.print("Pot2 ch  Pot3 div");
+    oled.setCursor(0, 44);   oled.print("o1+o3");
+    // Right pane: clock/reset
+    oled.setCursor(xr, 20);  oled.print("CLK "); oled.print(kMcvDivName[e.divIdx]);
+    oled.setCursor(xr, 32);  oled.print(e.clkPulse ? "C" : "-");
+    oled.print(' '); oled.print(e.rstPulse ? "R" : "-");
+    oled.setCursor(xr, 44);  oled.print("o2+o4");
+    oled.setCursor(0, 56);   oled.print("Pot2 ch    Pot3 div");
   }
 }
 
@@ -1836,10 +1849,11 @@ void netmidi_render() {
     return;
   }
 
-  // Connected: mode + link on the title row, IP on row 10, then the mode body.
+  // Connected: mode + link on the title row; IP on the second yellow-band row
+  // (y=8 keeps it fully inside the 16px yellow zone of split displays).
   oled.setCursor(78, 0);  oled.print(nm_peers > 0 ? "LINK" : "wait");
   oled.setCursor(108, 0); oled.print(netEng.mode == MCV_DUAL ? "DUO" : "CLK");
-  oled.setCursor(0, 10);  oled.print("IP "); oled.print(WiFi.localIP());
+  oled.setCursor(0, 8);   oled.print("IP "); oled.print(WiFi.localIP());
   mcv_renderBody(netEng);
   oled.display();
 }
@@ -2098,10 +2112,11 @@ void tm_render() {
     key_draw();
   }
 
-  // Bottom: both voices' current note + gate, and clock source/tempo.
+  // Bottom: both voices' current note + gate, split at the panel-column
+  // boundary (V1 left = o1+o3, V2 right = o2+o4), and clock source/tempo.
   oled.setCursor(0, 48);
   oled.print("1:"); oled.print(kNoteNames[tm_note_pc[0]]); oled.print(tm_gate_state[0] ? "*" : " ");
-  oled.setCursor(54, 48);
+  oled.setCursor(68, 48);
   oled.print("2:"); oled.print(kNoteNames[tm_note_pc[1]]); oled.print(tm_gate_state[1] ? "*" : " ");
   oled.setCursor(0, 56);
   if (!tm_ext_ever) {
