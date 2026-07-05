@@ -22,7 +22,7 @@ pio device monitor -b 115200
 A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo passthrough with a Filter → Delay → Reverb FX send. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
 
 - **Four OLED pages**, cycled by short-pressing the front button:
-  - **Page 0 / 1 — CV Mode**: MIDI ch 1–4 → Gate + Pitch CV (V/Oct) + Mod CV (velocity). Ch 10 notes 36–39 → drum triggers.
+  - **Page 0 / 1 — CV Mode**: MIDI ch 1–4 → Gate + Pitch CV (V/Oct) + Mod CV (velocity, or **CC#42** once received on that channel — the live-coding mod CC). Ch 10 notes 36–39 → drum triggers.
   - **Page 2 — Chord Mode**: MIDI ch 6 white keys trigger 4-voice chords on all Pitch/Gate outputs. 40 progressions × 5 categories × 5 voicings, with Pot 1–4 selecting root / category / progression / voicing.
   - **Page 3 — FX Mode**: Stereo Filter → Delay → Reverb send on the audio passthrough (Pot 1–4 = cutoff / delay time / delay amount / reverb mix). Always-on and clean by default; the CV bridge keeps running underneath.
 - **Long-press**: emits a Reset pulse (on every page).

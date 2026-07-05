@@ -77,7 +77,12 @@ Both DACs run with MCP4822 2× gain enabled (GA=0). On-board DAC1 channel B → 
 - Channel 4 → Gate2 (expander Q0), Mod4 (Q6.A), Pitch4 (Q7.A)
 - Channel 10 (drums): notes 36..39 (C1..D#1) → Q2..Q5 short pulses (~500 µs)
 
-Pitch CV: V/Oct, base note `MIDI 36` = `0 V`. Pitch bend: ±2 semitones on channels 1–4. Mod CV is driven from note velocity. Control change messages are currently ignored.
+Pitch CV: V/Oct, base note `MIDI 36` = `0 V`. Pitch bend: ±2 semitones on channels 1–4.
+
+Mod CV source — velocity or **CC#42** (the live-coding mod CC standardised across our MIDI-to-CV modules):
+- By default each channel's Mod output follows **note velocity** (0–5 V, held after note-off).
+- The first **CC#42** received on a channel (1–4) **latches that channel's Mod to CC control**: CC#42 values drive it (0–5 V) and note velocity no longer writes it, so streamed notes can't stomp a CC sweep. The latch holds until power-off.
+- CC#42 is accepted on any OLED page (the value flushes whenever the CV bridge next writes). No other CCs are mapped.
 
 ## Chord Mode (Page 2)
 

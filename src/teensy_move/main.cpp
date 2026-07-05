@@ -10,6 +10,7 @@
 //     supply rail). Possible v4 (software, optional): timer-ISR gate/clock/drum
 //     timing off the main loop, keeping the 595 and arbitrating the shared SPI bus.
 // - 4x MIDI-to-CV (gate / pitch / mod) on ch1-4, 4 drum triggers on ch10
+//   (mod = velocity, or CC#42 once received on that channel — see MOD_CC)
 // - Chord mode on ch6 (4-voice chord -> pitch/gate CVs)
 // - Stereo line passthrough with a Filter->Delay->Reverb FX send (four pots)
 // - Partial OLED updates (only changed rows) to limit loop() blocking
@@ -150,6 +151,14 @@ static Voice v1, v2, v3, v4;
 static inline float midiNote_to_volts(int note){ return (note-36)/12.0f; }
 static inline void updatePitch(Voice& v){ float base=midiNote_to_volts(v.note<0?36:v.note); v.pitchHeldV = base + v.bend/12.0f; }
 
+// Mod CV source: CC#42 (the live-coding mod CC standardised across our
+// MIDI-to-CV modules). Until a CC42 arrives on a channel its Mod output
+// follows note velocity (original behaviour); the first CC42 latches that
+// channel's Mod to CC control until power-off, so streamed notes can't
+// stomp a CC sweep between CC updates.
+static const uint8_t MOD_CC = 42;
+static bool modFromCC[4] = {false, false, false, false};
+
 // Dirty flags
 static volatile bool dirtyPitch1=true, dirtyPitch2=true, dirtyMod1=true, dirtyMod2=true;
 static volatile bool dirtyPitch3=true, dirtyPitch4=true, dirtyMod3=true, dirtyMod4=true;
@@ -162,7 +171,6 @@ static volatile uint32_t clkUntil=0, rstUntil=0; const uint32_t PULSE_MS=5;
 // Drums
 static volatile bool drumTrig[DRUM_COUNT] = {false,false,false,false};
 static volatile uint32_t drumUntilUs[DRUM_COUNT] = {0,0,0,0};
-static volatile bool drumDirty = false;
 
 // Debug
 static volatile uint8_t lastMidiCh=0, lastMidiNote=0, lastMidiVel=0; static volatile uint32_t lastMidiMs=0;
@@ -532,7 +540,6 @@ void onNoteOn(byte ch, byte note, byte vel){
     if(idx>=0 && idx<(int)DRUM_COUNT){
       drumTrig[idx]=true;
       drumUntilUs[idx]=micros()+DRUM_TRIG_US[idx];
-      drumDirty=true;
     }
     return;
   }
@@ -540,23 +547,28 @@ void onNoteOn(byte ch, byte note, byte vel){
   // Mode-based MIDI handling: chord on page 2, CV bridge on all other pages
   // (the FX page keeps the bridge running underneath).
   if(gOledPage != 2) {
-    // CV MODE: Channels 1-4 CV/Gate with velocity to mod outputs
+    // CV MODE: Channels 1-4 CV/Gate; velocity drives Mod unless the channel
+    // has been latched to CC#42 control (see modFromCC above).
     float modV = (vel / 127.0f) * 5.0f;  // 0-5V velocity
     if(ch==1){
-      v1.note=note; v1.modV=modV; updatePitch(v1);
-      gate1=true; dirtyPitch1=true; dirtyMod1=true;
+      v1.note=note; updatePitch(v1);
+      if(!modFromCC[0]){ v1.modV=modV; dirtyMod1=true; }
+      gate1=true; dirtyPitch1=true;
     }
     else if(ch==2){
-      v2.note=note; v2.modV=modV; updatePitch(v2);
-      gate2=true; dirtyPitch2=true; dirtyMod2=true;
+      v2.note=note; updatePitch(v2);
+      if(!modFromCC[1]){ v2.modV=modV; dirtyMod2=true; }
+      gate2=true; dirtyPitch2=true;
     }
     else if(ch==3){
-      v3.note=note; v3.modV=modV; updatePitch(v3);
-      gate3=true; dirtyPitch3=true; dirtyMod3=true;
+      v3.note=note; updatePitch(v3);
+      if(!modFromCC[2]){ v3.modV=modV; dirtyMod3=true; }
+      gate3=true; dirtyPitch3=true;
     }
     else if(ch==4){
-      v4.note=note; v4.modV=modV; updatePitch(v4);
-      gate4=true; dirtyPitch4=true; dirtyMod4=true;
+      v4.note=note; updatePitch(v4);
+      if(!modFromCC[3]){ v4.modV=modV; dirtyMod4=true; }
+      gate4=true; dirtyPitch4=true;
     }
   } else {
     // CHORD MODE: Channel 6 triggers chords on pitch/gate outputs
@@ -590,8 +602,18 @@ void onPitchBend(byte ch, int value){
   else if(ch==4){ v4.bend=semis; if(v4.note>=0){ updatePitch(v4); dirtyPitch4=true; } }
 }
 void onControlChange(byte ch, byte cc, byte val){
-  // FX is driven by the front-panel pots on the FX page; no MIDI CC mapping.
-  (void)ch; (void)cc; (void)val;
+  // CC#42 on ch1-4 -> that voice's Mod CV (0-5V), latching the channel to CC
+  // control. Works regardless of the current OLED page (the value flushes
+  // whenever the CV bridge next writes). FX stays pot-driven — no other CCs.
+  if (cc != MOD_CC || ch < 1 || ch > 4) return;
+  float modV = (val / 127.0f) * 5.0f;
+  modFromCC[ch - 1] = true;
+  switch (ch) {
+    case 1: v1.modV = modV; dirtyMod1 = true; break;
+    case 2: v2.modV = modV; dirtyMod2 = true; break;
+    case 3: v3.modV = modV; dirtyMod3 = true; break;
+    case 4: v4.modV = modV; dirtyMod4 = true; break;
+  }
 }
 
 // MIDI clock
@@ -615,11 +637,10 @@ static void registerUiActivity() {
   if (screenAsleep) wakeScreen();
 }
 
-// Helper to update OLED row only if changed
+// Helper to update OLED row only if changed (truncation to 21 chars intended)
 static void updateOledRow(uint8_t row, const char* newText) {
   if (strncmp(oledRowCache[row], newText, sizeof(oledRowCache[row])-1) != 0) {
-    strncpy(oledRowCache[row], newText, sizeof(oledRowCache[row])-1);
-    oledRowCache[row][sizeof(oledRowCache[row])-1] = '\0';
+    strlcpy(oledRowCache[row], newText, sizeof(oledRowCache[row]));
     oledRowDirty[row] = true;
   }
 }
@@ -738,14 +759,13 @@ void loop(){
   }
   uint32_t now=millis();
   uint32_t nowUs=micros();
-  if(clkUntil && (int32_t)(now-(int32_t)clkUntil)>=0){ clk=false; clkUntil=0; }
-  if(rstUntil && (int32_t)(now-(int32_t)rstUntil)>=0){ rst=false; rstUntil=0; }
+  if(clkUntil && (int32_t)(now - clkUntil) >= 0){ clk=false; clkUntil=0; }
+  if(rstUntil && (int32_t)(now - rstUntil) >= 0){ rst=false; rstUntil=0; }
   for (uint8_t i=0;i<DRUM_COUNT;i++){
     uint32_t untilUs = drumUntilUs[i];
     if (untilUs && (int32_t)(nowUs - untilUs) >= 0) {
       drumTrig[i]=false;
       drumUntilUs[i]=0;
-      drumDirty=true;
     }
   }
   
@@ -800,7 +820,7 @@ void loop(){
     }
     
     newImg |= (1u<<ExpanderBits::DAC1_CS) | (1u<<ExpanderBits::DAC2_CS);
-    if(newImg!=img){ expanderWrite(newImg); drumDirty=false; }
+    if(newImg!=img){ expanderWrite(newImg); }
   }
   
   // Power the screen down after a spell of no UI activity.
