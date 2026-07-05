@@ -63,9 +63,10 @@ See [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algor
 This target implements a menu-driven multi-patch Eurorack utility on Raspberry Pi Pico 2 W with an SSD1306 OLED, ADS1115 ADC inputs, and an MCP4728 quad DAC for CV outputs.
 
 - Features:
-	- OLED UI with short/long press navigation (menu and in-patch controls).
+	- OLED UI: Pot1 scrolls the home menu, button selects (short = next, long = enter); in-patch, short press = page/mode, long press = back to menu.
+	- Panel convention: columns are voices — column A = Pot2 + IN1 + OUT1/OUT3, column B = Pot3 + IN2 + OUT2/OUT4 (OUT1/OUT2 = pitch row, OUT3/OUT4 = gate row).
 	- Patches: Clock, Quant, Euclid, Env (dual envelopes), QuadLFO, Scope, UsbMIDI, NetMIDI, Turing, Acid, Diag.
-	- **UsbMIDI / NetMIDI**: MIDI-to-CV over USB and over WiFi (RTP-MIDI / AppleMIDI "Network MIDI") respectively, sharing one engine with two short-press-toggled modes — **DUO** (two independent gate/pitch voices on two MIDI channels) and **CLK** (clock + reset from MIDI transport on CV0/CV1, plus a gate/pitch voice on CV2/CV3). Channels/division set via Pot2/Pot3. NetMIDI: connect from macOS Audio MIDI Setup (Network) or rtpMIDI on Windows via the module's IP (port 5004); WiFi credentials in `include/pico2w_oc/secrets.h` (gitignored — copy `secrets.h.example`).
+	- **UsbMIDI / NetMIDI**: MIDI-to-CV over USB and over WiFi (RTP-MIDI / AppleMIDI "Network MIDI") respectively, sharing one engine with two short-press-toggled modes — **DUO** (two independent gate/pitch voices on two MIDI channels: A = OUT1/OUT3, B = OUT2/OUT4) and **CLK** (a gate/pitch voice on OUT1/OUT3 plus MIDI clock/reset on OUT2/OUT4). Channels/division set via Pot2/Pot3. NetMIDI: connect from macOS Audio MIDI Setup (Network) or rtpMIDI on Windows via the module's IP (port 5004); WiFi credentials in `include/pico2w_oc/secrets.h` (gitignored — copy `secrets.h.example`).
 	- Inputs: Two analog inputs via ADS1115 plus an external clock input (`AD_EXT_CLOCK_CH`).
 	- Outputs: Four CVs via MCP4728 (calibrated mapping for bipolar/unipolar where applicable). Timing patches use fixed gate codes for crisp edges.
 	- Consistent grid-based UI layout for readability on 128x64 OLED.

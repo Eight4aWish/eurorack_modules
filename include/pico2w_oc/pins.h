@@ -43,12 +43,32 @@
 
 // MCP4728 physical DAC channel indices are 0..3.
 // Physical CV outputs (CV0..CV3) mapped directly to underlying DAC channels.
-// Adjust these constants to match wiring; use only CVx_DA_CH in code.
+// Adjust these constants to match wiring.
 // Current mapping (per user): CV0=1, CV1=3, CV2=2, CV3=0
 #define CV0_DA_CH 1
 #define CV1_DA_CH 3
 #define CV2_DA_CH 2
 #define CV3_DA_CH 0
+
+// ---- Panel-name aliases (preferred in patch code and on screen) ----
+// The front panel is a 2x5 grid; jacks are labelled IN1 IN2 / OUT1 OUT2 /
+// OUT3 OUT4 in reading order. Calibration indices follow the same order:
+// voltsToDac(0..3) = OUT1..OUT4.
+//
+//   Pot1  BTN     <- navigation row (menu: Pot1 scrolls, BTN selects)
+//   Pot2  Pot3    <- parameter row (Pot2 = column A, Pot3 = column B)
+//   IN1   IN2
+//   OUT1  OUT2    <- pitch row (two-voice patches)
+//   OUT3  OUT4    <- gate row
+//
+// Column convention: voice/channel A = Pot2 + IN1 + OUT1/OUT3 (left column),
+// voice/channel B = Pot3 + IN2 + OUT2/OUT4 (right column).
+#define IN1_AD_CH  AD0_CH
+#define IN2_AD_CH  AD1_CH
+#define OUT1_DA_CH CV0_DA_CH
+#define OUT2_DA_CH CV1_DA_CH
+#define OUT3_DA_CH CV2_DA_CH
+#define OUT4_DA_CH CV3_DA_CH
 
 // (Legacy ADS_CH_CVx / MCP_CH_DACx names removed; use ADx_CH / DAx_CH exclusively.)
 

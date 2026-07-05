@@ -18,6 +18,8 @@ public:
   // navigation
   void next();
   void prev();
+  // jump the highlight directly to an item (e.g. pot-driven scrolling)
+  void select(uint8_t idx);
   // commit selection: returns index of selected item
   uint8_t commit();
   // get currently selected index

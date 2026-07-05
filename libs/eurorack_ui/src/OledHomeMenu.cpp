@@ -62,6 +62,10 @@ void OledHomeMenu::draw(){
 
 void OledHomeMenu::next(){ if(count_==0) return; index_ = (index_ + 1) % count_; dirty_ = true; draw(); }
 void OledHomeMenu::prev(){ if(count_==0) return; index_ = (index_ + count_ - 1) % count_; dirty_ = true; draw(); }
+void OledHomeMenu::select(uint8_t idx){
+  if(count_==0 || idx >= count_ || idx == index_) return;
+  index_ = idx; dirty_ = true; draw();
+}
 
 uint8_t OledHomeMenu::commit(){ dirty_ = true; draw(); return index_; }
 

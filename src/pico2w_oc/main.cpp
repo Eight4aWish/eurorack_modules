@@ -147,7 +147,7 @@ static uint16_t mcp_values[4] = {0, 0, 0, 0};
 // Helper: write mcp_values[] to the MCP4728.
 // mcp_values[] is indexed by PHYSICAL DAC channel (0=A, 1=B, 2=C, 3=D), and
 // patches store each logical CV into its physical slot via the CVx_DA_CH macros
-// (e.g. mcp_values[CV0_DA_CH] = ...). fastWrite() takes channels in A,B,C,D
+// (e.g. mcp_values[OUT1_DA_CH] = ...). fastWrite() takes channels in A,B,C,D
 // order, so we just pass the physical slots straight through.
 static void mcp_writeAll() {
   mcp.fastWrite(mcp_values[0], mcp_values[1], mcp_values[2], mcp_values[3]);
@@ -185,6 +185,9 @@ static void mcp4728_decodeInputRegWord(const uint8_t *buf24, int ch /*0..3*/, ui
   value12 = w & 0x0FFF;
 }
 static volatile bool patchShortPressed = false;
+// Defined here (not at the menu section) because pot reads check it: while the
+// home menu is up, Pot1 scrolls the MENU, so patch pot reads are frozen.
+static bool homeMenuActive = true;
 
 // Normalized pot read (inverted so clockwise increases value)
 float readPotNorm(int pin) {
@@ -201,6 +204,11 @@ static void resetPotSmooth() {
   potSmooth[2] = readPotNorm(PIN_POT3);
 }
 float readPotNormSmooth(int pin, int idx) {
+  // While the home menu is active the pots belong to the menu (Pot1 scrolls
+  // it), so a still-running background patch must not track them: return the
+  // frozen last value. Re-entering a patch runs enter() -> resetPotSmooth(),
+  // which unfreezes cleanly.
+  if (homeMenuActive) return potSmooth[idx];
   // Light oversampling for stability
   int acc = 0; const int samples = 4;
   for (int i=0;i<samples;i++) acc += analogRead(pin);
@@ -385,7 +393,7 @@ void diag_tick() {
     // Clear all first (physical indices)
         mcp_values[0] = 0; mcp_values[1] = 0; mcp_values[2] = 0; mcp_values[3] = 0;
     // Map selected physical CV (CV0..CV3) to underlying DA channel using pins.h
-    const uint8_t cv_phys[4] = { CV0_DA_CH, CV1_DA_CH, CV2_DA_CH, CV3_DA_CH };
+    const uint8_t cv_phys[4] = { OUT1_DA_CH, OUT2_DA_CH, OUT3_DA_CH, OUT4_DA_CH };
     uint8_t phys = cv_phys[diag_sel_dac];
     mcp_values[phys] = (uint16_t)(pot1 * 4095.0f);
     // Write in physical channel order
@@ -406,12 +414,12 @@ void diag_render() {
   oled.print(haveADS ? "A" : "-"); oled.print(' ');
   oled.print(haveMCP ? "M" : "-");
 
-  // Show logical CV -> physical MCP4728 channel mapping
+  // Show panel jack -> physical MCP4728 channel mapping (O1..O4 = OUT1..OUT4)
   oled.setCursor(0, 8);
-  oled.print("CV0"); oled.print(mcpPhysLetter(CV0_DA_CH)); oled.print(' ');
-  oled.print("CV1"); oled.print(mcpPhysLetter(CV1_DA_CH)); oled.print(' ');
-  oled.print("CV2"); oled.print(mcpPhysLetter(CV2_DA_CH)); oled.print(' ');
-  oled.print("CV3"); oled.print(mcpPhysLetter(CV3_DA_CH));
+  oled.print("O1"); oled.print(mcpPhysLetter(OUT1_DA_CH)); oled.print(' ');
+  oled.print("O2"); oled.print(mcpPhysLetter(OUT2_DA_CH)); oled.print(' ');
+  oled.print("O3"); oled.print(mcpPhysLetter(OUT3_DA_CH)); oled.print(' ');
+  oled.print("O4"); oled.print(mcpPhysLetter(OUT4_DA_CH));
 
   // Button + Pots (show raw ADC values)
   oled.setCursor(0, 16);
@@ -446,16 +454,16 @@ void diag_render() {
   oled.setCursor(0, 26); oled.print("P2 "); oled.print(raw2);
   oled.setCursor(64, 26); oled.print("P3 "); oled.print(raw3);
 
-  // CV inputs raw
+  // CV inputs raw (IN1/IN2 panel jacks)
   // ADS1115 raw codes (16-bit signed), lightly smoothed for display only.
-  oled.setCursor(0, 36); oled.print("ADC0 "); oled.print((int)(adsDisp0 + 0.5f));
-  oled.setCursor(64, 36); oled.print("ADC1 "); oled.print((int)(adsDisp1 + 0.5f));
+  oled.setCursor(0, 36); oled.print("IN1 "); oled.print((int)(adsDisp0 + 0.5f));
+  oled.setCursor(64, 36); oled.print("IN2 "); oled.print((int)(adsDisp1 + 0.5f));
 
-  // Show physical CV outputs (CV0..CV3) mapped to their DA channels
-  oled.setCursor(0, 46);  oled.print(diag_sel_dac==0?">":" "); oled.print("CV0 "); oled.print(mcp_values[CV0_DA_CH]);
-  oled.setCursor(64, 46); oled.print(diag_sel_dac==1?">":" "); oled.print("CV1 "); oled.print(mcp_values[CV1_DA_CH]);
-  oled.setCursor(0, 56);  oled.print(diag_sel_dac==2?">":" "); oled.print("CV2 "); oled.print(mcp_values[CV2_DA_CH]);
-  oled.setCursor(64, 56); oled.print(diag_sel_dac==3?">":" "); oled.print("CV3 "); oled.print(mcp_values[CV3_DA_CH]);
+  // Show panel CV outputs (OUT1..OUT4) with their current DAC codes
+  oled.setCursor(0, 46);  oled.print(diag_sel_dac==0?">":" "); oled.print("O1 "); oled.print(mcp_values[OUT1_DA_CH]);
+  oled.setCursor(64, 46); oled.print(diag_sel_dac==1?">":" "); oled.print("O2 "); oled.print(mcp_values[OUT2_DA_CH]);
+  oled.setCursor(0, 56);  oled.print(diag_sel_dac==2?">":" "); oled.print("O3 "); oled.print(mcp_values[OUT3_DA_CH]);
+  oled.setCursor(64, 56); oled.print(diag_sel_dac==3?">":" "); oled.print("O4 "); oled.print(mcp_values[OUT4_DA_CH]);
 
   oled.display();
 }
@@ -645,7 +653,7 @@ void clock_tick() {
     uint16_t out2 = ch_state[2] ? kGateHighCode : kGateLowCode;
     uint16_t out3 = ch_state[3] ? kGateHighCode : kGateLowCode;
     // remember values for display
-    mcp_values[CV0_DA_CH] = out0; mcp_values[CV1_DA_CH] = out1; mcp_values[CV2_DA_CH] = out2; mcp_values[CV3_DA_CH] = out3;
+    mcp_values[OUT1_DA_CH] = out0; mcp_values[OUT2_DA_CH] = out1; mcp_values[OUT3_DA_CH] = out2; mcp_values[OUT4_DA_CH] = out3;
     mcp_writeAll();
   }
 }
@@ -851,10 +859,10 @@ void euclid_tick() {
 
   // --- Write the four gate outputs (direct codes: low~2047, high~0) ---
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = euclid_state[0] ? kGateHighCode : kGateLowCode;
-    mcp_values[CV1_DA_CH] = euclid_state[1] ? kGateHighCode : kGateLowCode;
-    mcp_values[CV2_DA_CH] = euclid_state[2] ? kGateHighCode : kGateLowCode;
-    mcp_values[CV3_DA_CH] = euclid_state[3] ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT1_DA_CH] = euclid_state[0] ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT2_DA_CH] = euclid_state[1] ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT3_DA_CH] = euclid_state[2] ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT4_DA_CH] = euclid_state[3] ? kGateHighCode : kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -1030,7 +1038,7 @@ void quadlfo_tick() {
       if (volts < -5.0f) volts = -5.0f; else if (volts > 5.0f) volts = 5.0f;
       uint16_t code = voltsToDac(i, volts); // i assumes CVx_DA_CH logical match order 0..3
       // Map logical i to physical macros for safety
-      uint8_t physIndex = (i==0)?CV0_DA_CH:(i==1)?CV1_DA_CH:(i==2)?CV2_DA_CH:CV3_DA_CH;
+      uint8_t physIndex = (i==0)?OUT1_DA_CH:(i==1)?OUT2_DA_CH:(i==2)?OUT3_DA_CH:OUT4_DA_CH;
       mcp_values[physIndex] = code;
     }
     mcp_writeAll();
@@ -1110,10 +1118,10 @@ void env_enter() {
   pickup_setLive(env_pickup); // pots live for the initial envelope
   // Zero all CV outputs so stale values from previous patch don't persist
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = kGateLowCode;
-    mcp_values[CV1_DA_CH] = kGateLowCode;
-    mcp_values[CV2_DA_CH] = kGateLowCode;
-    mcp_values[CV3_DA_CH] = kGateLowCode;
+    mcp_values[OUT1_DA_CH] = kGateLowCode;
+    mcp_values[OUT2_DA_CH] = kGateLowCode;
+    mcp_values[OUT3_DA_CH] = kGateLowCode;
+    mcp_values[OUT4_DA_CH] = kGateLowCode;
   }
 }
 
@@ -1241,11 +1249,11 @@ void env_tick() {
     if (d1 < -maxStep) c1 = env_prev_code[1] - maxStep;
     env_prev_code[0] = c0;
     env_prev_code[1] = c1;
-    mcp_values[CV0_DA_CH] = c0;
-    mcp_values[CV1_DA_CH] = c1;
+    mcp_values[OUT1_DA_CH] = c0;
+    mcp_values[OUT2_DA_CH] = c1;
     // Keep CV2/CV3 at baseline so stale values from previous patches don't persist
-    mcp_values[CV2_DA_CH] = kGateLowCode;
-    mcp_values[CV3_DA_CH] = kGateLowCode;
+    mcp_values[OUT3_DA_CH] = kGateLowCode;
+    mcp_values[OUT4_DA_CH] = kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -1388,8 +1396,8 @@ void quant_tick() {
   if (haveMCP) {
     quant_code0 = voltsToDac(0, quant_vq0);
     quant_code1 = voltsToDac(1, quant_vq1);
-    mcp_values[CV0_DA_CH] = quant_code0;
-    mcp_values[CV1_DA_CH] = quant_code1;
+    mcp_values[OUT1_DA_CH] = quant_code0;
+    mcp_values[OUT2_DA_CH] = quant_code1;
     mcp_writeAll();
   }
 }
@@ -1448,10 +1456,10 @@ void scope_enter() {
   for (int i=0;i<SCOPE_SAMPLES;i++) { scope_buf[i]=0; scope_buf2[i]=0; }
   // Zero DAC outputs so stale values from previous patch don't persist
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = kGateLowCode;
-    mcp_values[CV1_DA_CH] = kGateLowCode;
-    mcp_values[CV2_DA_CH] = kGateLowCode;
-    mcp_values[CV3_DA_CH] = kGateLowCode;
+    mcp_values[OUT1_DA_CH] = kGateLowCode;
+    mcp_values[OUT2_DA_CH] = kGateLowCode;
+    mcp_values[OUT3_DA_CH] = kGateLowCode;
+    mcp_values[OUT4_DA_CH] = kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -1660,39 +1668,46 @@ static void mcv_writeOutputs(MidiCvEngine& e) {
   if (!e.dirty) return;
   e.dirty = false;
 
+  // Column convention: voice A = left column (OUT1 pitch / OUT3 gate, under
+  // Pot2 + IN1); voice B or clock = right column (OUT2 / OUT4, under Pot3 + IN2).
   if (e.mode == MCV_DUAL) {
-    mcp_values[CV0_DA_CH] = voltsToDac(0, midiNoteToVolts(e.a.activeNote()));
-    mcp_values[CV1_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
-    mcp_values[CV2_DA_CH] = voltsToDac(2, midiNoteToVolts(e.b.activeNote()));
-    mcp_values[CV3_DA_CH] = e.b.gate ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, midiNoteToVolts(e.a.activeNote()));
+    mcp_values[OUT3_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT2_DA_CH] = voltsToDac(1, midiNoteToVolts(e.b.activeNote()));
+    mcp_values[OUT4_DA_CH] = e.b.gate ? kGateHighCode : kGateLowCode;
   } else {
-    mcp_values[CV0_DA_CH] = e.clkPulse ? kGateHighCode : kGateLowCode;
-    mcp_values[CV1_DA_CH] = e.rstPulse ? kGateHighCode : kGateLowCode;
-    mcp_values[CV2_DA_CH] = voltsToDac(2, midiNoteToVolts(e.a.activeNote()));
-    mcp_values[CV3_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, midiNoteToVolts(e.a.activeNote()));
+    mcp_values[OUT3_DA_CH] = e.a.gate ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT2_DA_CH] = e.clkPulse ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT4_DA_CH] = e.rstPulse ? kGateHighCode : kGateLowCode;
   }
   mcp_writeAll();
 }
 
 // Shared OLED body (rows 20/34/52); caller draws the title row.
+// "o1+3" / "o2+4" show which panel column each voice/function drives.
 static void mcv_renderBody(MidiCvEngine& e) {
   if (e.mode == MCV_DUAL) {
     uint8_t na = e.a.activeNote(), nb = e.b.activeNote();
     oled.setCursor(0, 20);  oled.print("A ch"); oled.print(e.a.channel);
-    oled.setCursor(64, 20); oled.print(e.a.gate ? "ON " : "-- ");
+    oled.setCursor(48, 20); oled.print("o1+3");
+    oled.setCursor(86, 20); oled.print(e.a.gate ? "ON " : "-- ");
     oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
     oled.setCursor(0, 34);  oled.print("B ch"); oled.print(e.b.channel);
-    oled.setCursor(64, 34); oled.print(e.b.gate ? "ON " : "-- ");
+    oled.setCursor(48, 34); oled.print("o2+4");
+    oled.setCursor(86, 34); oled.print(e.b.gate ? "ON " : "-- ");
     oled.print(midiNoteName(nb)); oled.print(midiNoteOctave(nb));
     oled.setCursor(0, 52);  oled.print("Pot2 chA  Pot3 chB");
   } else {
     uint8_t na = e.a.activeNote();
-    oled.setCursor(0, 20);  oled.print("CLK "); oled.print(kMcvDivName[e.divIdx]);
-    oled.setCursor(74, 20); oled.print(e.clkPulse ? "C" : " ");
-    oled.print(e.rstPulse ? "R" : " ");
-    oled.setCursor(0, 34);  oled.print("V ch"); oled.print(e.a.channel);
-    oled.setCursor(64, 34); oled.print(e.a.gate ? "ON " : "-- ");
+    oled.setCursor(0, 20);  oled.print("V ch"); oled.print(e.a.channel);
+    oled.setCursor(48, 20); oled.print("o1+3");
+    oled.setCursor(86, 20); oled.print(e.a.gate ? "ON " : "-- ");
     oled.print(midiNoteName(na)); oled.print(midiNoteOctave(na));
+    oled.setCursor(0, 34);  oled.print("CLK "); oled.print(kMcvDivName[e.divIdx]);
+    oled.setCursor(48, 34); oled.print("o2+4");
+    oled.setCursor(86, 34); oled.print(e.clkPulse ? "C" : " ");
+    oled.print(e.rstPulse ? "R" : " ");
     oled.setCursor(0, 52);  oled.print("Pot2 ch  Pot3 div");
   }
 }
@@ -1947,10 +1962,11 @@ void tm_enter() {
   if (haveADS) ads.startADCReading(MUX_BY_CHANNEL[AD_EXT_CLOCK_CH], /*continuous=*/true);
   pickup_setLive(tm_pickup);
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = voltsToDac(0, tm_note_v[0]);
-    mcp_values[CV1_DA_CH] = kGateLowCode;
-    mcp_values[CV2_DA_CH] = voltsToDac(2, tm_note_v[1]);
-    mcp_values[CV3_DA_CH] = kGateLowCode;
+    // Column convention: V1 = OUT1 pitch / OUT3 gate, V2 = OUT2 pitch / OUT4 gate.
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, tm_note_v[0]);
+    mcp_values[OUT3_DA_CH] = kGateLowCode;
+    mcp_values[OUT2_DA_CH] = voltsToDac(1, tm_note_v[1]);
+    mcp_values[OUT4_DA_CH] = kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -2042,10 +2058,11 @@ void tm_tick() {
 
   // Write outputs: pitch held on CV0/CV2, gates on CV1/CV3.
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = voltsToDac(0, tm_note_v[0]);
-    mcp_values[CV1_DA_CH] = tm_gate_state[0] ? kGateHighCode : kGateLowCode;
-    mcp_values[CV2_DA_CH] = voltsToDac(2, tm_note_v[1]);
-    mcp_values[CV3_DA_CH] = tm_gate_state[1] ? kGateHighCode : kGateLowCode;
+    // Column convention: V1 = OUT1 pitch / OUT3 gate, V2 = OUT2 pitch / OUT4 gate.
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, tm_note_v[0]);
+    mcp_values[OUT3_DA_CH] = tm_gate_state[0] ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT2_DA_CH] = voltsToDac(1, tm_note_v[1]);
+    mcp_values[OUT4_DA_CH] = tm_gate_state[1] ? kGateHighCode : kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -2271,10 +2288,12 @@ void ac_enter() {
   pickup_setLive(ac_pickup);
   ac_seed_ref = readPotNormSmooth(PIN_POT1, 0); // anchor the seed deadband
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = voltsToDac(0, ac_pitch_cur);
-    mcp_values[CV1_DA_CH] = kGateLowCode;
-    mcp_values[CV2_DA_CH] = kGateLowCode;
-    mcp_values[CV3_DA_CH] = kGateLowCode;
+    // Column convention: voice = OUT1 pitch / OUT3 gate (left column);
+    // modifiers = OUT2 accent / OUT4 slide (right column).
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, ac_pitch_cur);
+    mcp_values[OUT3_DA_CH] = kGateLowCode;
+    mcp_values[OUT2_DA_CH] = kGateLowCode;
+    mcp_values[OUT4_DA_CH] = kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -2366,10 +2385,11 @@ void ac_tick() {
   if (ac_gate_state && now >= ac_gate_off_ms) { ac_gate_state = false; ac_accent_state = false; }
 
   if (haveMCP) {
-    mcp_values[CV0_DA_CH] = voltsToDac(0, ac_pitch_cur);
-    mcp_values[CV1_DA_CH] = ac_gate_state   ? kGateHighCode : kGateLowCode;
-    mcp_values[CV2_DA_CH] = ac_accent_state ? kGateHighCode : kGateLowCode;
-    mcp_values[CV3_DA_CH] = ac_slide_state  ? kGateHighCode : kGateLowCode;
+    // Column convention: voice = OUT1 pitch / OUT3 gate; OUT2 accent / OUT4 slide.
+    mcp_values[OUT1_DA_CH] = voltsToDac(0, ac_pitch_cur);
+    mcp_values[OUT3_DA_CH] = ac_gate_state   ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT2_DA_CH] = ac_accent_state ? kGateHighCode : kGateLowCode;
+    mcp_values[OUT4_DA_CH] = ac_slide_state  ? kGateHighCode : kGateLowCode;
     mcp_writeAll();
   }
 }
@@ -2426,11 +2446,41 @@ static uint8_t bankIdx  = 0;
 static uint8_t patchIdx = 0;
 
 // ---- Home menu + input state ----
-// Home menu items (4x2 grid viewport). Order updated to the requested first-8 patches.
+// (homeMenuActive is defined near the pot helpers, which check it.)
 static const char* kHomeItems[] = { "Clock", "Quant", "Euclid", "LFO", "Env", "Scope", "UsbMIDI", "NetMIDI", "Turing", "Acid", "Diag" };
+static const uint8_t kHomeItemCount = (uint8_t)(sizeof(kHomeItems)/sizeof(kHomeItems[0]));
 static eurorack_ui::OledHomeMenu homeMenu;
-static bool homeMenuActive = true;
 static uint32_t menuIgnoreUntil = 0;
+
+// ---- Menu Pot1 scrolling ----
+// Pot1 sits next to the button on the panel's navigation row: turning it
+// scrolls the menu highlight. It only engages once the pot has moved
+// deliberately from its anchored position (so ADC jitter can't scroll, and
+// button-only navigation still works); a short button press re-anchors it so
+// the last-used control wins.
+static bool  menuPotArmed = false;
+static float menuPotAnchor = 0.0f;
+
+static void menuPotAnchorHere() {
+  menuPotAnchor = readPotNorm(PIN_POT1);
+  menuPotArmed = false;
+}
+
+static void handleMenuPot() {
+  float p = readPotNorm(PIN_POT1);
+  if (!menuPotArmed) {
+    if (fabsf(p - menuPotAnchor) < 0.04f) return; // not a deliberate move yet
+    menuPotArmed = true;
+  }
+  // Absolute pot->item mapping with hysteresis: only switch when the pot is
+  // well inside the new item's band, so boundary jitter can't flicker.
+  int idx = (int)(p * kHomeItemCount);
+  if (idx >= kHomeItemCount) idx = kHomeItemCount - 1;
+  if (idx != homeMenu.selected()) {
+    float center = (idx + 0.5f) / kHomeItemCount;
+    if (fabsf(p - center) < 0.35f / kHomeItemCount) homeMenu.select((uint8_t)idx);
+  }
+}
 
 // -------------------- Input --------------------
 void handleButtons() {
@@ -2444,8 +2494,10 @@ void handleButtons() {
       // ignore spurious releases immediately after entering menu
       if (millis() < menuIgnoreUntil) return;
       if (held <= 600) {
-        // short press -> next
+        // short press -> next; re-anchor Pot1 so the button wins until the
+        // pot is moved again
         homeMenu.next();
+        menuPotAnchorHere();
       } else {
         // long press -> select current
         uint8_t sel = homeMenu.commit();
@@ -2468,6 +2520,7 @@ void handleButtons() {
         // enter menu from patch: clear patch short flag, force redraw and ignore spurious inputs
         homeMenuActive = true;
         patchShortPressed = false;
+        menuPotAnchorHere(); // Pot1 scrolls only after a deliberate move
         clearLastPatch(); // next boot will show menu instead of auto-launching
         menuIgnoreUntil = millis() + 400;
         lastUiMs = 0; // force next UI tick to redraw immediately
@@ -2532,8 +2585,9 @@ void setup() {
   if (haveSSD) {
     // Reserve a top band for the menu/colour zone so patch info prints below it
     homeMenu.begin(&oled, UI_TOP_MARGIN);
-    homeMenu.setItems(kHomeItems, (uint8_t)(sizeof(kHomeItems)/sizeof(kHomeItems[0])));
+    homeMenu.setItems(kHomeItems, kHomeItemCount);
     homeMenuActive = true;
+    menuPotAnchorHere(); // Pot1 scrolls only after a deliberate move
     homeMenu.draw();
     menuIgnoreUntil = millis() + 400;
   }
@@ -2585,6 +2639,7 @@ void setup() {
 
 void loop() {
   handleButtons();
+  if (homeMenuActive) handleMenuPot(); // Pot1 scrolls the menu highlight
 
   uint32_t now = millis();
 
