@@ -2,6 +2,21 @@
 
 Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWish/eurorack_electronics) — analog breadboard layouts, drum-voice schematics, and a layout visualiser.
 
+## Released modules
+
+Firmwares offered as finished modules are named after the magpie counting rhyme
+(*"one for sorrow, two for joy…"* — hence **Eight4aWish**). The first two, **Sorrow**
+and **Joy**, live in [eurorack_daisy_patch_init](https://github.com/Eight4aWish/eurorack_daisy_patch_init);
+the third lives here:
+
+| Name | Firmware | Based on | Licence |
+| --- | --- | --- | --- |
+| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | Mutable Instruments Elements | MIT |
+
+These are independent community works. Product names of other makers are used only to
+describe each firmware's origin — **not affiliated with, or endorsed by, Mutable
+Instruments or Ksoloti.**
+
 ## Build
 
 PlatformIO is used for building across targets. Pico 2 W is the default (`pico2w_oc`).
@@ -157,9 +172,9 @@ Deploy is over the board's MicroPython REPL, not `pio`: copy `pbdata.py` + `patc
 
 See [src/amyboard_patchbank/README.md](src/amyboard_patchbank/README.md) for hardware bring-up, the macro/MIDI details, deployment, and the desktop sound-rendering harness.
 
-## Ksoloti Big Genes — `ksoloti_elements`
+## Girl (Ksoloti Big Genes) — `ksoloti_elements`
 
-A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec).
+**Girl** — a modal synthesis voice for the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec), the third in the rhyme-named family. Based on **Mutable Instruments Elements** by Émilie Gillet (MIT); *not affiliated with, or endorsed by, Mutable Instruments or Ksoloti.*
 
 - **Status**: Fully playable with single-page OLED UI, dual pot mode, CV assignment, all buttons and encoders working.
 - **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
@@ -169,7 +184,7 @@ A port of **Mutable Instruments Elements** (modal synthesis voice) to the [Ksolo
 - **Indicators**: LED1 green = gate. LED2 red = CPU overload. LED4 dual = resonator model (green/red/both). Gate1 = gate echo output.
 - **Resources**: RAM 69.4%, Flash 19.7%.
 
-See `docs/KSOLOTI_ELEMENTS.md` for full control mapping, secondary parameters, and ADC details.
+See [docs/KSOLOTI_ELEMENTS.md](docs/KSOLOTI_ELEMENTS.md) for full control mapping, secondary parameters, ADC details, and the pre-built-binary install guide.
 
 ### Setup
 
@@ -228,7 +243,7 @@ The full list of third-party code each module depends on, with licenses,
 is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 
 - **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32_clklink` work. This is what triggers the GPL on that module.
-- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti_elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
+- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti_elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
 - **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

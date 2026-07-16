@@ -24,9 +24,11 @@ The Eurorack clock / reset / manual-CV module with Ableton Link sync.
 | [pioarduino/platform-espressif32](https://github.com/pioarduino/platform-espressif32) | Apache-2.0 | PlatformIO platform fork pinning Arduino 3.x + IDF 5.5 |
 | [Adafruit MCP4728](https://github.com/adafruit/Adafruit_MCP4728) | MIT | DAC driver |
 
-## ksoloti_elements
+## ksoloti_elements (**Girl**)
 
-A port of Mutable Instruments Elements to the Ksoloti Big Genes board.
+A port of Mutable Instruments Elements to the Ksoloti Big Genes board,
+released as **Girl** (third in the magpie-rhyme family — see
+[README](README.md#released-modules)).
 
 | Component | License | Role |
 |---|---|---|

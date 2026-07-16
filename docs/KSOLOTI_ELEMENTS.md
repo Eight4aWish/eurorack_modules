@@ -1,6 +1,14 @@
-# Ksoloti Big Genes — Elements
+# Girl
 
-A port of [Mutable Instruments Elements](https://mutable-instruments.net/modules/elements/) (modal synthesis voice) to the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module.
+*"Three for a girl…"*
+
+**Girl** is a modal synthesis voice for the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html)
+Eurorack module (firmware env `ksoloti_elements`). It is the third in a family of
+firmwares named after the magpie counting rhyme — the first two, **Sorrow** and **Joy**,
+live in [eurorack_daisy_patch_init](https://github.com/Eight4aWish/eurorack_daisy_patch_init).
+
+Based on the **Elements** modal synthesis voice by [Émilie Gillet](https://github.com/pichenettes) (Mutable Instruments), MIT.
+*Not affiliated with, or endorsed by, Mutable Instruments or Ksoloti.*
 
 ## Hardware
 
@@ -150,7 +158,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `ksoloti_elements.bin` from the [latest Ksoloti Elements release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/ksoloti_elements-v1.0).
+Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.0.1).
 
 ### Step 2: Install dfu-util
 
@@ -174,10 +182,10 @@ The module's LEDs and screen will be off — this is normal. Your computer shoul
 Open a terminal and run:
 
 ```sh
-dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave -D ksoloti_elements.bin
+dfu-util -d 0483:df11 -a 0 -s 0x08000000:leave -D girl.bin
 ```
 
-You should see a progress bar. When it says "File downloaded successfully", the module will automatically restart and begin running Elements.
+You should see a progress bar. When it says "File downloaded successfully", the module will automatically restart and begin running Girl.
 
 ### Step 5: Verify
 
@@ -250,4 +258,11 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 ## License
 
-The Elements DSP code is by [Emilie Gillet](https://github.com/pichenettes) under the MIT License. See `third_party/eurorack/stmlib/LICENSE`.
+**Girl** is MIT-licensed. It is based on Mutable Instruments Elements by
+[Émilie Gillet](https://github.com/pichenettes), also released under the MIT License —
+the original copyright notices are retained in the submoduled sources under
+`third_party/eurorack/` (see `third_party/eurorack/stmlib/LICENSE`).
+
+"Elements" and "Mutable Instruments" are marks of their owner and are used here only to
+describe this firmware's origin; "Ksoloti" is a mark of its owner. Girl is an
+independent community work, not affiliated with or endorsed by either.
