@@ -34,14 +34,13 @@ pio device monitor -b 115200
 
 ## Teensy 4.1 — `teensy_move`
 
-A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo passthrough with a Filter → Delay → Reverb FX send. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
+A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, manual mod-pot sweeps on the STATUS page, and an SGTL5000 stereo passthrough with a Filter → Delay → Reverb FX send. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
 
-- **Four OLED pages**, cycled by short-pressing the front button:
-  - **Page 0 / 1 — CV Mode**: MIDI ch 1–4 → Gate + Pitch CV (V/Oct) + Mod CV (velocity, or **CC#42** once received on that channel — the live-coding mod CC). Ch 10 notes 36–39 → drum triggers.
-  - **Page 2 — Chord Mode**: MIDI ch 6 white keys trigger 4-voice chords on all Pitch/Gate outputs. 40 progressions × 5 categories × 5 voicings, with Pot 1–4 selecting root / category / progression / voicing.
-  - **Page 3 — FX Mode**: Stereo Filter → Delay → Reverb send on the audio passthrough (Pot 1–4 = cutoff / delay time / delay amount / reverb mix). Always-on and clean by default; the CV bridge keeps running underneath.
+- **Two OLED pages**, toggled by short-pressing the front button:
+  - **Page 0 — STATUS**: all four channels on one screen (gates, drums, clock/reset, pitch + mod voltages, last MIDI event). MIDI ch 1–4 → Gate + Pitch CV (V/Oct) + Mod CV; ch 10 notes 36–39 → drum triggers. **Pot 1–4 manually sweep Mod 1–4** across −5…+5 V with soft-takeover; mod source per channel is velocity, **CC#42** (the live-coding mod CC), or pot — last actuator wins.
+  - **Page 1 — FX**: Stereo Filter → Delay → Reverb send on the audio passthrough (Pot 1–4 = cutoff / delay time / delay amount / reverb mix). Always-on and clean by default; the CV bridge keeps running underneath.
 - **Long-press**: emits a Reset pulse (on every page).
-- **OLED sleeps** after 10 s (button-wake on CV pages, pot-wake on Chord/FX) to keep the panel's switching noise off the audio.
+- **OLED sleeps** after 10 s (button or pot move wakes it; MIDI alone never does) to keep the panel's switching noise off the audio.
 - **MIDI clock**: 24 PPQN → quarter-note pulses on `PIN_CLOCK`; Start emits a Reset pulse.
 - **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy_move/calib_static.h](include/teensy_move/calib_static.h)).
 
@@ -52,7 +51,7 @@ pio run -e teensy41
 pio run -e teensy41 -t upload
 ```
 
-See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, chord library details, and troubleshooting.
+See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, mod-source rules, and troubleshooting.
 
 ## Teensy 4.1 — `teensy_chaos`
 

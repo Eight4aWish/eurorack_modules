@@ -1,21 +1,19 @@
 # Teensy 4.1 — `teensy_move`
 
-An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, a chord mode driving the CV outputs, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
+An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, manual mod-pot sweeps on the STATUS page, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
 
-> **v3** — this revision removed the on-board drone synth, redirected chord mode to CV-only, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. The OLED switching noise was resolved with grounding (star/single-point return) + screen-sleep; a dedicated OLED supply LDO was tried and barely helped, which ruled out the supply rail (the coupling is ground/radiated). Possible v4 (software, optional): move gate/clock/drum edge timing into a timer ISR off the main loop (the original jitter concern), keeping the 74HC595 and arbitrating the shared SPI bus.
+> **v3** — this revision removed the on-board drone synth, added the stereo FX send, fixed the audio-out DC offset (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep noise mitigation. The chord/progressions mode was subsequently removed too, and the display collapsed to two pages — STATUS (all channels on one screen, with Pot 1–4 manually sweeping Mod 1–4 across −5…+5 V) and FX. The OLED switching noise was resolved with grounding (star/single-point return) + screen-sleep; a dedicated OLED supply LDO was tried and barely helped, which ruled out the supply rail (the coupling is ground/radiated). Possible v4 (software, optional): move gate/clock/drum edge timing into a timer ISR off the main loop (the original jitter concern), keeping the 74HC595 and arbitrating the shared SPI bus.
 
 ## Operating Modes
 
-The OLED has four pages. Short-press the front button to cycle through them.
+The OLED has two pages. Short-press the front button to toggle between them.
 
 | Page | Mode | Output |
 |------|------|--------|
-| 0 | CV — Channels 1–2 | MIDI ch 1–2 → main-board Gate/Pitch/Mod |
-| 1 | CV — Channels 3–4 | MIDI ch 3–4 → expander Gate/Pitch/Mod |
-| 2 | Chord | MIDI ch 6 white keys → 4-voice chord on all Pitch/Gate outputs |
-| 3 | FX | Pots control the stereo Filter → Delay → Reverb send on the audio passthrough |
+| 0 | STATUS | All four channels on one screen (gates, drums, clock/reset, pitch + mod voltages, last MIDI event); Pot 1–4 manually sweep Mod 1–4 (−5…+5 V, soft-takeover) |
+| 1 | FX | Pots control the stereo Filter → Delay → Reverb send on the audio passthrough |
 
-The CV bridge (MIDI ch 1–4) runs on **all pages except Chord** — page 3 (FX) keeps the bridge live underneath, so you can adjust effects while playing. Chord mode is page 2 only. The audio FX send is **always-on** regardless of page (page 3 just gives the pots control of it).
+The CV bridge (MIDI ch 1–4) runs on **both pages** — the page only decides what the pots do: Mod sweeps on STATUS, effects on FX. The audio FX send is **always-on** regardless of page (the FX page just gives the pots control of it).
 
 Long-press the front button emits a Reset pulse on `PIN_RESET` (on every page).
 
@@ -81,25 +79,22 @@ Pitch CV: V/Oct, base note `MIDI 36` = `0 V`. Pitch bend: ±2 semitones on chann
 
 Mod CV source — velocity or **CC#42** (the live-coding mod CC standardised across our MIDI-to-CV modules):
 - By default each channel's Mod output follows **note velocity** (0–5 V, held after note-off).
-- The first **CC#42** received on a channel (1–4) **latches that channel's Mod to CC control**: CC#42 values drive it (0–5 V) and note velocity no longer writes it, so streamed notes can't stomp a CC sweep. The latch holds until power-off.
+- The first **CC#42** received on a channel (1–4) **grabs that channel's Mod for CC control**: CC#42 values drive it (0–5 V) and note velocity no longer writes it, so streamed notes can't stomp a CC sweep.
+- A **STATUS-page pot** grab does the same (−5…+5 V); CC and pot can take the channel from each other at any time — **last actuator wins**. Velocity only ever drives a channel that neither has touched (until power-off).
 - CC#42 is accepted on any OLED page (the value flushes whenever the CV bridge next writes). No other CCs are mapped.
 
-## Chord Mode (Page 2)
+## Mod Pots (STATUS page)
 
-MIDI input on **channel 6**. White keys trigger chords 1–7; an octave-up C triggers chord 8. Black keys snap to the nearest white key below. All four chord voices play simultaneously on Pitch1–4 / Gate1–4.
+On the STATUS page, Pot 1–4 manually sweep Mod 1–4 across **−5…+5 V** (pot centre = 0 V) — four hands-on CV offsets/sweeps.
 
-Pots while on the Chord page:
+- **Soft-takeover**: on entering the page (and at boot) each pot is inactive until it crosses (or lands within ~0.15 V of) the channel's current Mod voltage — grabbing a pot never snaps the output.
+- **Grabbing a pot switches that channel's mod source to POT** (see the Mod CV source rules above): velocity stops writing it, and CC#42 can take it back at any time (last actuator wins).
+- While sweeping, row 3 shows per-channel source letters (`V`/`C`/`P`); `~` marks a pot that hasn't been caught yet. It reverts to the MIDI event display ~2 s after the last pot move.
+- The CV bridge (notes → pitch/gate) keeps running while you sweep.
 
-- **Pot 1**: Root note (C, C#, D, … B)
-- **Pot 2**: Category (Pop, Jazz, EDM, Cinematic, LoFi)
-- **Pot 3**: Progression within category
-- **Pot 4**: Voicing — Root, Inv1, Inv2, Drop-2, Spread
+## FX Mode (Page 1)
 
-Chord library: 40 progressions across 5 categories. Defined in [include/teensy_move/chord_library.h](../include/teensy_move/chord_library.h). Real-time chord-name detection ("Am7", "CM7", "Dm" …) shown on row 2 of the OLED. Chord mode drives only the CV outputs (pitch/gate) — there is no on-board synth voice.
-
-## FX Mode (Page 3)
-
-A stereo **Filter → Delay → Reverb** send on the line passthrough, processing the Move's audio on its way to the Eurorack-level outputs. The FX runs always-on, concurrent with the CV bridge; page 3 just gives the pots control of it. Defaults are fully clean (open filter, no delay/reverb), so the passthrough stays a transparent level-shifted send until you dial FX in.
+A stereo **Filter → Delay → Reverb** send on the line passthrough, processing the Move's audio on its way to the Eurorack-level outputs. The FX runs always-on, concurrent with the CV bridge; the FX page just gives the pots control of it. Defaults are fully clean (open filter, no delay/reverb), so the passthrough stays a transparent level-shifted send until you dial FX in.
 
 Pots while on the FX page:
 
@@ -135,23 +130,25 @@ Signal chain — a stereo FX send on the line passthrough:
 
 128×32 SSD1306, 4 rows × ~21 chars. Refresh 250 ms with row caching and partial updates to keep MIDI timing tight.
 
-**Screen sleep.** The panel powers down (`DISPLAYOFF`, which stops the charge-pump and the I2C refresh bursts) after 10 s of inactivity — this is the main software mitigation for OLED switching noise coupling into the audio. On the CV pages the **button** wakes it, so the screen stays dark and quiet while you play; on the Chord/FX pages a deliberate **pot move** also wakes/holds it so you keep the readout while editing. The first wake press only wakes (no page change). Combined with hardware grounding (star/single-point return) this brings the noise to an acceptable level; a dedicated OLED supply LDO was tried and barely helped, confirming the coupling is ground/radiated rather than the supply rail.
+**Screen sleep.** The panel powers down (`DISPLAYOFF`, which stops the charge-pump and the I2C refresh bursts) after 10 s of inactivity — this is the main software mitigation for OLED switching noise coupling into the audio. The **button** or a deliberate **pot move** (mod sweep or FX edit) wakes/holds it; MIDI alone never wakes it, so the screen stays dark and quiet while you play. The first wake press only wakes (no page change). Combined with hardware grounding (star/single-point return) this brings the noise to an acceptable level; a dedicated OLED supply LDO was tried and barely helped, confirming the coupling is ground/radiated rather than the supply rail.
 
 Page layouts (4 rows each):
 
 ```
-Page 0 — CV Channels 1–2          Page 1 — CV Channels 3–4
-  CV MODE  G1:#  G2:#                CV MODE  G3:#  G4:#
-  P1:+1.23V  P2:-0.45V               P3:+1.23V  P4:-0.45V
-  Drums:#### CLK:#                   Drums:#### RST:#
-  MIDI ch:1 n:60 v:100               MIDI ch:1 n:60 v:100
+Page 0 — STATUS
+  G:#--# D:#### C:# R:#     <- gates 1-4, drums 1-4, clock, reset
+  P+1.23-0.45+0.00+7.00     <- pitch CVs 1-4 (sign-delimited 5-char columns)
+  M+2.50-1.20+0.00+5.00     <- mod CVs 1-4 (same columns; pots sweep these)
+  MIDI ch:1 n:60 v:100      <- src letters while sweeping, else last MIDI event
 
-Page 2 — Chord                    Page 3 — FX
-  CHORD C Pop P:1                    FX  Filt>Dly>Verb
-  V:Root -> CM7                      Cut:12000Hz Dly:250
-  Trig note: 60                      Fb: 0% Verb: 0%
-  G:#### D:----                      P1cut P2dly P3fb P4vb
+Page 1 — FX
+  FX  Filt>Dly>Verb
+  Cut:12000Hz Dly:250
+  Fb: 0% Verb: 0%
+  P1cut P2dly P3fb P4vb
 ```
+
+All STATUS rows are exactly 21 characters — the display's limit at text size 1 — with the four voltages packed as signed 5-char fields whose sign acts as the separator, so the P and M rows form aligned per-channel columns.
 
 ## Calibration
 
@@ -190,7 +187,7 @@ Upload protocol is `teensy-cli`.
 - **Gates not asserting** — Check 74HCT14 wiring and confirm LOW on Q0/Q1 (or main-board gate pin) during gate-on.
 - **DACs not responding** — Verify Q6/Q7 CS polarity (active-low) and shared SPI continuity.
 - **Drum triggers missing** — Confirm Channel 10, note range 36..39.
-- **Chord mode silent** — Send notes on MIDI **channel 6** specifically; other channels do not trigger chords.
-- **FX not heard** — The passthrough defaults to clean; dial FX in on page 3 (Pot 1 cutoff / Pot 2 delay time / Pot 3 delay amount / Pot 4 reverb mix).
+- **Mod output not following the pot** — A pot engages only after crossing the channel's current value (soft-takeover); sweep it through the voltage shown on the M row. `~` in the src feedback marks an uncaught pot.
+- **FX not heard** — The passthrough defaults to clean; dial FX in on the FX page (Pot 1 cutoff / Pot 2 delay time / Pot 3 delay amount / Pot 4 reverb mix).
 - **DC offset on the audio output** — The LINE OUT gain stage must be AC-coupled (see [Audio](#audio)); the SGTL LINE OUT carries a ~1.5 V VAG bias.
 - **Audible noise that tracks the screen** — OLED charge-pump/I2C coupling; the screen sleeps after 10 s (button or pot to wake). Addressed with star/single-point grounding plus screen-sleep; supply-rail isolation made little difference (the coupling is ground/radiated).

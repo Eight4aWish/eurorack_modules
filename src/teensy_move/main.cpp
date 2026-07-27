@@ -2,16 +2,17 @@
 // Copyright (c) 2026 David Baghurst
 //
 // Teensy Move v3 — Ableton Move <-> Eurorack bridge
-// v3: removed the drone synth, chord mode drives CV only, added a stereo
-//     Filter->Delay->Reverb FX send on the passthrough, fixed the audio-out DC
-//     (LINE OUT AC-coupling + ADC HPF freeze), and added OLED screen-sleep.
+// v3: removed the drone synth, added a stereo Filter->Delay->Reverb FX send on
+//     the passthrough, fixed the audio-out DC (LINE OUT AC-coupling + ADC HPF
+//     freeze), and added OLED screen-sleep. Chord/progressions mode was later
+//     removed. Two pages: STATUS (all channels on one screen; Pot1-4 sweep
+//     Mod1-4 across -5..+5V with soft-takeover) and FX.
 //     OLED switching noise is handled by grounding (star return) + screen-sleep
 //     (a dedicated OLED supply LDO was tried and barely helped, ruling out the
 //     supply rail). Possible v4 (software, optional): timer-ISR gate/clock/drum
 //     timing off the main loop, keeping the 595 and arbitrating the shared SPI bus.
 // - 4x MIDI-to-CV (gate / pitch / mod) on ch1-4, 4 drum triggers on ch10
-//   (mod = velocity, or CC#42 once received on that channel — see MOD_CC)
-// - Chord mode on ch6 (4-voice chord -> pitch/gate CVs)
+//   (mod source per channel: velocity, CC#42, or STATUS-page pot — last actuator wins)
 // - Stereo line passthrough with a Filter->Delay->Reverb FX send (four pots)
 // - Partial OLED updates (only changed rows) to limit loop() blocking
 
@@ -26,7 +27,6 @@
 #include "spi_bus.h"
 #include "teensy_move/pins.h"
 #include "teensy_move/calib_static.h"
-#include "teensy_move/chord_library.h"
 
 #define OLED_W 128
 #define OLED_H 32
@@ -97,9 +97,6 @@ static const uint8_t DRUM_BASE_NOTE = 36;
 static const uint8_t DRUM_COUNT = 4;
 static const uint32_t DRUM_TRIG_US[DRUM_COUNT] = { 500, 500, 500, 500 };
 
-// Chord mode constants
-static const uint8_t CHORD_MIDI_CH = 6;  // MIDI channel for chord input
-static const uint8_t CHORD_VOICE_COUNT = 4;
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 13
@@ -151,13 +148,17 @@ static Voice v1, v2, v3, v4;
 static inline float midiNote_to_volts(int note){ return (note-36)/12.0f; }
 static inline void updatePitch(Voice& v){ float base=midiNote_to_volts(v.note<0?36:v.note); v.pitchHeldV = base + v.bend/12.0f; }
 
-// Mod CV source: CC#42 (the live-coding mod CC standardised across our
-// MIDI-to-CV modules). Until a CC42 arrives on a channel its Mod output
-// follows note velocity (original behaviour); the first CC42 latches that
-// channel's Mod to CC control until power-off, so streamed notes can't
-// stomp a CC sweep between CC updates.
+// Mod CV source, per channel — last actuator wins:
+//   VEL (default) — note velocity writes Mod at note-on (0..5V)
+//   CC  — CC#42 (the live-coding mod CC standardised across our MIDI-to-CV
+//         modules) drives Mod (0..5V); grabs the channel on first receipt
+//   POT — the STATUS-page pot drives Mod (-5..+5V); grabs on a deliberate move
+// Once a channel leaves VEL, velocity never writes it again (until power-off),
+// so streamed notes can't stomp a CC or pot sweep. CC and POT can take the
+// channel from each other at any time (last actuator wins).
+enum ModSource : uint8_t { MODSRC_VEL = 0, MODSRC_CC, MODSRC_POT };
 static const uint8_t MOD_CC = 42;
-static bool modFromCC[4] = {false, false, false, false};
+static ModSource modSource[4] = {MODSRC_VEL, MODSRC_VEL, MODSRC_VEL, MODSRC_VEL};
 
 // Dirty flags
 static volatile bool dirtyPitch1=true, dirtyPitch2=true, dirtyMod1=true, dirtyMod2=true;
@@ -171,6 +172,13 @@ static volatile uint32_t clkUntil=0, rstUntil=0; const uint32_t PULSE_MS=5;
 // Drums
 static volatile bool drumTrig[DRUM_COUNT] = {false,false,false,false};
 static volatile uint32_t drumUntilUs[DRUM_COUNT] = {0,0,0,0};
+
+// Display helpers for the STATUS row: drum pulses (500us) are far shorter than
+// the OLED refresh, so latch each hit for ~300ms on screen (outputs unaffected).
+// Clock presence = any MIDI clock tick within the last 500ms -> show "CLK".
+static const uint32_t DRUM_DISP_MS = 300;
+static volatile uint32_t drumSeenMs[DRUM_COUNT] = {0,0,0,0};
+static volatile uint32_t lastClockTickMs = 0;
 
 // Debug
 static volatile uint8_t lastMidiCh=0, lastMidiNote=0, lastMidiVel=0; static volatile uint32_t lastMidiMs=0;
@@ -190,36 +198,22 @@ static bool btnWakeConsumed=false;
 static const uint32_t SCREEN_SLEEP_MS=10000;
 static inline void drawRow(uint8_t row,const char* s){ oled.setCursor(0,row*8); oled.print(s); }
 static char lineBuf[64];
-static uint8_t gOledPage = 0; // 0 = CH1-2, 1 = CH3-4, 2 = CHORD, 3 = FX
+static uint8_t gOledPage = 0; // 0 = STATUS (all channels; pots -> Mod1-4), 1 = FX
 
 // OLED row cache for partial updates
 static char oledRowCache[4][22] = {"","","",""};  // 21 chars max per row + null
 static bool oledRowDirty[4] = {true, true, true, true};
 
 // ============================================================================
-// CHORD MODE STATE
+// MOD POT STATE (STATUS page) — manual pot control of the four Mod outputs
 // ============================================================================
-static uint8_t chordRootNote = 0;        // 0=C, 1=C#, ... 11=B (from POT1)
-static uint8_t chordCategory = 0;        // Category index (from POT2)
-static uint8_t chordProgression = 0;     // Progression index within category (from POT3)
-static VoicingType chordVoicing = VOICING_ROOT;  // Voicing type (from POT4)
-
-// Chord output state
-static volatile float chordPitchV[4] = {0, 0, 0, 0};   // Pitch voltages for chord voices
-static volatile bool chordGate[4] = {false, false, false, false};
-static volatile bool chordDirty = true;  // Flag to update chord DACs
-static volatile int8_t chordHeldNote = -1;  // Currently held chord trigger note
-static volatile uint8_t chordCurrentIdx = 0;  // Current chord index (0-7) being played
-
-// Last pot readings for change detection
-static uint16_t lastPotRaw[4] = {0, 0, 0, 0};
-static const uint16_t POT_DEADBAND = 30;  // Ignore small changes
-
-// Note names for display
-static const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-
-// Current chord name for display (updated when chord triggered)
-static char chordNameBuf[8] = "---";
+// Pot1-4 sweep Mod1-4 across -5..+5V (pot centre = 0V). Soft-takeover: on
+// entering the page each pot is inactive until it crosses (or lands near) the
+// channel's current Mod voltage, so grabbing a pot never snaps the output.
+static bool  modPotCaught[4] = {false, false, false, false};
+static float modPotRef[4]    = {0, 0, 0, 0};  // pot volts at page entry (crossing ref)
+static uint8_t gPrevOledPage = 255;           // page-change detection for arming (255 = arm at boot)
+static uint32_t lastModPotMs = 0;             // last mod-pot movement (row-3 src feedback)
 
 // ============================================================================
 // FX STATE (stereo Filter -> Delay -> Reverb on the audio passthrough)
@@ -274,206 +268,52 @@ static void initFx() {
 }
 
 // ============================================================================
-// CHORD HELPERS
+// MOD POTS (STATUS page) — Pot1-4 manually sweep Mod1-4 across -5..+5V
 // ============================================================================
 
-// Detect chord type from intervals and build chord name
-static void buildChordName(const int8_t* intervals, uint8_t rootNote) {
-    // The intervals are absolute semitones from key root
-    // First, normalize all to pitch classes (0-11)
-    int8_t pc[4];
-    for (int i = 0; i < 4; i++) {
-        int v = intervals[i] % 12;
-        if (v < 0) v += 12;
-        pc[i] = v;
-    }
-    
-    // Find unique pitch classes and sort them
-    int8_t unique[4];
-    int numUnique = 0;
-    for (int i = 0; i < 4; i++) {
-        bool found = false;
-        for (int j = 0; j < numUnique; j++) {
-            if (unique[j] == pc[i]) { found = true; break; }
-        }
-        if (!found) unique[numUnique++] = pc[i];
-    }
-    // Sort unique pitch classes
-    for (int i = 0; i < numUnique - 1; i++) {
-        for (int j = i + 1; j < numUnique; j++) {
-            if (unique[i] > unique[j]) { int8_t t = unique[i]; unique[i] = unique[j]; unique[j] = t; }
-        }
-    }
-    
-    // The chord root is the lowest absolute interval's pitch class
-    int8_t lowestInterval = intervals[0];
-    for (int i = 1; i < 4; i++) {
-        if (intervals[i] < lowestInterval) lowestInterval = intervals[i];
-    }
-    int chordRootPC = lowestInterval % 12;
-    if (chordRootPC < 0) chordRootPC += 12;
-    
-    // Calculate the actual note name for the chord root
-    int chordRootNote = ((int)rootNote + chordRootPC) % 12;
-    
-    // Build interval set relative to chord root
-    bool has[12] = {false};
-    for (int i = 0; i < numUnique; i++) {
-        int rel = (unique[i] - chordRootPC + 12) % 12;
-        has[rel] = true;
-    }
-    
-    // Detect chord quality based on which intervals are present
-    // has[0] = root, has[3] = m3, has[4] = M3, has[6] = dim5, has[7] = P5,
-    // has[8] = aug5, has[10] = m7, has[11] = M7, has[2] = 2/9, has[5] = 4/11
-    const char* suffix = "";
-    
-    bool hasM3 = has[4];
-    bool hasm3 = has[3];
-    bool hasP5 = has[7];
-    bool hasd5 = has[6];
-    bool hasA5 = has[8];
-    bool hasM7 = has[11];
-    bool hasm7 = has[10];
-    bool has4  = has[5];
-    bool has2  = has[2];
-    
-    if (hasM3 && hasP5 && hasM7) suffix = "M7";
-    else if (hasM3 && hasP5 && hasm7) suffix = "7";
-    else if (hasm3 && hasP5 && hasm7) suffix = "m7";
-    else if (hasm3 && hasP5 && hasM7) suffix = "mM7";
-    else if (hasm3 && hasd5 && hasm7) suffix = "m7b5";
-    else if (hasm3 && hasd5 && (has[9])) suffix = "o7";  // dim7 has bb7 (9 semitones)
-    else if (hasM3 && hasA5) suffix = "+";
-    else if (hasm3 && hasd5) suffix = "dim";
-    else if (has4 && hasP5 && !hasM3 && !hasm3) suffix = "sus4";
-    else if (has2 && hasP5 && !hasM3 && !hasm3) suffix = "sus2";
-    else if (hasm3 && hasP5) suffix = "m";
-    else if (hasM3 && hasP5) suffix = "";  // Major triad
-    else if (hasM3) suffix = "";  // Major (no 5th)
-    else if (hasm3) suffix = "m";  // Minor (no 5th)
-    else suffix = "";  // Default - just show root
-    
-    snprintf(chordNameBuf, sizeof(chordNameBuf), "%s%s", kNoteNames[chordRootNote], suffix);
+// Arm soft-takeover for all four pots (called when STATUS is entered / at boot).
+static void armModPots() {
+  for (int i = 0; i < 4; i++) {
+    modPotCaught[i] = false;
+    int raw = 4095 - analogRead(i == 0 ? PIN_POT1 : i == 1 ? PIN_POT2
+                                : i == 2 ? PIN_POT3 : PIN_POT4);
+    modPotRef[i] = (raw / 4095.0f) * 10.0f - 5.0f;
+  }
 }
 
-// Convert semitone interval to voltage (1V/oct, 0V = C3 = MIDI 48)
-static inline float semitoneToVolt(int8_t semitone, uint8_t rootNote, uint8_t baseOctave) {
-    // baseOctave: the octave of the played note (0-based from MIDI note)
-    // rootNote: 0-11 for C-B
-    // semitone: interval from the chord root
-    int totalSemitones = (int)rootNote + (int)semitone + (baseOctave - 3) * 12;
-    return totalSemitones / 12.0f;  // 1V per octave
-}
+// Read the pots and drive the Mod outputs. A pot engages once it crosses (or
+// lands within 0.15V of) the channel's current Mod voltage; from then on it
+// tracks directly and grabs the channel's mod source (MODSRC_POT). Returns
+// true if any pot actually moved a value (for screen-wake).
+static bool updateModPots() {
+  int raw[4];
+  raw[0] = 4095 - analogRead(PIN_POT1);  // Invert: CW = max
+  raw[1] = 4095 - analogRead(PIN_POT2);
+  raw[2] = 4095 - analogRead(PIN_POT3);
+  raw[3] = 4095 - analogRead(PIN_POT4);
 
-// Read pots and update chord parameters. Returns true if a pot actually moved.
-static bool updateChordParams() {
-    uint16_t raw[4];
-    raw[0] = 4095 - analogRead(PIN_POT1);  // Invert: CW = max
-    raw[1] = 4095 - analogRead(PIN_POT2);
-    raw[2] = 4095 - analogRead(PIN_POT3);
-    raw[3] = 4095 - analogRead(PIN_POT4);
+  Voice* vs[4] = { &v1, &v2, &v3, &v4 };
+  volatile bool* dirty[4] = { &dirtyMod1, &dirtyMod2, &dirtyMod3, &dirtyMod4 };
 
-    // Check for significant changes
-    bool changed = false;
-    for (int i = 0; i < 4; i++) {
-        if (abs((int)raw[i] - (int)lastPotRaw[i]) > POT_DEADBAND) {
-            lastPotRaw[i] = raw[i];
-            changed = true;
-        }
+  bool moved = false;
+  for (int i = 0; i < 4; i++) {
+    float potV = (raw[i] / 4095.0f) * 10.0f - 5.0f;  // -5..+5V, centre = 0V
+    float target = vs[i]->modV;
+    if (!modPotCaught[i]) {
+      bool near    = fabsf(potV - target) <= 0.15f;
+      bool crossed = (modPotRef[i] - target) * (potV - target) < 0.0f;
+      if (near || crossed) modPotCaught[i] = true;
+      else continue;
     }
-
-    if (!changed && chordHeldNote < 0) return false;  // No change and no held note
-    
-    // POT1: Root note (0-11 mapped from 0-4095)
-    uint8_t newRoot = (raw[0] * 12) / 4096;
-    if (newRoot > 11) newRoot = 11;
-    
-    // POT2: Category
-    uint8_t newCat = (raw[1] * kNumCategories) / 4096;
-    if (newCat >= kNumCategories) newCat = kNumCategories - 1;
-    
-    // POT3: Progression within category
-    uint8_t numProgs = kChordCategories[newCat].count;
-    uint8_t newProg = (raw[2] * numProgs) / 4096;
-    if (newProg >= numProgs) newProg = numProgs - 1;
-    
-    // POT4: Voicing
-    uint8_t newVoice = (raw[3] * VOICING_COUNT) / 4096;
-    if (newVoice >= VOICING_COUNT) newVoice = VOICING_COUNT - 1;
-    
-    // Update if changed
-    if (newRoot != chordRootNote || newCat != chordCategory || 
-        newProg != chordProgression || newVoice != (uint8_t)chordVoicing) {
-        chordRootNote = newRoot;
-        chordCategory = newCat;
-        chordProgression = newProg;
-        chordVoicing = (VoicingType)newVoice;
-        
-        // If a chord is held, update the output
-        if (chordHeldNote >= 0) {
-            chordDirty = true;
-        }
+    // Deadband so ADC jitter doesn't churn DAC writes or hold the screen awake.
+    if (fabsf(potV - target) > 0.05f) {
+      vs[i]->modV = potV;
+      modSource[i] = MODSRC_POT;
+      *dirty[i] = true;
+      moved = true;
     }
-    return changed;
-}
-
-// Trigger a chord from a MIDI note
-static void triggerChord(uint8_t midiNote) {
-    chordHeldNote = midiNote;
-    
-    // Get chord index from note
-    uint8_t chordIdx = noteToChordIndex(midiNote);
-    chordCurrentIdx = chordIdx;  // Store for display
-    
-    // Get the progression
-    const ChordProgression& prog = kChordCategories[chordCategory].progressions[chordProgression];
-    
-    // Copy intervals and apply voicing
-    int8_t intervals[4];
-    for (int i = 0; i < 4; i++) {
-        intervals[i] = prog.chords[chordIdx].intervals[i];
-    }
-    
-    // Build chord name before voicing (for display)
-    buildChordName(prog.chords[chordIdx].intervals, chordRootNote);
-    
-    applyVoicing(intervals, chordVoicing);
-    
-    // Determine base octave from the played note
-    uint8_t baseOctave = midiNote / 12;
-    
-    // Convert to voltages
-    for (int i = 0; i < 4; i++) {
-        chordPitchV[i] = semitoneToVolt(intervals[i], chordRootNote, baseOctave);
-        chordGate[i] = true;
-    }
-
-    chordDirty = true;
-}
-
-// Release chord
-static void releaseChord(uint8_t midiNote) {
-    if (chordHeldNote == midiNote) {
-        chordHeldNote = -1;
-        for (int i = 0; i < 4; i++) {
-            chordGate[i] = false;
-        }
-        chordDirty = true;
-    }
-}
-
-// Write chord pitches to Pitch DACs (using the 4 pitch outputs in chord mode)
-static void writeChordPitchesToPitchOutputs() {
-    if (!chordDirty) return;
-    
-    // Pitch1 = DAC1.B, Pitch2 = DAC2.B, Pitch3/4 = expander DAC2 (channels PITCH3/PITCH4)
-    mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code_ch(0, chordPitchV[0]));
-    mcp4822_write(PIN_CS_DAC2, CH_B, pitchVolt_to_code_ch(1, chordPitchV[1]));
-    mcp4822_write_expander(1, EXP_PITCH3_CH_IDX, pitchVolt_to_code_ch(2, chordPitchV[2]));
-    mcp4822_write_expander(1, EXP_PITCH4_CH_IDX, pitchVolt_to_code_ch(3, chordPitchV[3]));
-    
-    chordDirty = false;
+  }
+  return moved;
 }
 
 // Diagnostics mode (boot-hold)
@@ -527,72 +367,52 @@ static void diag_tick() {
   gDiagCodes[gDiagSel] = (uint16_t)code;
 }
 
-// MIDI callbacks - behavior depends on current mode (gOledPage)
-// Pages 0-1: CV mode (ch1-4 CV/Gate with velocity to mod, ch10 drums)
-// Page 2: Chord mode (ch6 triggers chords on pitch/gate outputs, ch10 drums still work)
+// MIDI callbacks — the CV bridge (ch1-4) is active on every page.
 void onNoteOn(byte ch, byte note, byte vel){
   lastMidiCh=ch; lastMidiNote=note; lastMidiVel=vel; lastMidiMs=millis();
   if(!vel){ onNoteOff(ch,note,0); return; }
-  
-  // Drums always work (ch10) in both modes
+
+  // Drums (ch10)
   if(ch==10){
     int idx=(int)note-(int)DRUM_BASE_NOTE;
     if(idx>=0 && idx<(int)DRUM_COUNT){
       drumTrig[idx]=true;
       drumUntilUs[idx]=micros()+DRUM_TRIG_US[idx];
+      drumSeenMs[idx]=millis();
     }
     return;
   }
-  
-  // Mode-based MIDI handling: chord on page 2, CV bridge on all other pages
-  // (the FX page keeps the bridge running underneath).
-  if(gOledPage != 2) {
-    // CV MODE: Channels 1-4 CV/Gate; velocity drives Mod unless the channel
-    // has been latched to CC#42 control (see modFromCC above).
-    float modV = (vel / 127.0f) * 5.0f;  // 0-5V velocity
-    if(ch==1){
-      v1.note=note; updatePitch(v1);
-      if(!modFromCC[0]){ v1.modV=modV; dirtyMod1=true; }
-      gate1=true; dirtyPitch1=true;
-    }
-    else if(ch==2){
-      v2.note=note; updatePitch(v2);
-      if(!modFromCC[1]){ v2.modV=modV; dirtyMod2=true; }
-      gate2=true; dirtyPitch2=true;
-    }
-    else if(ch==3){
-      v3.note=note; updatePitch(v3);
-      if(!modFromCC[2]){ v3.modV=modV; dirtyMod3=true; }
-      gate3=true; dirtyPitch3=true;
-    }
-    else if(ch==4){
-      v4.note=note; updatePitch(v4);
-      if(!modFromCC[3]){ v4.modV=modV; dirtyMod4=true; }
-      gate4=true; dirtyPitch4=true;
-    }
-  } else {
-    // CHORD MODE: Channel 6 triggers chords on pitch/gate outputs
-    if(ch==CHORD_MIDI_CH){
-      triggerChord(note);
-    }
+
+  // Channels 1-4 CV/Gate; velocity drives Mod only while the channel's mod
+  // source is still VEL (CC#42 or a STATUS-page pot may have grabbed it).
+  float modV = (vel / 127.0f) * 5.0f;  // 0-5V velocity
+  if(ch==1){
+    v1.note=note; updatePitch(v1);
+    if(modSource[0]==MODSRC_VEL){ v1.modV=modV; dirtyMod1=true; }
+    gate1=true; dirtyPitch1=true;
+  }
+  else if(ch==2){
+    v2.note=note; updatePitch(v2);
+    if(modSource[1]==MODSRC_VEL){ v2.modV=modV; dirtyMod2=true; }
+    gate2=true; dirtyPitch2=true;
+  }
+  else if(ch==3){
+    v3.note=note; updatePitch(v3);
+    if(modSource[2]==MODSRC_VEL){ v3.modV=modV; dirtyMod3=true; }
+    gate3=true; dirtyPitch3=true;
+  }
+  else if(ch==4){
+    v4.note=note; updatePitch(v4);
+    if(modSource[3]==MODSRC_VEL){ v4.modV=modV; dirtyMod4=true; }
+    gate4=true; dirtyPitch4=true;
   }
 }
 void onNoteOff(byte ch, byte note, byte){
   lastMidiCh=ch; lastMidiNote=note; lastMidiVel=0; lastMidiMs=millis();
-  
-  // Mode-based MIDI handling: chord on page 2, CV bridge on all other pages.
-  if(gOledPage != 2) {
-    // CV MODE
-    if(ch==1 && v1.note==note){ gate1=false; v1.note=-1; dirtyPitch1=true; }
-    else if(ch==2 && v2.note==note){ gate2=false; v2.note=-1; dirtyPitch2=true; }
-    else if(ch==3 && v3.note==note){ gate3=false; v3.note=-1; dirtyPitch3=true; }
-    else if(ch==4 && v4.note==note){ gate4=false; v4.note=-1; dirtyPitch4=true; }
-  } else {
-    // CHORD MODE
-    if(ch==CHORD_MIDI_CH){
-      releaseChord(note);
-    }
-  }
+  if(ch==1 && v1.note==note){ gate1=false; v1.note=-1; dirtyPitch1=true; }
+  else if(ch==2 && v2.note==note){ gate2=false; v2.note=-1; dirtyPitch2=true; }
+  else if(ch==3 && v3.note==note){ gate3=false; v3.note=-1; dirtyPitch3=true; }
+  else if(ch==4 && v4.note==note){ gate4=false; v4.note=-1; dirtyPitch4=true; }
 }
 void onPitchBend(byte ch, int value){
   float semis=2.0f*(float)(value-8192)/8192.0f;
@@ -602,12 +422,12 @@ void onPitchBend(byte ch, int value){
   else if(ch==4){ v4.bend=semis; if(v4.note>=0){ updatePitch(v4); dirtyPitch4=true; } }
 }
 void onControlChange(byte ch, byte cc, byte val){
-  // CC#42 on ch1-4 -> that voice's Mod CV (0-5V), latching the channel to CC
-  // control. Works regardless of the current OLED page (the value flushes
-  // whenever the CV bridge next writes). FX stays pot-driven — no other CCs.
+  // CC#42 on ch1-4 -> that voice's Mod CV (0-5V), grabbing the channel's mod
+  // source (last actuator wins vs the STATUS-page pots). Works regardless of the
+  // current OLED page. FX stays pot-driven — no other CCs.
   if (cc != MOD_CC || ch < 1 || ch > 4) return;
   float modV = (val / 127.0f) * 5.0f;
-  modFromCC[ch - 1] = true;
+  modSource[ch - 1] = MODSRC_CC;
   switch (ch) {
     case 1: v1.modV = modV; dirtyMod1 = true; break;
     case 2: v2.modV = modV; dirtyMod2 = true; break;
@@ -622,7 +442,7 @@ static void resetMidiClockCounter(){ midiTickCount=BEAT_DIV-1; } // so first onC
 void onStart(){ rst=true; rstUntil=millis()+8; GATE_WRITE(PIN_RESET,true); resetMidiClockCounter(); }
 void onStop(){ gate1=false; gate2=false; gate3=false; gate4=false; clk=false; rst=false; GATE_WRITE(PIN_CLOCK,false); resetMidiClockCounter(); }
 void onContinue(){ resetMidiClockCounter(); }
-void onClock(){ midiTickCount++; if(midiTickCount % BEAT_DIV == 0){ clk=true; clkUntil=millis()+PULSE_MS; GATE_WRITE(PIN_CLOCK,true); } }
+void onClock(){ lastClockTickMs=millis(); midiTickCount++; if(midiTickCount % BEAT_DIV == 0){ clk=true; clkUntil=millis()+PULSE_MS; GATE_WRITE(PIN_CLOCK,true); } }
 
 // Wake the OLED from sleep: power it back on and force a full repaint.
 static void wakeScreen() {
@@ -705,12 +525,18 @@ void loop(){
   // Note: the screen wakes on the BUTTON only (not on MIDI), so playing keeps it
   // dark/quiet. Press the button to peek; it re-sleeps after SCREEN_SLEEP_MS.
 
-  // Read pots for chord parameters when in chord mode. On the pot-driven pages
-  // (chord/FX) a pot move counts as UI activity so the screen stays awake
-  // while you edit, instead of sleeping mid-tweak.
-  if (gOledPage == 2) {
-    if (updateChordParams()) registerUiActivity();  // Chord page
-  } else if (gOledPage == 3) {
+  // Arm mod-pot soft-takeover whenever the STATUS page is (re)entered (pots
+  // must cross the current Mod value before they engage — no snap on grab).
+  if (gOledPage != gPrevOledPage) {
+    if (gOledPage == 0) armModPots();
+    gPrevOledPage = gOledPage;
+  }
+
+  // Pots: on STATUS they sweep Mod1-4; on FX they set the effects. A pot move
+  // counts as UI activity so the screen stays awake while you edit.
+  if (gOledPage == 0) {
+    if (updateModPots()) { lastModPotMs = millis(); registerUiActivity(); }
+  } else if (gOledPage == 1) {
     // FX page: P1 cutoff, P2 delay time, P3 feedback, P4 reverb mix.
     // Wide deadband so the noisy ADC doesn't jitter params or hold the screen on.
     static int16_t lastFxPots[4] = {-1, -1, -1, -1};
@@ -752,7 +578,7 @@ void loop(){
       } else if(held >= LONG_MS){
         rst=true; rstUntil=btnNow+8;  // long press = reset pulse (all pages)
       }
-      else { gOledPage = (gOledPage + 1) % 4; }  // short press = toggle page (4 pages)
+      else { gOledPage = (gOledPage + 1) % 2; }  // short press = toggle STATUS/FX
       lastUiActivityMs = btnNow;
     }
     btnPrev=b;
@@ -769,48 +595,28 @@ void loop(){
     }
   }
   
-  // Mode-dependent gate outputs for gates 1-2 (directly on Teensy pins)
+  // Gate outputs (directly on Teensy pins) — bridge active on every page
   GATE_WRITE(PIN_CLOCK, clk); GATE_WRITE(PIN_RESET, rst);
-  if(gOledPage == 2) {
-    // CHORD MODE: Use gate1/2 for chord voice 1/2 gates
-    GATE_WRITE(PIN_GATE1, chordGate[0]); GATE_WRITE(PIN_GATE2, chordGate[1]);
-  } else {
-    // CV MODE: Normal gate1/2
-    GATE_WRITE(PIN_GATE1, gate1); GATE_WRITE(PIN_GATE2, gate2);
-  }
+  GATE_WRITE(PIN_GATE1, gate1); GATE_WRITE(PIN_GATE2, gate2);
 
-  // Mode-based CV outputs
-  if(gOledPage != 2) {
-    // CV MODE: Write pitch and mod (velocity) CVs for channels 1-4
-    if(dirtyPitch1){ mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code_ch(0, v1.pitchHeldV)); dirtyPitch1=false; }
-    if(dirtyPitch2){ mcp4822_write(PIN_CS_DAC2, CH_B, pitchVolt_to_code_ch(1, v2.pitchHeldV)); dirtyPitch2=false; }
-    if(dirtyPitch3){ mcp4822_write_expander(1, EXP_PITCH3_CH_IDX, pitchVolt_to_code_ch(2, v3.pitchHeldV)); dirtyPitch3=false; }
-    if(dirtyPitch4){ mcp4822_write_expander(1, EXP_PITCH4_CH_IDX, pitchVolt_to_code_ch(3, v4.pitchHeldV)); dirtyPitch4=false; }
-    // Mod outputs = velocity
-    if(dirtyMod1){ mcp4822_write(PIN_CS_DAC1, CH_A, modVolt_to_code_ch(0, v1.modV)); dirtyMod1=false; }
-    if(dirtyMod2){ mcp4822_write(PIN_CS_DAC2, CH_A, modVolt_to_code_ch(1, v2.modV)); dirtyMod2=false; }
-    if(dirtyMod3){ mcp4822_write_expander(0, EXP_MOD3_CH_IDX, modVolt_to_code_ch(2, v3.modV)); dirtyMod3=false; }
-    if(dirtyMod4){ mcp4822_write_expander(0, EXP_MOD4_CH_IDX, modVolt_to_code_ch(3, v4.modV)); dirtyMod4=false; }
-  } else {
-    // CHORD MODE: Write chord pitches to pitch outputs
-    writeChordPitchesToPitchOutputs();
-  }
+  // CV outputs: pitch and mod for channels 1-4
+  if(dirtyPitch1){ mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code_ch(0, v1.pitchHeldV)); dirtyPitch1=false; }
+  if(dirtyPitch2){ mcp4822_write(PIN_CS_DAC2, CH_B, pitchVolt_to_code_ch(1, v2.pitchHeldV)); dirtyPitch2=false; }
+  if(dirtyPitch3){ mcp4822_write_expander(1, EXP_PITCH3_CH_IDX, pitchVolt_to_code_ch(2, v3.pitchHeldV)); dirtyPitch3=false; }
+  if(dirtyPitch4){ mcp4822_write_expander(1, EXP_PITCH4_CH_IDX, pitchVolt_to_code_ch(3, v4.pitchHeldV)); dirtyPitch4=false; }
+  if(dirtyMod1){ mcp4822_write(PIN_CS_DAC1, CH_A, modVolt_to_code_ch(0, v1.modV)); dirtyMod1=false; }
+  if(dirtyMod2){ mcp4822_write(PIN_CS_DAC2, CH_A, modVolt_to_code_ch(1, v2.modV)); dirtyMod2=false; }
+  if(dirtyMod3){ mcp4822_write_expander(0, EXP_MOD3_CH_IDX, modVolt_to_code_ch(2, v3.modV)); dirtyMod3=false; }
+  if(dirtyMod4){ mcp4822_write_expander(0, EXP_MOD4_CH_IDX, modVolt_to_code_ch(3, v4.modV)); dirtyMod4=false; }
   
   if (now - lastBeat >= 1000) { lastBeat = now; digitalToggle(LED_BUILTIN); }
   // Combined expander image update: gates + drums (drums work in both modes)
   {
     uint8_t img = expanderImage(); uint8_t newImg = img;
     
-    // Gates 3-4 from expander - mode dependent
-    if(gOledPage == 2) {
-      // CHORD MODE: Use gate3/4 for chord voice 3/4 gates
-      if (chordGate[2]) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
-      if (chordGate[3]) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
-    } else {
-      // CV MODE: Normal gate3/4
-      if (gate3) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
-      if (gate4) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
-    }
+    // Gates 3-4 from expander
+    if (gate3) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
+    if (gate4) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
     
     // Drum outputs (Q2-Q5) - work in BOTH modes
     uint8_t drumsMask=(1u<<ExpanderBits::DRUM1)|(1u<<ExpanderBits::DRUM2)|(1u<<ExpanderBits::DRUM3)|(1u<<ExpanderBits::DRUM4);
@@ -834,76 +640,64 @@ void loop(){
     
     // Build row strings based on current page/mode
     if(gOledPage == 0) {
-      // Page 0: CV MODE - Channels 1-2
-      snprintf(lineBuf,sizeof(lineBuf),"CV MODE  G1:%c G2:%c", gate1?'#':'-', gate2?'#':'-');
+      // Page 0: STATUS — all four channels on one screen. Rows are exactly 21
+      // chars (the display limit): four signed 5-char voltages pack into 20
+      // with the sign as separator, giving aligned columns across P and M.
+      // Gate slots: 2 chars per channel — the note name while the gate is on
+      // ("C#", "A-"), "--" when off. "CLK" appears while MIDI clock is arriving.
+      static const char kNoteL[12] = {'C','C','D','D','E','F','F','G','G','A','A','B'};
+      static const char kNoteS[12] = {'-','#','-','#','-','-','#','-','#','-','#','-'};
+      Voice* vs[4] = { &v1, &v2, &v3, &v4 };
+      bool gs[4] = { gate1, gate2, gate3, gate4 };
+      char slot[8];
+      for (int i = 0; i < 4; i++) {
+        if (gs[i] && vs[i]->note >= 0) {
+          uint8_t pc = vs[i]->note % 12;
+          slot[2*i] = kNoteL[pc]; slot[2*i+1] = kNoteS[pc];
+        } else {
+          slot[2*i] = '-'; slot[2*i+1] = '-';
+        }
+      }
+      char d[4];
+      for (int i = 0; i < 4; i++)
+        d[i] = (drumSeenMs[i] && now - drumSeenMs[i] <= DRUM_DISP_MS) ? '#' : '-';
+      bool clkActive = lastClockTickMs && (now - lastClockTickMs <= 500);
+      snprintf(lineBuf,sizeof(lineBuf),"G:%c%c%c%c%c%c%c%c D:%c%c%c%c %s",
+               slot[0],slot[1],slot[2],slot[3],slot[4],slot[5],slot[6],slot[7],
+               d[0], d[1], d[2], d[3], clkActive ? "CLK" : "");
       updateOledRow(0, lineBuf);
-      
+
       float vP1 = teensy_move_calib::PITCH_M[0]*pitchVolt_to_code_ch(0, v1.pitchHeldV) + teensy_move_calib::PITCH_C[0];
       float vP2 = teensy_move_calib::PITCH_M[1]*pitchVolt_to_code_ch(1, v2.pitchHeldV) + teensy_move_calib::PITCH_C[1];
-      snprintf(lineBuf,sizeof(lineBuf),"P1:%+.2fV  P2:%+.2fV", vP1, vP2);
-      updateOledRow(1, lineBuf);
-      
-      // Show drum triggers status
-      char d1=drumTrig[0]?'#':'-', d2=drumTrig[1]?'#':'-', d3=drumTrig[2]?'#':'-', d4=drumTrig[3]?'#':'-';
-      snprintf(lineBuf,sizeof(lineBuf),"Drums:%c%c%c%c CLK:%c", d1, d2, d3, d4, clk?'#':'-');
-      updateOledRow(2, lineBuf);
-      
-      // Row 3: MIDI info
-      if (now - lastMidiMs <= 1000) {
-        snprintf(lineBuf,sizeof(lineBuf),"MIDI ch:%2u n:%3u v:%3u", lastMidiCh, lastMidiNote, lastMidiVel);
-      } else {
-        snprintf(lineBuf,sizeof(lineBuf),"ch1-4:CV ch10:Drum");
-      }
-      updateOledRow(3, lineBuf);
-      
-    } else if(gOledPage == 1) {
-      // Page 1: CV MODE - Channels 3-4
-      snprintf(lineBuf,sizeof(lineBuf),"CV MODE  G3:%c G4:%c", gate3?'#':'-', gate4?'#':'-');
-      updateOledRow(0, lineBuf);
-      
       float vP3 = teensy_move_calib::PITCH_M[2]*pitchVolt_to_code_ch(2, v3.pitchHeldV) + teensy_move_calib::PITCH_C[2];
       float vP4 = teensy_move_calib::PITCH_M[3]*pitchVolt_to_code_ch(3, v4.pitchHeldV) + teensy_move_calib::PITCH_C[3];
-      snprintf(lineBuf,sizeof(lineBuf),"P3:%+.2fV  P4:%+.2fV", vP3, vP4);
+      snprintf(lineBuf,sizeof(lineBuf),"P%+5.2f%+5.2f%+5.2f%+5.2f", vP1, vP2, vP3, vP4);
       updateOledRow(1, lineBuf);
-      
-      // Show drum triggers status
-      char d1=drumTrig[0]?'#':'-', d2=drumTrig[1]?'#':'-', d3=drumTrig[2]?'#':'-', d4=drumTrig[3]?'#':'-';
-      snprintf(lineBuf,sizeof(lineBuf),"Drums:%c%c%c%c RST:%c", d1, d2, d3, d4, rst?'#':'-');
+
+      snprintf(lineBuf,sizeof(lineBuf),"M%+5.2f%+5.2f%+5.2f%+5.2f", v1.modV, v2.modV, v3.modV, v4.modV);
       updateOledRow(2, lineBuf);
-      
-      // Row 3: MIDI info
-      if (now - lastMidiMs <= 1000) {
+
+      // Row 3, by priority: mod-pot src feedback while sweeping (V=velocity,
+      // C=CC#42, P=pot; '~' = pot not yet caught), else last MIDI event, else
+      // a usage hint.
+      if (now - lastModPotMs <= 2000) {
+        const char srcCh[3] = {'V', 'C', 'P'};
+        char s[4], c[4];
+        for (int i = 0; i < 4; i++) {
+          s[i] = srcCh[modSource[i]];
+          c[i] = modPotCaught[i] ? ' ' : '~';
+        }
+        snprintf(lineBuf,sizeof(lineBuf),"src %c%c %c%c %c%c %c%c",
+                 s[0], c[0], s[1], c[1], s[2], c[2], s[3], c[3]);
+      } else if (now - lastMidiMs <= 1000) {
         snprintf(lineBuf,sizeof(lineBuf),"MIDI ch:%2u n:%3u v:%3u", lastMidiCh, lastMidiNote, lastMidiVel);
       } else {
         snprintf(lineBuf,sizeof(lineBuf),"ch1-4:CV ch10:Drum");
       }
       updateOledRow(3, lineBuf);
-      
-    } else if(gOledPage == 2) {
-      // Page 2: CHORD MODE - chord settings and output voltages
-      snprintf(lineBuf,sizeof(lineBuf),"CHORD %s %s P:%d", kNoteNames[chordRootNote], kChordCategories[chordCategory].name, chordProgression+1);
-      updateOledRow(0, lineBuf);
-      
-      // Show voicing and current chord name
-      if (chordHeldNote >= 0) {
-        snprintf(lineBuf,sizeof(lineBuf),"V:%s -> %s", kVoicingNames[chordVoicing], chordNameBuf);
-      } else {
-        snprintf(lineBuf,sizeof(lineBuf),"V:%s -> ---", kVoicingNames[chordVoicing]);
-      }
-      updateOledRow(1, lineBuf);
-      
-      // Row 2: held chord trigger note
-      if (chordHeldNote >= 0) snprintf(lineBuf,sizeof(lineBuf),"Trig note: %d", chordHeldNote);
-      else                    snprintf(lineBuf,sizeof(lineBuf),"Trig note: --");
-      updateOledRow(2, lineBuf);
 
-      // Show gates and drums
-      char g1=chordGate[0]?'#':'-', g2=chordGate[1]?'#':'-', g3=chordGate[2]?'#':'-', g4=chordGate[3]?'#':'-';
-      char d1=drumTrig[0]?'#':'-', d2=drumTrig[1]?'#':'-', d3=drumTrig[2]?'#':'-', d4=drumTrig[3]?'#':'-';
-      snprintf(lineBuf,sizeof(lineBuf),"G:%c%c%c%c D:%c%c%c%c", g1, g2, g3, g4, d1, d2, d3, d4);
-      updateOledRow(3, lineBuf);
-    } else if(gOledPage == 3) {
-      // Page 3: FX MODE - stereo Filter -> Delay -> Reverb on the passthrough
+    } else if(gOledPage == 1) {
+      // Page 1: FX MODE - stereo Filter -> Delay -> Reverb on the passthrough
       snprintf(lineBuf,sizeof(lineBuf),"FX  Filt>Dly>Verb");
       updateOledRow(0, lineBuf);
 
