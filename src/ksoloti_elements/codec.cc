@@ -149,7 +149,7 @@ static void i2c_config(void)
 // ---------------------------------------------------------------------------
 // ADAU1961 register initialisation sequence
 // Sourced directly from Ksoloti firmware (codec_ADAU1961_SAI.c).
-// PLL bytes tuned for MCLK=8 MHz → 48 kHz (1024×FS core clock).
+// PLL bytes tuned for MCLK=8 MHz → 32 kHz (1024×FS core clock) — see adau_init().
 // ---------------------------------------------------------------------------
 static void adau_init(void)
 {

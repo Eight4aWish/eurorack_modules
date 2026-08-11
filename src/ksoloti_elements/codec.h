@@ -5,7 +5,11 @@
 // Audio buffer geometry — matches Ksoloti firmware (axoloti_defines.h)
 // 16 stereo frames per half-buffer, stored as interleaved int32_t L/R pairs.
 // DMA double-buffers (buf/buf2, rbuf/rbuf2) are 32 words each.
-#define SAMPLERATE      48000
+// Set by the ADAU1961 PLL, not by us: the codec is I2S master and the SAI is slave, so
+// this constant must mirror adau_init()'s PLL bytes (8 MHz * (4 + 12/125) = 32.768 MHz,
+// = 1024 x FS). It read 48000 for a long while, which was simply wrong - nothing used it
+// until the CPU budget did, and then it understated the budget by a third.
+#define SAMPLERATE      32000
 #define BUFSIZE         16      // stereo frames per DMA half-buffer
 #define DOUBLE_BUFSIZE  32      // int32_t words per DMA buffer (BUFSIZE * 2 channels)
 
