@@ -64,6 +64,13 @@ static elements::PerformanceState perf;
 static volatile bool dsp_ready = false;
 static volatile bool cpu_overload = false;
 
+// One audio block must be computed in BUFSIZE / SAMPLERATE seconds. Expressed in core
+// cycles so the threshold follows the sample rate instead of drifting away from it —
+// at 48 kHz that is 56000 cycles per block, at 32 kHz it would be 84000.
+static const uint32_t kCoreClockHz = 168000000u;
+static const uint32_t kCyclesPerBlock = (uint32_t)((uint64_t)kCoreClockHz * BUFSIZE / SAMPLERATE);
+static const uint32_t kCpuOverloadCycles = kCyclesPerBlock * 95u / 100u; // warn at 95%
+
 // --- Audio callback ---
 
 extern "C" void computebufI(int32_t *inp, int32_t *outp)
@@ -90,8 +97,10 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
         outp[i * 2 + 1] = static_cast<int32_t>(aux_out[i]  * kOutScale);
     }
 
-    // 16 samples @ 32 kHz = 500 us. At 168 MHz = 84000 cycles budget.
-    cpu_overload = (DWT->CYCCNT - t0) > 80000;
+    // Derived, not hard-coded: the old check assumed 32 kHz and allowed 80000 cycles,
+    // but the codec runs at SAMPLERATE (48 kHz), so a block is 333 us and the real budget
+    // is 56000 cycles. The LED could not light until the audio was already breaking up.
+    cpu_overload = (DWT->CYCCNT - t0) > kCpuOverloadCycles;
 }
 
 // --- ADC helpers ---

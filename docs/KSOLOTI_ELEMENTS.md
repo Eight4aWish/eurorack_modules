@@ -251,7 +251,15 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 ## Known Limitations
 
-- Resonator resolution reduced from 52 to 36 modes to fit CPU budget at 168 MHz
+- Resonator resolution reduced from 52 to 36 modes. Not a limit of the chip: the
+  Ksoloti runs the same 168 MHz Cortex-M4F as Elements, but its codec is clocked at
+  48 kHz rather than Elements' 32 kHz, so a 16-sample block must be computed in
+  333 us instead of 500 us — 56,000 cycles against 84,000. 36 is close to the
+  pro-rata figure (52 x 2/3 = 34.7). Untested at 52 on this board.
+- The Elements DSP is still compiled with `kSampleRate = 32000` while the codec runs
+  at 48 kHz, so time constants derived from it (decays, reverb, dc blocker) run 1.5x
+  fast and pitch sits high until trimmed. Clocking the codec at 32 kHz would resolve
+  both this and the mode-count reduction — untested.
 - V/Oct tracking (CV X) needs calibration with board trimmer
 - No MIDI input yet (USART6 on PG9 available)
 - Hidden parameters (Sig, MFr, MOf, RvD, RvL) only accessible via CV assignment — no direct knob control
