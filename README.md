@@ -4,7 +4,7 @@ Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWis
 
 ## Released modules
 
-Firmwares offered as finished modules are named after the magpie counting rhyme
+Firmwares offered as finished modules are named after the nursery rhyme
 (*"one for sorrow, two for joy…"* — hence **Eight4aWish**). The first two, **Sorrow**
 and **Joy**, live in [eurorack_daisy_patch_init](https://github.com/Eight4aWish/eurorack_daisy_patch_init);
 the third lives here:

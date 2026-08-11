@@ -27,7 +27,7 @@ The Eurorack clock / reset / manual-CV module with Ableton Link sync.
 ## ksoloti_elements (**Girl**)
 
 A port of Mutable Instruments Elements to the Ksoloti Big Genes board,
-released as **Girl** (third in the magpie-rhyme family — see
+released as **Girl** (third in the nursery-rhyme family — see
 [README](README.md#released-modules)).
 
 | Component | License | Role |

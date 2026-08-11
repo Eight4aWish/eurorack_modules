@@ -4,7 +4,7 @@
 
 **Girl** is a modal synthesis voice for the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html)
 Eurorack module (firmware env `ksoloti_elements`). It is the third in a family of
-firmwares named after the magpie counting rhyme — the first two, **Sorrow** and **Joy**,
+firmwares named after the nursery rhyme — the first two, **Sorrow** and **Joy**,
 live in [eurorack_daisy_patch_init](https://github.com/Eight4aWish/eurorack_daisy_patch_init).
 
 Based on the **Elements** modal synthesis voice by [Émilie Gillet](https://github.com/pichenettes) (Mutable Instruments), MIT.
