@@ -3,53 +3,51 @@ PlatformIO extra script: compile Mutable Instruments Elements DSP sources
 from third_party/eurorack/ alongside the main ksoloti_elements firmware.
 
 third_party/eurorack is a git submodule pinned to upstream, so the resonator
-resolution patch is applied here at build time rather than left as a manual
-step. Upstream ships 52 modes, which overruns the CPU budget at 48 kHz - and a
-build that skipped the patch produced glitching audio with nothing to say why.
+resolution is set here at build time rather than left as a manual step - a
+build that skipped it used whatever upstream happened to ship, silently.
 """
-import subprocess
+import re
 import sys
 from os.path import join
 
 Import("env")
 
-# --- Apply the vendored-source patch, or refuse to build -------------------------------
+# --- Resonator resolution ---------------------------------------------------------------
 #
-# Idempotent: if voice.cc already carries the reduced resolution there is nothing to do,
-# so this is safe on every rebuild and after a submodule reset alike.
+# Elements sets this inside vendored source, and Voice::resonator_ is private with no
+# accessor, so it cannot be set from our own code. Rather than carry a patch file that
+# breaks whenever upstream moves, the line is rewritten in place to whatever RESOLUTION
+# says. Idempotent, and independent of what upstream happens to ship.
+#
+# Budget is 84000 cycles per block (16 samples at 32 kHz, 168 MHz). Mutable ship 52 with
+# the comment "Runs with 56 extremely tightly" on the same budget. LED2 lights at 95%.
+
+RESOLUTION = 44
 
 PROJECT = env.subst("$PROJECT_DIR")
-SUBMODULE = join(PROJECT, "third_party", "eurorack")
-VOICE = join(SUBMODULE, "elements", "dsp", "voice.cc")
-PATCH = join(PROJECT, "patches", "ksoloti_elements-resonator-resolution.patch")
-MARKER = "set_resolution(36)"
+VOICE = join(PROJECT, "third_party", "eurorack", "elements", "dsp", "voice.cc")
+PATTERN = re.compile(r"(resonator_\.set_resolution\()(\d+)(\))")
 
-
-def _voice_source():
-    try:
-        with open(VOICE) as f:
-            return f.read()
-    except OSError:
-        return ""
-
-
-src = _voice_source()
-if not src:
-    sys.stderr.write(
-        "\nelements_build: %s is missing.\n"
-        "Run: git submodule update --init --recursive\n\n" % VOICE)
+try:
+    with open(VOICE) as f:
+        src = f.read()
+except OSError:
+    sys.stderr.write("\nelements_build: %s is missing.\n"
+                     "Run: git submodule update --init --recursive\n\n" % VOICE)
     env.Exit(1)
-elif MARKER not in src:
-    print("elements_build: applying %s" % PATCH)
-    r = subprocess.run(["git", "apply", PATCH], cwd=SUBMODULE,
-                       capture_output=True, text=True)
-    if MARKER not in _voice_source():
-        sys.stderr.write(
-            "\nelements_build: could not apply the resonator resolution patch.\n"
-            "%s\nUpstream ships 52 modes, which overruns the CPU budget at 48 kHz,\n"
-            "so the build is stopped rather than producing glitching audio.\n\n"
-            % (r.stderr.strip() or "git apply reported no error"))
-        env.Exit(1)
+    src = ""
+
+found = PATTERN.search(src)
+if not found:
+    sys.stderr.write("\nelements_build: no set_resolution() call in %s — upstream changed?\n"
+                     "Refusing to build rather than guess the resonator resolution.\n\n" % VOICE)
+    env.Exit(1)
+elif int(found.group(2)) != RESOLUTION:
+    print("elements_build: resonator resolution %s -> %d" % (found.group(2), RESOLUTION))
+    with open(VOICE, "w") as f:
+        f.write(PATTERN.sub(r"\g<1>%d\g<3>" % RESOLUTION, src, count=1))
+else:
+    print("elements_build: resonator resolution %d" % RESOLUTION)
 
 # Enable hardware FPU for Cortex-M4F (STM32F429).
 # Must be set on compiler, assembler, AND linker to avoid ABI mismatch.

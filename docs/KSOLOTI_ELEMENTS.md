@@ -251,10 +251,11 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 ## Known Limitations
 
-- Resonator resolution reduced from 52 to 36 modes. Untested at 52 on this board — the
-  Ksoloti runs the same 168 MHz Cortex-M4F as Elements at the same 32 kHz and 16-sample
-  block, so the per-block budget is the same 84,000 cycles Mutable runs 52 modes in. The
-  reduction may not be necessary; LED2 (CPU overload, 95% of budget) is the way to find out.
+- Resonator resolution is 44 modes, against Mutable's 52. Found by testing rather than
+  assumed: 52 produced audible dropouts on this board, 44 runs clean. The budget is the
+  same 84,000 cycles per block Elements has (16 samples at 32 kHz, 168 MHz), so the
+  shortfall is Ksoloti overhead rather than a slower chip. Set in scripts/elements_build.py
+  as RESOLUTION - one number, rewritten into the vendored source at build time.
 - V/Oct tracking (CV X) needs calibration with board trimmer
 - No MIDI input yet (USART6 on PG9 available)
 - Hidden parameters (Sig, MFr, MOf, RvD, RvL) only accessible via CV assignment — no direct knob control

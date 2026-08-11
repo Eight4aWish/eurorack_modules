@@ -62,6 +62,10 @@ static float aux_out[BUFSIZE];
 
 static elements::PerformanceState perf;
 static volatile bool dsp_ready = false;
+// Sticky. A block overrun lasts 500 us and blocks arrive at 2 kHz, but the main loop -
+// which drives the OLED over I2C - iterates far slower, so an unlatched flag is almost
+// never sampled in the act. The ISR sets this; the main loop clears it and holds the LED
+// on long enough to see.
 static volatile bool cpu_overload = false;
 
 // One audio block must be computed in BUFSIZE / SAMPLERATE seconds. At 32 kHz that is
@@ -98,7 +102,7 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
 
     // Derived from SAMPLERATE and BUFSIZE rather than hard-coded, so it cannot drift away
     // from the rate the codec actually runs at.
-    cpu_overload = (DWT->CYCCNT - t0) > kCpuOverloadCycles;
+    if ((DWT->CYCCNT - t0) > kCpuOverloadCycles) cpu_overload = true;
 }
 
 // --- ADC helpers ---
@@ -495,8 +499,14 @@ int main(void)
         // --- LEDs ---
         HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6,
             perf.gate ? GPIO_PIN_SET : GPIO_PIN_RESET);
+        // Latch and stretch: any overrun since the last pass lights the LED for 150 ms.
+        static uint32_t overload_until = 0;
+        if (cpu_overload) {
+            cpu_overload = false;
+            overload_until = HAL_GetTick() + 150;
+        }
         HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6,
-            cpu_overload ? GPIO_PIN_SET : GPIO_PIN_RESET);
+            ((int32_t)(HAL_GetTick() - overload_until) < 0) ? GPIO_PIN_SET : GPIO_PIN_RESET);
         HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6,
             (resonator_model == 0 || resonator_model == 2)
                 ? GPIO_PIN_SET : GPIO_PIN_RESET);
