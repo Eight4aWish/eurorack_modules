@@ -249,6 +249,13 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   same 84,000 cycles per block Elements has (16 samples at 32 kHz, 168 MHz), so the
   shortfall is Ksoloti overhead rather than a slower chip. Set in scripts/elements_build.py
   as RESOLUTION - one number, rewritten into the vendored source at build time.
+- The reverb buffer lives in CCM RAM (64 KB at 0x10000000), which DMA cannot reach, so
+  its traffic no longer contends with the SAI audio stream or the free-running ADC scan
+  for SRAM. This did **not** change the mode ceiling — 48 still drops out — so contention
+  is not the cost. Kept anyway: it frees 64 KB of SRAM and sounds identical.
+- What limits the mode count is still unidentified. Ruled out so far: compiler
+  optimisation (-O2), flash wait states (5, correct), FPU denormal handling
+  (flush-to-zero made no difference), and SRAM/DMA contention (the CCM move above).
 - LED2 (CPU overload) does not detect the dropouts. Measured on the board: 48 and 52
   modes drop out audibly while the flag never fires, so the failure is not the audio
   callback exceeding its cycle budget. Whatever causes it is not what DWT measures

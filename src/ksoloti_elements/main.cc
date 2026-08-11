@@ -41,6 +41,7 @@
 #include "elements/dsp/part.h"
 #include <cstdio>
 #include <cmath>
+#include <cstring>
 
 extern "C" void SysTick_Handler(void)
 {
@@ -51,8 +52,15 @@ extern "C" void SysTick_Handler(void)
 
 static elements::Part part;
 
-// Reverb buffer: 64 KB of uint16_t.
-static uint16_t reverb_buffer[32768];
+// Reverb buffer: 64 KB of uint16_t, placed in Core Coupled Memory.
+//
+// CCM is core-only — DMA cannot reach it — and it sits on its own bus, so reverb traffic
+// no longer contends with the SAI audio stream and the free-running 10-channel ADC scan
+// for SRAM. Everything else (part, the DMA buffers) stays in SRAM.
+//
+// The linker script warns that startup does not copy init values into .ccmram, so this
+// is cleared by hand in main() before Part::Init() sees it.
+static uint16_t reverb_buffer[32768] __attribute__((section(".ccmram")));
 
 // Per-block float buffers (16 mono samples each = kMaxBlockSize)
 static float blow_in[BUFSIZE];
@@ -204,6 +212,7 @@ int main(void)
 
     // Initialize Elements DSP BEFORE codec — DMA ISR calls Part::Process()
     // as soon as codec_init() enables DMA.
+    memset(reverb_buffer, 0, sizeof(reverb_buffer));   // .ccmram is not zeroed for us
     part.Init(reverb_buffer);
 
     // Patch pointer — lives for the duration of the program
