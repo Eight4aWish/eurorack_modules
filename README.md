@@ -9,9 +9,9 @@ Firmwares offered as finished modules are named after the nursery rhyme
 and **Joy**, live in [eurorack_daisy_patch_init](https://github.com/Eight4aWish/eurorack_daisy_patch_init);
 the third lives here:
 
-| Name | Firmware | Based on | Licence |
-| --- | --- | --- | --- |
-| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | Mutable Instruments Elements | MIT |
+| Name | Firmware | Version | Based on | Licence |
+| --- | --- | --- | --- | --- |
+| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | v1.1.0 | Mutable Instruments Elements | MIT |
 
 These are independent community works. Product names of other makers are used only to
 describe each firmware's origin — **not affiliated with, or endorsed by, Mutable
@@ -191,12 +191,7 @@ See [docs/KSOLOTI_ELEMENTS.md](docs/KSOLOTI_ELEMENTS.md) for full control mappin
 # After cloning, initialise submodules
 git submodule update --init --recursive
 
-# Apply the resonator resolution patch
-cd third_party/eurorack
-git apply ../../patches/ksoloti_elements-resonator-resolution.patch
-cd ../..
-
-# Build
+# Build — the resonator resolution is set into the vendored source automatically
 pio run -e ksoloti_elements
 
 # Flash via DFU (board must be in DFU mode)
@@ -216,10 +211,8 @@ src/ksoloti_elements/
     debug_pin.h        — Local shim (empty stubs for hardware debug pins)
 
 scripts/
-  elements_build.py    — PlatformIO build script (FPU flags, extra source dirs)
-
-patches/
-  ksoloti_elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
+  elements_build.py    — PlatformIO build script (FPU flags, source dirs,
+                       and RESOLUTION: the resonator mode count, 44)
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core
@@ -242,7 +235,7 @@ The full list of third-party code each module depends on, with licenses,
 is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 
 - **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32_clklink` work. This is what triggers the GPL on that module.
-- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port applies a small resolution patch in `patches/ksoloti_elements-resonator-resolution.patch`; the third-party source is otherwise unmodified.
+- **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port rewrites one line — the resonator mode count, set by `RESOLUTION` in `scripts/elements_build.py` — into `elements/dsp/voice.cc` at build time; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
 - **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

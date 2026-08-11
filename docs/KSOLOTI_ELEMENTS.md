@@ -158,7 +158,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.0.1).
+Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.1.0).
 
 ### Step 2: Install dfu-util
 
@@ -205,12 +205,7 @@ You should see a progress bar. When it says "File downloaded successfully", the 
 # Initialise submodules (first time only)
 git submodule update --init --recursive
 
-# Apply resonator resolution patch
-cd third_party/eurorack
-git apply ../../patches/ksoloti_elements-resonator-resolution.patch
-cd ../..
-
-# Build
+# Build — the resonator resolution is set into the vendored source automatically
 pio run -e ksoloti_elements
 
 # Flash via DFU (hold E1/S1 while plugging USB-C into the prog socket to enter DFU mode)
@@ -232,10 +227,8 @@ src/ksoloti_elements/
     debug_pin.h        — Local shim replacing Mutable's hardware-dependent debug pins
 
 scripts/
-  elements_build.py    — PlatformIO build script (FPU flags, Elements source dirs)
-
-patches/
-  ksoloti_elements-resonator-resolution.patch  — Reduces resonator from 52 to 36 modes
+  elements_build.py    — PlatformIO build script (FPU flags, Elements source
+                       dirs, and RESOLUTION: the resonator mode count, 44)
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core
