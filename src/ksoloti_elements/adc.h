@@ -55,7 +55,8 @@ bool button_enc1(void);
 // ENC2 push (PA10): returns true when pressed.
 bool button_enc2(void);
 
-// Encoder rotation — call enc_poll() from main loop.
+// Encoder rotation — enc_poll() must run at a steady rate fast enough to catch every AB
+// transition; it is called from the audio ISR (2 kHz), not the main loop.
 // Returns accumulated clicks since last call (positive = CW, negative = CCW).
 void enc_init(void);
 void enc_poll(void);

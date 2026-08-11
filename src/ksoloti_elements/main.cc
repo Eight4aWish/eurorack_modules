@@ -13,15 +13,22 @@
 //
 // Controls:
 //   P1-4 (+CV P1-P4): resonator geometry / brightness / damping / position
-//   P5-8 mode 1:      bow level / blow level / strike level / space
-//   P5-8 mode 2:      blow timbre / flow(blow_meta) / mallet(strike_meta) / strike timbre
-//   E1 mode 1:        contour (envelope shape)
-//   E1 mode 2:        bow timbre
+//   P5-P7:            one exciter per column - bow / blow / strike - through three
+//                     states cycled by S4:
+//                       levels   bow level    blow level   strike level
+//                       meta     bow timbre   flow         mallet
+//                       timbres  bow timbre   blow timbre  strike timbre
+//                     level -> meta -> timbre is the order Elements uses across its own
+//                     panel, so the states read the same way round
+//                     bow has no meta parameter, so P5 carries its timbre into the third
+//                     state rather than going dead
+//   P8:               space (never pages)
+//   E1 rotate:        contour (envelope shape) (never pages)
 //   S1 (ENC1 push):   cycle resonator model (modal / string / chords)
 //   S2 (ENC2 push):   select CV for assignment (A / B / C)
 //   E2 rotate:        cycle CV target parameter
 //   S3:               play (manual gate, strength 0.7)
-//   S4:               toggle pot mode (levels / timbres)
+//   S4:               cycle P5-P7 state (levels / meta / timbres)
 //   CV A-C:           assignable modulation (default A=Flow, B=Mallet, C=none)
 //   CV D:             gate + strength (velocity from voltage)
 //   CV X:             V/Oct pitch
@@ -110,6 +117,14 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
 
     // Derived from SAMPLERATE and BUFSIZE rather than hard-coded, so it cannot drift away
     // from the rate the codec actually runs at.
+    // Quadrature decoding has to keep up with the knob, not with the UI. The main loop
+    // runs at tens of Hz because it pushes the OLED framebuffer over I2C, and at that rate
+    // most AB transitions are missed - the decode table maps a skipped step to 0, so the
+    // encoder feels like it resists you, and where the aliasing looks like a valid step
+    // the other way it counts backwards. Polling here gives a steady 2 kHz for four GPIO
+    // reads, which is nothing against the block budget.
+    enc_poll();
+
     if ((DWT->CYCCNT - t0) > kCpuOverloadCycles) cpu_overload = true;
 }
 
@@ -164,6 +179,12 @@ static const char* cv_target_abbr[NUM_CV_TARGETS] = {
     "Sig", "MFr", "MOf", "RvD", "RvL", "---"
 };
 
+// Spelled out for the bottom line, which shows one thing at a time and has the room
+static const char* cv_target_full[NUM_CV_TARGETS] = {
+    "Flow", "Mallet", "Contour", "BowTmb", "BlowTmb", "StrikeTmb",
+    "Signature", "ModFreq", "ModOffs", "RevDiff", "RevLP", "unassigned"
+};
+
 // --- Display helpers ---
 
 static const char* model_names[] = { "Mod", "Str", "Chd" };
@@ -173,7 +194,7 @@ static const char* model_names[] = { "Mod", "Str", "Chd" };
 //   Modal:  physical body geometry
 //   String: string dispersion (stiffness)
 //   Chords: stepped selector across 11 chord shapes
-static const char* p1_label_short[3] = { "Geo", "Dsp", "Chd" };
+static const char* p1_label_short[3] = { "Geom", "Disp", "Chrd" };  // 4 chars: row 1 is four columns of five
 static const char* p1_label_long [3] = { "Geom", "Dispr", "Chord" };
 
 // Chord shapes, indexed by (int)(geometry * 10 + 0.5).
@@ -219,19 +240,31 @@ int main(void)
     elements::Patch* p = part.mutable_patch();
 
     // --- Parameter base values ---
-    // Mode 1 (levels): written by pots when active, frozen when in mode 2
-    float val_bow_level    = 0.0f;
-    float val_blow_level   = 0.0f;
-    float val_strike_level = 0.0f;
-    float val_space        = 0.0f;
-    float val_contour      = 0.5f;   // E1 in mode 1
+    // A pot writes its value only while its state is selected; the others hold.
+    float val_bow_level    = 0.0f;   // P5 levels
+    float val_blow_level   = 0.0f;   // P6 levels
+    float val_strike_level = 0.0f;   // P7 levels
+    float val_bow_tim      = 0.5f;   // P5 timbres AND meta - bow has no meta parameter
+    float val_blow_tim     = 0.5f;   // P6 timbres
+    float val_strike_tim   = 0.5f;   // P7 timbres
+    float val_flow         = 0.5f;   // P6 meta  (blow_meta)
+    float val_mallet       = 0.5f;   // P7 meta  (strike_meta)
+    float val_space        = 0.0f;   // P8, every state
+    float val_contour      = 0.5f;   // E1, every state
 
-    // Mode 2 (timbres): written by pots/E1 when active, frozen when in mode 1
-    float val_bow_tim      = 0.5f;   // E1 in mode 2
-    float val_blow_tim     = 0.5f;   // P5 in mode 2
-    float val_flow         = 0.5f;   // P6 in mode 2 (blow_meta base)
-    float val_mallet       = 0.5f;   // P7 in mode 2 (strike_meta base)
-    float val_strike_tim   = 0.5f;   // P8 in mode 2
+    // Which base value P5, P6 or P7 drives in a given state. One exciter per column
+    // throughout, so a pot never changes which voice it belongs to - only which of that
+    // voice's parameters it holds. Returning the address lets S4 compare targets and skip
+    // pickup where the parameter has not actually changed.
+    auto pot_target = [&](int i, int mode) -> float* {
+        switch (i) {
+            case 0: return mode == 0 ? &val_bow_level : &val_bow_tim;
+            case 1: return mode == 0 ? &val_blow_level
+                         : mode == 1 ? &val_flow : &val_blow_tim;
+            default: return mode == 0 ? &val_strike_level
+                          : mode == 1 ? &val_mallet : &val_strike_tim;
+        }
+    };
 
     // Hidden params (CV-modulatable only, sensible defaults)
     float val_sig      = 0.5f;
@@ -305,28 +338,31 @@ int main(void)
     bool s2_prev = button_enc2();
     uint32_t s2_last = 0;
 
-    // Pot pickup for P5-8 on mode switch
-    bool pot_picked[4] = {true, true, true, true};
-    float pickup_target[4] = {0};
+    // Pot pickup for P5-P7 when S4 changes what they drive
+    bool pot_picked[3] = {true, true, true};
+    float pickup_target[3] = {0};
     #define PICKUP_THRESH 0.03f
 
     // Activity tracking for bottom-line display
-    // Indices: 0-3 = P1-4, 4-7 = P5-8, 8 = E1
+    // Indices: 0-3 = P1-P4, 4-7 = P5-P8, 8 = E1
     uint32_t act_ts[9] = {0};
+    uint32_t cv_act_ts = 0;   // last time a CV slot was selected or reassigned
     float act_prev[9] = {0};
     #define ACT_THRESH 0.015f
     #define ACT_DURATION 2000
 
     // Control names for bottom-line display (6 chars max, %-6s padded)
-    static const char* ctrl_name_m0[] = {
-        "Geom", "Bright", "Damp", "Posn",
-        "BowLvl", "BlwLvl", "StkLvl", "Space",
-        "Contr"
+    // [state][control] — 0-3 = P1-4, 4-6 = P5-7, 7 = P8, 8 = E1
+    static const char* ctrl_name[3][9] = {
+        { "Geom", "Bright", "Damp", "Posn", "BowLvl", "BlwLvl", "StkLvl", "Space", "Contr" },
+        { "Geom", "Bright", "Damp", "Posn", "BowTmb", "Flow",   "Mallet", "Space", "Contr" },
+        { "Geom", "Bright", "Damp", "Posn", "BowTmb", "BlwTmb", "StkTmb", "Space", "Contr" },
     };
-    static const char* ctrl_name_m1[] = {
-        "Geom", "Bright", "Damp", "Posn",
-        "BlwTmb", "Flow", "Mallet", "StkTmb",
-        "BowTmb"
+    // Row 2 of the screen, per state — four columns of five, aligned under the pots
+    static const char* pot_row[3] = {
+        "BowL BloL StkL Spce",
+        "BowT Flow Mall Spce",
+        "BowT BloT StkT Spce",
     };
 
     // Read initial pot positions and set mode 1 values
@@ -343,10 +379,12 @@ int main(void)
     act_prev[6] = pot(ADC_POT7); act_prev[7] = pot(ADC_POT8);
     act_prev[8] = val_contour;
 
-    // --- Main control loop (~1 kHz) ---
+    // --- Main control loop ---
+    // Rate is set by the OLED: a redraw pushes ~1 KB over I2C at 400 kHz, so a pass that
+    // redraws costs milliseconds. Anything needing a steady rate (the encoders) is polled
+    // from the audio ISR instead.
     while (1) {
-        adc_poll();
-        enc_poll();
+        adc_poll();      // encoders are polled in the audio ISR — see computebufI
         uint32_t now = HAL_GetTick();
 
         // --- P1-4: always resonator ---
@@ -358,28 +396,18 @@ int main(void)
         p->resonator_damping    = cur_pot[2];
         p->resonator_position   = cur_pot[3];
 
-        // --- P5-8: mode-dependent with pickup ---
+        // --- P5-P7: state-dependent with pickup; P8 is always Space ---
         cur_pot[4] = pot(ADC_POT5); cur_pot[5] = pot(ADC_POT6);
         cur_pot[6] = pot(ADC_POT7); cur_pot[7] = pot(ADC_POT8);
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 3; i++) {
             if (!pot_picked[i]) {
                 if (fabsf(cur_pot[4 + i] - pickup_target[i]) < PICKUP_THRESH)
                     pot_picked[i] = true;
             }
+            if (pot_picked[i]) *pot_target(i, pot_mode) = cur_pot[4 + i];
         }
-
-        if (pot_mode == 0) {
-            if (pot_picked[0]) val_bow_level    = cur_pot[4];
-            if (pot_picked[1]) val_blow_level   = cur_pot[5];
-            if (pot_picked[2]) val_strike_level = cur_pot[6];
-            if (pot_picked[3]) val_space        = cur_pot[7] * 2.0f;
-        } else {
-            if (pot_picked[0]) val_blow_tim   = cur_pot[4];
-            if (pot_picked[1]) val_flow       = cur_pot[5];
-            if (pot_picked[2]) val_mallet     = cur_pot[6];
-            if (pot_picked[3]) val_strike_tim = cur_pot[7];
-        }
+        val_space = cur_pot[7] * 2.0f;   // P8 never pages, so it never needs picking up
 
         // Activity detection for P1-8
         for (int i = 0; i < 8; i++) {
@@ -393,13 +421,8 @@ int main(void)
         int enc1_delta = enc1_read();
         if (enc1_delta != 0) {
             act_ts[8] = now;
-            if (pot_mode == 0) {
-                val_contour += enc1_delta * 0.02f;
-                val_contour = clampf(val_contour, 0.0f, 1.0f);
-            } else {
-                val_bow_tim += enc1_delta * 0.02f;
-                val_bow_tim = clampf(val_bow_tim, 0.0f, 1.0f);
-            }
+            val_contour += enc1_delta * 0.02f;
+            val_contour = clampf(val_contour, 0.0f, 1.0f);
         }
 
         // --- Write all base values to patch ---
@@ -468,22 +491,21 @@ int main(void)
         }
         enc1_push_prev = enc1_now;
 
-        // --- S4: toggle pot mode (debounced 200ms) ---
+        // --- S4: cycle P5-P7 state (debounced 200ms) ---
         bool s4_now = button_s4();
         if (s4_now && !s4_prev && (now - s4_last > 200)) {
-            pot_mode ^= 1;
-            if (pot_mode == 0) {
-                pickup_target[0] = val_bow_level;
-                pickup_target[1] = val_blow_level;
-                pickup_target[2] = val_strike_level;
-                pickup_target[3] = val_space * 0.5f;
-            } else {
-                pickup_target[0] = val_blow_tim;
-                pickup_target[1] = val_flow;
-                pickup_target[2] = val_mallet;
-                pickup_target[3] = val_strike_tim;
+            const int prev_mode = pot_mode;
+            pot_mode = (pot_mode + 1) % 3;
+            for (int i = 0; i < 3; i++) {
+                // P5 drives bow timbre in both timbres and meta, so crossing that
+                // boundary needs no pickup - the pot already is where it should be.
+                if (pot_target(i, prev_mode) == pot_target(i, pot_mode)) {
+                    pot_picked[i] = true;
+                } else {
+                    pot_picked[i] = false;
+                    pickup_target[i] = *pot_target(i, pot_mode);
+                }
             }
-            for (int i = 0; i < 4; i++) pot_picked[i] = false;
             s4_last = now;
         }
         s4_prev = s4_now;
@@ -492,6 +514,7 @@ int main(void)
         bool s2_now = button_enc2();
         if (s2_now && !s2_prev && (now - s2_last > 200)) {
             cv_sel = (cv_sel + 1) % 3;
+            cv_act_ts = now;
             s2_last = now;
         }
         s2_prev = s2_now;
@@ -503,6 +526,7 @@ int main(void)
             if (t < 0) t = NUM_CV_TARGETS - 1;
             if (t >= NUM_CV_TARGETS) t = 0;
             cv_assign[cv_sel] = t;
+            cv_act_ts = now;
         }
 
         // --- LEDs ---
@@ -527,55 +551,52 @@ int main(void)
         // --- OLED: single-page display ---
         // Layout:
         //   S1 Mod E1 Con SE2 Cv
-        //   P1-4 Geo Brt Dmp Pos
-        //   P5-8 Bow Blw Stk Spc      <- "P5-8" underlined when active
-        //   P5-8 BlT Flw Mal StT      <- "P5-8" underlined when active
-        //   CvAD Flw Mal --- Gte      <- active CV underlined
+        //   S1:Mod
+        //   Geom Brgt Damp Posn     P1-P4
+        //   BowL BloL StkL Spce     P5-P8, contents cycle with S4
+        //   Cont Play Page Asgn     E1  S3  S4  E2
+        //   A:Flw  B:Mal  C:---     assignable CV, selected slot underlined
         //   (bottom: active param display or static reference)
         static int oled_tick = 0;
         if (oled_tick == 0) {
             oled_clear();
             char line[22];
 
-            // Row 0 (y=0): "S1 Mod E1 Con SE2 Cv"
-            const char* e1_lbl = (pot_mode == 0) ? "Con" : "BoT";
-            snprintf(line, sizeof(line), "S1 %s E1 %s SE2 Cv",
-                     model_names[resonator_model], e1_lbl);
+            // Row 0 (y=0): what S1 selects and where it is. S4's state is not shown
+            // here - the row below spells the parameters out, so naming it twice is noise.
+            snprintf(line, sizeof(line), "S1:%s", model_names[resonator_model]);
             oled_str(0, 0, line);
 
             oled_hline(0, 9, 128);
 
-            // Row 1 (y=11): "P1-4 <P1> Brt Dmp Pos" — P1 label tracks resonator model
-            snprintf(line, sizeof(line), "P1-4 %s Brt Dmp Pos",
+            // Rows 1-3 sit under the controls they belong to: four columns of five
+            // characters, matching P1-P4, then P5-P8, then E1 / S3 / S4 / E2.
+            snprintf(line, sizeof(line), "%-4s Brgt Damp Posn",
                      p1_label_short[resonator_model]);
             oled_str(0, 11, line);
 
-            // Row 2 (y=21): "P5-8 Bow Blw Stk Spc"
-            oled_str(0, 21, "P5-8 Bow Blw Stk Spc");
-            if (pot_mode == 0)
-                oled_hline(0, 29, 24);  // underline "P5-8" only
+            oled_str(0, 21, pot_row[pot_mode]);
+            oled_str(0, 31, "Cont Play Page Asgn");
 
-            // Row 3 (y=31): "P5-8 BlT Flw Mal StT"
-            oled_str(0, 31, "P5-8 BlT Flw Mal StT");
-            if (pot_mode == 1)
-                oled_hline(0, 39, 24);  // underline "P5-8" only
-
-            // Row 4 (y=42): "CvAD Flw Mal --- Gte"
-            snprintf(line, sizeof(line), "CvAD %s %s %s Gte",
+            // Row 4 (y=42): only the assignable CV inputs. CV-D is the gate and CV-X is
+            // V/oct - both fixed, so neither earns space here.
+            snprintf(line, sizeof(line), "A:%s  B:%s  C:%s",
                      cv_target_abbr[cv_assign[0]],
                      cv_target_abbr[cv_assign[1]],
                      cv_target_abbr[cv_assign[2]]);
             oled_str(0, 42, line);
 
-            // Underline active CV: "CvAD " = 30px, then 3-char groups at 30, 54, 78
-            oled_hline(30 + cv_sel * 24, 50, 18);
+            // Underline the slot E2 is editing. Each group is "X:abc" = 5 chars = 30px,
+            // with two spaces (12px) between, so the groups start at 0, 42 and 84.
+            oled_hline(cv_sel * 42, 50, 30);
 
-            // Row 5 (y=53): activity display or static reference
-            // Find the two most recently active controls (within 2s)
-            const char** names = (pot_mode == 0) ? ctrl_name_m0 : ctrl_name_m1;
+            // Row 5 (y=53): whatever you last touched, and blank when you are not
+            // touching anything. Every control is already named on the rows above, so a
+            // static reference line here would only repeat them.
+            const char** names = ctrl_name[pot_mode];
             float ctrl_val[9];
             for (int i = 0; i < 8; i++) ctrl_val[i] = cur_pot[i];
-            ctrl_val[8] = (pot_mode == 0) ? val_contour : val_bow_tim;
+            ctrl_val[8] = val_contour;
 
             int s0 = -1, s1 = -1;
             uint32_t t0 = 0, t1 = 0;
@@ -616,11 +637,14 @@ int main(void)
                     snprintf(line, sizeof(line), "%s", f0);
                 }
                 oled_str(0, 53, line);
-            } else {
-                oled_str(0, 53, "S34 PyPge CvXY VO FM");
+            } else if (now - cv_act_ts < ACT_DURATION) {
+                // No pot moving, but a CV slot was just selected or reassigned
+                snprintf(line, sizeof(line), "CV %c  %s",
+                         (char)('A' + cv_sel), cv_target_full[cv_assign[cv_sel]]);
+                oled_str(0, 53, line);
             }
+            oled_update();   // ~1 KB over I2C at 400 kHz: only worth doing on a redraw
         }
-        oled_update();
         oled_tick = (oled_tick + 1) % 8;
 
         HAL_Delay(1);
