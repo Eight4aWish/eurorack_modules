@@ -256,6 +256,11 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   same 84,000 cycles per block Elements has (16 samples at 32 kHz, 168 MHz), so the
   shortfall is Ksoloti overhead rather than a slower chip. Set in scripts/elements_build.py
   as RESOLUTION - one number, rewritten into the vendored source at build time.
+- LED2 (CPU overload) does not detect the dropouts. Measured on the board: 48 and 52
+  modes drop out audibly while the flag never fires, so the failure is not the audio
+  callback exceeding its cycle budget. Whatever causes it is not what DWT measures
+  between callback entry and exit. Treat LED2 as unproven, not as a headroom gauge —
+  the working mode count was found by ear.
 - V/Oct tracking (CV X) needs calibration with board trimmer
 - No MIDI input yet (USART6 on PG9 available)
 - Hidden parameters (Sig, MFr, MOf, RvD, RvL) only accessible via CV assignment — no direct knob control
