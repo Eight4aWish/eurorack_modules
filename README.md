@@ -11,7 +11,7 @@ the third lives here:
 
 | Name | Firmware | Version | Based on | Licence |
 | --- | --- | --- | --- | --- |
-| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | v1.1.0 | Mutable Instruments Elements | MIT |
+| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | v1.2.0 | Mutable Instruments Elements | MIT |
 
 These are independent community works. Product names of other makers are used only to
 describe each firmware's origin — **not affiliated with, or endorsed by, Mutable
