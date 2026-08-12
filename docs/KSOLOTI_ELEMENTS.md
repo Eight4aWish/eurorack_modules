@@ -59,7 +59,7 @@ CV A-C are assignable via S2 (select CV) + E2 (cycle target). Default assignment
 | CV C (PB0) | Unassigned | Assignable to any parameter via S2/E2 |
 | CV D (PB1) | Gate + strength | >0.2V = gate on, voltage = velocity (0-1) |
 | CV X (PC1) | V/Oct pitch | Centered at middle C (MIDI 60). Trimmable |
-| CV Y (PC4) | FM modulation | Bipolar. 0 when unpatched |
+| CV Y (PC4) | Pitch modulation | Bipolar, ±1 semitone (`perf.modulation` is unscaled), applied per block. Vibrato/detune, not audio-rate FM. 0 when unpatched |
 | CV P1-P4 | Summed with pots 1-4 | Hardware summing, no separate ADC |
 
 **Assignable CV targets:** Flow, Mallet, Contour, Bow Timbre, Blow Timbre, Strike Timbre, Signature, Mod Frequency, Mod Offset, Reverb Diffusion, Reverb LP, None.

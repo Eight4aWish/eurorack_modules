@@ -32,7 +32,7 @@
 //   CV A-C:           assignable modulation (default A=Flow, B=Mallet, C=none)
 //   CV D:             gate + strength (velocity from voltage)
 //   CV X:             V/Oct pitch
-//   CV Y:             FM modulation
+//   CV Y:             pitch modulation, +/-1 semitone (unscaled), per block
 //   LED1 green (PG6): gate active
 //   LED2 red (PC6):   CPU overload
 //   LED4 (PB6/PB7):   resonator model (green=modal, red=string, both=chords)
@@ -477,7 +477,9 @@ int main(void)
             perf.strength = 0.7f;
         }
 
-        // --- CV X/Y: pitch and FM ---
+        // --- CV X/Y: pitch, and a shallow pitch modulation ---
+        // modulation is added to the MIDI pitch in Part::Process and is left unscaled, so
+        // CV-Y is worth +/-1 semitone against CV-X's +/-30. Vibrato and detune, not FM.
         perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
         perf.modulation = cv(ADC_CV_Y);
 
