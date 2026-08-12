@@ -32,7 +32,7 @@
 //   CV A-C:           assignable modulation (default A=Flow, B=Mallet, C=none)
 //   CV D:             gate + strength (velocity from voltage)
 //   CV X:             V/Oct pitch
-//   CV Y:             pitch modulation, +/-1 semitone (unscaled), per block
+//   CV Y:             FM, +/-49.5 semitones clamped at +/-60 (Elements' scaling)
 //   LED1 green (PG6): gate active
 //   LED2 red (PC6):   CPU overload
 //   LED4 (PB6/PB7):   resonator model (green=modal, red=string, both=chords)
@@ -67,7 +67,13 @@ static elements::Part part;
 //
 // The linker script warns that startup does not copy init values into .ccmram, so this
 // is cleared by hand in main() before Part::Init() sees it.
-static uint16_t reverb_buffer[32768] __attribute__((section(".ccmram")));
+// Declared nobits so it occupies no space in the .bin. The linker script gives .ccmram a
+// load address, so a plain section attribute puts 64 KB of zeros into the image for a
+// buffer nothing ever copies - the GCC startup handles only .data and .bss, and this is
+// cleared by hand in main(). The trailing @ opens an assembler comment, swallowing the
+// flags GCC would otherwise append.
+static uint16_t reverb_buffer[32768]
+    __attribute__((section(".ccmram,\"aw\",%nobits @")));
 
 // Per-block float buffers (16 mono samples each = kMaxBlockSize)
 static float blow_in[BUFSIZE];
@@ -477,11 +483,14 @@ int main(void)
             perf.strength = 0.7f;
         }
 
-        // --- CV X/Y: pitch, and a shallow pitch modulation ---
-        // modulation is added to the MIDI pitch in Part::Process and is left unscaled, so
-        // CV-Y is worth +/-1 semitone against CV-X's +/-30. Vibrato and detune, not FM.
+        // --- CV X/Y: pitch and FM ---
+        // modulation is added to the MIDI pitch in Part::Process, in semitones. Elements
+        // scales its (attenuverted) FM CV by 49.5 and clamps at +/-60; Girl has no
+        // attenuverter to spare, so it ships that full depth the way Joy does for Braids -
+        // attenuate at the source for less. Left unscaled this was worth one semitone,
+        // which reads as a broken input rather than a shallow one.
         perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
-        perf.modulation = cv(ADC_CV_Y);
+        perf.modulation = clampf(cv(ADC_CV_Y) * 49.5f, -60.0f, 60.0f);
 
         // --- S1 (ENC1 push): cycle resonator model (debounced 200ms) ---
         bool enc1_now = button_enc1();
