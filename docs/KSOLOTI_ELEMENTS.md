@@ -30,27 +30,23 @@ Based on the **Elements** modal synthesis voice by [Émilie Gillet](https://gith
 | POT3 | resonator_damping | 0-1 |
 | POT4 | resonator_position | 0-1 |
 
-### Pots 5-8 (bottom row) — Dual Mode
+### Pots 5-8 (bottom row) — three states
 
-S4 toggles P5-8 between two modes. Pot pickup prevents parameter jumps on mode switch.
+Each column owns one exciter — P5 bow, P6 blow, P7 strike — in every state. S4 cycles
+what that column holds, in the order Elements uses across its own panel: level, then meta,
+then timbre. Pot pickup prevents jumps on a change.
 
-**Mode 1 — Levels (default):**
+| Pot | 1 — Levels | 2 — Meta | 3 — Timbres |
+|-----|-----------|----------|-------------|
+| POT5 (bow) | exciter_bow_level | exciter_bow_timbre | exciter_bow_timbre |
+| POT6 (blow) | exciter_blow_level | exciter_blow_meta (Flow) | exciter_blow_timbre |
+| POT7 (strike) | exciter_strike_level | exciter_strike_meta (Mallet) | exciter_strike_timbre |
+| POT8 | space — every state, 0-2 (>1 = increasing reverb, >1.5 = frozen) |||
 
-| Pot | Parameter | Range |
-|-----|-----------|-------|
-| POT5 | exciter_bow_level | 0-1 |
-| POT6 | exciter_blow_level | 0-1 |
-| POT7 | exciter_strike_level | 0-1 |
-| POT8 | space | 0-2 (>1 = increasing reverb, >1.5 = frozen) |
+Bow has no meta parameter, so P5 carries its timbre into state 2 rather than going dead.
+Crossing that boundary needs no pickup: the pot is already where it should be.
 
-**Mode 2 — Timbres:**
-
-| Pot | Parameter | Range |
-|-----|-----------|-------|
-| POT5 | exciter_blow_timbre | 0-1 |
-| POT6 | exciter_blow_meta (Flow) | 0-1 |
-| POT7 | exciter_strike_meta (Mallet) | 0-1 |
-| POT8 | exciter_strike_timbre | 0-1 |
+P8 never changes function, so it is never out of position and never needs picking up.
 
 ### CV Inputs
 
@@ -73,13 +69,18 @@ CV A-C are assignable via S2 (select CV) + E2 (cycle target). Default assignment
 | Control | Function |
 |---------|----------|
 | S1 / ENC1 push (PB5) | Cycle resonator model: modal -> string -> chords |
-| ENC1 rotate (PG11/PG12) | Mode 1: contour (envelope shape). Mode 2: bow timbre |
+| ENC1 rotate (PG11/PG12) | Contour (envelope shape) — every state |
 | S2 / ENC2 push (PA10) | Cycle selected CV for assignment (A -> B -> C) |
 | ENC2 rotate (PG10/PA15) | Cycle CV target parameter for selected CV |
 | S3 (PB12) | Play — manual gate (fixed strength 0.7). CV D takes priority when patched |
-| S4 (PB13) | Toggle pot mode (levels / timbres) |
+| S4 (PB13) | Cycle P5-P7 state: levels -> meta -> timbres |
 
 Note: S2 and S3 are active-high (no internal pull-up). S1 and S4 are active-low with internal pull-up.
+
+ENC1 and ENC2 are polled from the audio ISR at 2 kHz, not from the main loop. The main loop
+runs at tens of Hz because a screen redraw pushes ~1 KB over I2C, and at that rate a
+quadrature decoder misses most AB transitions — the encoder feels like it resists you, and
+aliased transitions can count the wrong way.
 
 ### LEDs
 
@@ -112,17 +113,26 @@ Selectable via ENC1 push button (cycles through all three):
 
 SH1106 128x64 on I2C1 (PB8 SCL, PB9 SDA, 400 kHz, addr 0x3C).
 
-Single-page layout with six rows:
+Six rows, each sitting under the controls it describes — four columns of five characters
+matching the four pots above them. 21 characters fit on a line.
 
 ```
-S1 Mod E1 Con SE2 Cv       <- model, E1 param, CV config reminder
+S1:Mod                     <- press E1 to cycle model; shows where it is
 ─────────────────────
-P1-4 Geo Brt Dmp Pos       <- resonator pots (P1 label tracks model)
-P5-8 Bow Blw Stk Spc       <- mode 1: levels (underlined when active)
-P5-8 BlT Flw Mal StT       <- mode 2: timbres (underlined when active)
-CvAD Flw Mal --- Gte       <- CV A-C assignments + gate (active CV underlined)
-S34 PyPge CvXY VO FM       <- button/CV reference (or active param + value)
+Geom Brgt Damp Posn        <- P1  P2  P3  P4   (P1 label tracks the model)
+BowT Flow Mall Spce        <- P5  P6  P7  P8   contents cycle with S4
+Cont Play Page Asgn        <- E1  S3  S4  E2
+A:Flw  B:Mal  C:---        <- assignable CV; selected slot underlined
+Bright        68           <- last control touched; blank when idle
 ```
+
+Nothing is named twice: S4's state is read off the pot row rather than labelled, and the
+bottom line goes blank rather than repeating a reference that is already on screen. CV-D
+and CV-X do not appear because neither can be reassigned — D is the gate, X is V/oct.
+
+Turning E2 or pressing S2 puts the CV assignment on the bottom line in full — `CV B
+Mallet` — since the three-letter form the CV row has to use is cryptic for the less
+obvious targets.
 
 The **P1 label changes with the resonator model** (since P1's function changes
 across MOD/STR/CHD — see "Resonator Models" above):
@@ -189,7 +199,7 @@ You should see a progress bar. When it says "File downloaded successfully", the 
 
 ### Step 5: Verify
 
-- The OLED should display "S1 Mod E1 Con SE2 Cv" on the top line
+- The OLED should display "S1:Mod" on the top line
 - LED1 (green) should light when you press S3 or send a gate to CV D
 - Sound should come from the audio outputs when a gate is active and pots are turned up
 
