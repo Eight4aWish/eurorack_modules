@@ -87,6 +87,9 @@ static volatile bool dsp_ready = false;
 // which drives the OLED over I2C - iterates far slower, so an unlatched flag is almost
 // never sampled in the act. The ISR sets this; the main loop clears it and holds the LED
 // on long enough to see.
+static float cv(int ch);            // defined with the ADC helpers below
+static float fm_lp = 0.0f;          // smoothed FM, updated in the audio callback
+
 static volatile bool cpu_overload = false;
 
 // One audio block must be computed in BUFSIZE / SAMPLERATE seconds. At 32 kHz that is
@@ -113,6 +116,16 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
         blow_in[i]   = static_cast<float>(inp[i * 2])     * kInScale;
         strike_in[i] = static_cast<float>(inp[i * 2 + 1]) * kInScale;
     }
+
+    // Pitch and FM at block rate, matching Elements (cv_scaler.Read once per block) and
+    // Joy (ProcessControls inside AudioCallback). The main loop averages a few hundred Hz
+    // but stalls ~25 ms whenever the OLED redraws, so sampling there made fast modulation
+    // steppy and V/oct lag. Both CVs are in ADC1's DMA buffer: an array read and a few
+    // floats against an 84,000-cycle budget.
+    perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
+    const float fm = cv(ADC_CV_Y) * 49.5f;
+    fm_lp += 0.05f * (fm - fm_lp);      // ~3 ms at 2 kHz, in the spirit of Elements' filter
+    perf.modulation = fm_lp < -60.0f ? -60.0f : (fm_lp > 60.0f ? 60.0f : fm_lp);
 
     part.Process(perf, blow_in, strike_in, main_out, aux_out, BUFSIZE);
 
@@ -147,7 +160,7 @@ static inline float pot(int ch)
 
 // CV: bipolar, inverted by op-amp, scaled to -1.0 .. +1.0
 // With no cable patched, input sits at ~0 V -> ADC mid-range -> returns ~0.0
-static inline float cv(int ch)
+static float cv(int ch)
 {
     float v = 1.0f - adc_raw(ch) * (1.0f / 2047.5f);
     if (v < -1.0f) return -1.0f;
@@ -489,8 +502,7 @@ int main(void)
         // attenuverter to spare, so it ships that full depth the way Joy does for Braids -
         // attenuate at the source for less. Left unscaled this was worth one semitone,
         // which reads as a broken input rather than a shallow one.
-        perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
-        perf.modulation = clampf(cv(ADC_CV_Y) * 49.5f, -60.0f, 60.0f);
+        // CV X/Y (pitch and FM) are read in the audio callback - see computebufI.
 
         // --- S1 (ENC1 push): cycle resonator model (debounced 200ms) ---
         bool enc1_now = button_enc1();
