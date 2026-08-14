@@ -168,7 +168,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.0).
+Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.1).
 
 ### Step 2: Install dfu-util
 
