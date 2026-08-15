@@ -58,7 +58,7 @@ CV A-C are assignable via S2 (select CV) + E2 (cycle target). Default assignment
 | CV B (PA7) | Mallet (strike_meta) | Modulates ±0.5 around base value |
 | CV C (PB0) | Unassigned | Assignable to any parameter via S2/E2 |
 | CV D (PB1) | Gate + strength | >0.2V = gate on, voltage = velocity (0-1) |
-| CV X (PC1) | V/Oct pitch | Centered at middle C (MIDI 60). Trimmable |
+| CV X (PC1) | V/Oct pitch | Centred on middle C (MIDI 60), 1V/oct. Scale is hardcoded at 63.9 semitones across cv()'s swing — measured on a trimmed board. Was 30 (6 semitones/volt) before v1.2.2 |
 | CV Y (PC4) | FM | Bipolar, ±49.5 semitones clamped at ±60 — Elements' own scaling. No attenuverter on the panel, so attenuate at the source. Applied per block, so pitch modulation rather than audio-rate FM. 0 when unpatched |
 | CV P1-P4 | Summed with pots 1-4 | Hardware summing, no separate ADC |
 
@@ -168,7 +168,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.1).
+Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.2).
 
 ### Step 2: Install dfu-util
 
@@ -271,7 +271,7 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   callback exceeding its cycle budget. Whatever causes it is not what DWT measures
   between callback entry and exit. Treat LED2 as unproven, not as a headroom gauge —
   the working mode count was found by ear.
-- V/Oct tracking (CV X) needs calibration with board trimmer
+- V/Oct tracking (CV X) relies on the board trimmer being set; the firmware scale is fixed at 63.9 and assumes a trimmed input
 - No MIDI input yet (USART6 on PG9 available)
 - Hidden parameters (Sig, MFr, MOf, RvD, RvL) only accessible via CV assignment — no direct knob control
 
