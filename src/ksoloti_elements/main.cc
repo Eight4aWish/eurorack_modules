@@ -122,7 +122,18 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
     // but stalls ~25 ms whenever the OLED redraws, so sampling there made fast modulation
     // steppy and V/oct lag. Both CVs are in ADC1's DMA buffer: an array read and a few
     // floats against an 84,000-cycle budget.
-    perf.note = 60.0f + cv(ADC_CV_X) * 30.0f;
+    // V/oct scale, in semitones across the full cv() swing. The original port used 30,
+    // which is 6 semitones per volt - half of 1V/oct - so an octave of CV came out as a
+    // tritone. Wrong since March, and easy to miss unless you play more than an octave.
+    //
+    // 63.9 rather than a round 60 because the input does not swing exactly +/-5V: measured
+    // on a trimmed board, 60 gave 11.27 semitones per volt, so the factor is 60 * 12/11.27.
+    // Hardcoded deliberately - every Big Genes has its CV input trimmed on the board, so
+    // the ADC reading for a given voltage is the same across modules.
+    //
+    //   0V -> C -4 cents,  1V -> +12.00 semitones,  2V -> +24.01
+    static const float kVoltPerOctScale = 63.9f;
+    perf.note = 60.0f + cv(ADC_CV_X) * kVoltPerOctScale;
     const float fm = cv(ADC_CV_Y) * 49.5f;
     fm_lp += 0.05f * (fm - fm_lp);      // ~3 ms at 2 kHz, in the spirit of Elements' filter
     perf.modulation = fm_lp < -60.0f ? -60.0f : (fm_lp > 60.0f ? 60.0f : fm_lp);
