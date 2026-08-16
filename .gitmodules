@@ -1,3 +1,6 @@
 [submodule "third_party/eurorack"]
 	path = third_party/eurorack
 	url = https://github.com/pichenettes/eurorack.git
+	# elements_build.py rewrites voice.cc set_resolution() on every build, so a dirty
+	# working tree here is expected. The pointer itself is still tracked.
+	ignore = dirty

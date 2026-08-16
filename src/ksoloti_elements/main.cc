@@ -584,7 +584,6 @@ int main(void)
 
         // --- OLED: single-page display ---
         // Layout:
-        //   S1 Mod E1 Con SE2 Cv
         //   S1:Mod
         //   Geom Brgt Damp Posn     P1-P4
         //   BowL BloL StkL Spce     P5-P8, contents cycle with S4
