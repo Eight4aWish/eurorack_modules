@@ -16,7 +16,7 @@ Based on the **Elements** modal synthesis voice by [Émilie Gillet](https://gith
 - **Codec**: ADAU1961, 32 kHz sample rate (Elements native), I2S master via SAI1
 - **MCLK**: 8 MHz HSE routed via MCO1 (PA8)
 - **DMA**: Double-buffered, 16-sample blocks (~500 us per callback)
-- **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer
+- **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer plus a 1 KB shadow of what the display is believed to hold
 - **Resources**: RAM 44.8%, Flash 19.7%
 
 ## Controls
@@ -41,12 +41,28 @@ then timbre. Pot pickup prevents jumps on a change.
 | POT5 (bow) | exciter_bow_level | exciter_bow_timbre | exciter_bow_timbre |
 | POT6 (blow) | exciter_blow_level | exciter_blow_meta (Flow) | exciter_blow_timbre |
 | POT7 (strike) | exciter_strike_level | exciter_strike_meta (Mallet) | exciter_strike_timbre |
-| POT8 | space — every state, 0-2 (>1 = increasing reverb, >1.5 = frozen) |||
+| POT8 | space — every state, 0-2 (see below) |||
 
 Bow has no meta parameter, so P5 carries its timbre into state 2 rather than going dead.
 Crossing that boundary needs no pickup: the pot is already where it should be.
 
 P8 never changes function, so it is never out of position and never needs picking up.
+
+**What space actually does**, since the pot travel is not evenly used. P8 maps 0-1 onto
+Elements' 0-2 range, and Elements clamps everything except freeze at 1.0:
+
+| Pot | space | Behaviour |
+|-----|-------|-----------|
+| 0-2% | 0-0.05 | aux carries the **raw exciter**, not the resonator - this is Elements' design, not a dead channel |
+| 2-5% | 0.05-0.1 | raw crossfades out to the resonator |
+| 5-30% | 0.1-0.6 | stereo spread widens; **no reverb yet** |
+| 30-50% | 0.6-1.0 | reverb ramps in; spread reaches full at 40% |
+| 50-87% | 1.0-1.75 | **nothing changes** - space is clamped to 1.0 for spread and reverb |
+| 87-100% | >=1.75 | reverb frozen |
+
+The inert top half is a consequence of the x2 scaling: 1.75 has to be reachable for freeze,
+but nothing between 1.0 and 1.75 has any effect. Worth remapping if the knob feel matters
+more than matching Elements' own numbers.
 
 ### CV Inputs
 
@@ -77,10 +93,16 @@ CV A-C are assignable via S2 (select CV) + E2 (cycle target). Default assignment
 
 Note: S2 and S3 are active-high (no internal pull-up). S1 and S4 are active-low with internal pull-up.
 
-ENC1 and ENC2 are polled from the audio ISR at 2 kHz, not from the main loop. The main loop
-runs at tens of Hz because a screen redraw pushes ~1 KB over I2C, and at that rate a
-quadrature decoder misses most AB transitions — the encoder feels like it resists you, and
-aliased transitions can count the wrong way.
+ENC1, ENC2 and the S1/S2/S4 presses are all polled from the audio ISR at 2 kHz, not from
+the main loop. That loop is neither fast nor evenly spaced — a pass that has to push a page
+to the display costs milliseconds — and both kinds of input are moments rather than states.
+A quadrature decoder sampled that slowly misses most AB transitions, so the encoder feels
+like it resists you and aliased transitions can count the wrong way; a button press sampled
+that slowly can fall entirely inside one slow pass and never be seen at all, which is how
+a jammed display used to present as a dead S4. The pots are unaffected either way, because
+a pot is read as a position rather than an event. Presses are latched in the ISR and
+collected by the main loop whenever it next comes round (S3 is read as a level, not an
+edge, so it needs none of this).
 
 ### LEDs
 
@@ -117,7 +139,7 @@ Six rows, each sitting under the controls it describes — four columns of five 
 matching the four pots above them. 21 characters fit on a line.
 
 ```
-S1:Mod                     <- press E1 to cycle model; shows where it is
+S1:Mod                 E1  <- press E1 to cycle model; E-count only after a screen fault
 ─────────────────────
 Geom Brgt Damp Posn        <- P1  P2  P3  P4   (P1 label tracks the model)
 BowT Flow Mall Spce        <- P5  P6  P7  P8   contents cycle with S4
@@ -139,16 +161,19 @@ across MOD/STR/CHD — see "Resonator Models" above):
 
 | Model | P1 label | Bottom-status name | Value display |
 |-------|----------|--------------------|---------------|
-| Modal | `Geo` | `Geom` | 0–100 |
-| String | `Dsp` | `Dispr` | 0–100 |
-| Chords | `Chd` | `Chord` | Chord name (e.g. `m7`, `M9`, `su4`) |
+| Modal | `Geom` | `Geom` | 0–100 |
+| String | `Disp` | `Dispr` | 0–100 |
+| Chords | `Chrd` | `Chord` | Chord name (e.g. `m7`, `M9`, `su4`) |
 
 In Chords mode, turning P1 shows the chord shape at the position of the pot
 (11 shapes: `Oct`, `m7`, `m`, `m9`, `m11`, `5`, `M11`, `M9`, `M`, `M7`, `su4`).
 
-The bottom line shows parameter name and 0-100 value when pots or E1 are being adjusted (up to two simultaneous controls), reverting to the static reference after 2 seconds.
+The bottom line shows parameter name and 0-100 value when pots or E1 are being adjusted (up to two simultaneous controls), going blank again 2 seconds after the last movement.
 
-Page-at-a-time refresh: 1 of 8 pages sent per main loop tick (~1 ms each). Full frame refresh every 8 ms. No measurable audio impact.
+Page-at-a-time refresh, and only pages that have changed: a still screen puts nothing on
+the bus at all. Every transfer is checked, and a failure unjams the bus and re-initialises
+the display rather than being discarded — see Known Limitations. Recovered faults appear as
+a small `E` count at the top right, and only once there has been one.
 
 ## Hidden Parameters
 

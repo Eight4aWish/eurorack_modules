@@ -175,13 +175,13 @@ See [src/amyboard_patchbank/README.md](src/amyboard_patchbank/README.md) for har
 
 **Girl** — a modal synthesis voice for the [Ksoloti Big Genes](https://ksoloti.github.io/7-big_genes.html) Eurorack module (STM32F429 @ 168 MHz + ADAU1961 codec), the third in the rhyme-named family. Based on **Mutable Instruments Elements** by Émilie Gillet (MIT); *not affiliated with, or endorsed by, Mutable Instruments or Ksoloti.*
 
-- **Status**: Fully playable with single-page OLED UI, dual pot mode, CV assignment, all buttons and encoders working.
+- **Status**: Fully playable with single-page OLED UI, three pot states, CV assignment, all buttons and encoders working.
 - **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
 - **Resonator**: 40 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via S1: modal, string, chords.
-- **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). S4 toggles POT5-8 between levels (bow/blow/strike/space) and timbres (blow timbre/flow/mallet/strike timbre). E1 = contour (levels mode) or bow timbre (timbres mode). CV A-C = assignable modulation (S2 selects, E2 assigns target). CV D = gate + velocity. CV X = V/Oct. CV Y = FM. S3 = play (manual gate).
-- **Display**: Single-page OLED with control reference, active pot mode underline, CV assignments, and real-time parameter name + value on pot/encoder activity.
+- **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). POT5-7 are one exciter each - bow, blow, strike - and S4 cycles which of that exciter's parameters they hold: levels, then meta, then timbres. POT8 = space and E1 = contour in every state, so neither ever pages. CV A-C = assignable modulation (S2 selects, E2 assigns target). CV D = gate + velocity. CV X = V/Oct. CV Y = FM. S3 = play (manual gate).
+- **Display**: Single-page OLED with control reference, CV assignments with the selected slot underlined, and real-time parameter name + value on pot/encoder activity.
 - **Indicators**: LED1 green = gate. LED2 red = CPU overload. LED4 dual = resonator model (green/red/both). Gate1 = gate echo output.
-- **Resources**: RAM 69.4%, Flash 19.7%.
+- **Resources**: RAM 44.8%, Flash 19.7%.
 
 See [docs/KSOLOTI_ELEMENTS.md](docs/KSOLOTI_ELEMENTS.md) for full control mapping, secondary parameters, ADC details, and the pre-built-binary install guide.
 
