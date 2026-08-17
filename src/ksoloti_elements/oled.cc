@@ -2,10 +2,18 @@
 //
 // Page-at-a-time update: call oled_update() from main loop.
 // Full refresh in 8 calls (~8 ms total at 400 kHz I2C).
+//
+// Every transfer is checked. An abandoned transfer can leave the SH1106 mid-byte with
+// SDA held low, which jams the bus for good: the peripheral reports BUSY for ever after
+// and the screen is dead until the module is power-cycled. Since the transfers are
+// polled, and the audio ISR has priority, a heavy DSP load is enough to starve one past
+// its timeout and trigger exactly that. So a failure now unjams the bus and re-inits the
+// display instead of being discarded, and oled_fault_count() records that it happened.
 
 #include "oled.h"
 #include "font5x7.h"
 #include "stm32f4xx_hal.h"
+#include <string.h>
 
 // SH1106 I2C address (7-bit 0x3C, HAL wants 8-bit left-shifted)
 #define SH1106_ADDR  (0x3C << 1)
@@ -18,25 +26,59 @@
 // SH1106 has 132-column RAM but 128-column display — offset by 2
 #define COL_OFFSET 2
 
+// Per-transfer timeout. A page is 129 bytes at 400 kHz - under 3 ms when the bus is
+// healthy - so 2 ms of grace on top of that is plenty. It used to be 10 ms, which is
+// mostly time the main loop spends stalled once things are going wrong.
+#define OLED_I2C_TIMEOUT  2u
+
+// How long to leave a jammed bus alone before trying to recover it. Recovery clocks the
+// bus by hand and re-runs the init sequence, so hammering it every pass would be worse
+// than the fault.
+#define OLED_RETRY_MS     250u
+
 static I2C_HandleTypeDef hi2c1;
 static uint8_t fb[PAGES * OLED_W];  // 1024-byte framebuffer
 static int current_page = 0;
 
+// What the display is believed to be showing. A page is only sent when it differs, so
+// a screen that is not changing puts nothing on the bus - and a transfer that never
+// happens cannot jam. fb_force counts pages that must go out regardless, used after a
+// re-init when the display's real contents are unknown.
+static uint8_t fb_sent[PAGES * OLED_W];
+static int     fb_force = PAGES;
+
+static uint32_t oled_faults = 0;      // recovered jams, shown in the UI
+static bool     oled_jammed = false;  // bus is known bad; leave it alone until retry_at
+static uint32_t oled_retry_at = 0;
+
+static void oled_hw_init(void);
+static void oled_bus_recover(void);
+
 // --- Low-level I2C helpers ---
 
-static void oled_cmd(uint8_t cmd)
+static bool oled_cmd(uint8_t cmd)
 {
     uint8_t buf[2] = { 0x00, cmd };  // Co=0, D/C#=0 (command)
-    HAL_I2C_Master_Transmit(&hi2c1, SH1106_ADDR, buf, 2, 10);
+    return HAL_I2C_Master_Transmit(&hi2c1, SH1106_ADDR, buf, 2, OLED_I2C_TIMEOUT)
+           == HAL_OK;
 }
 
-static void oled_send_page(int page)
+// Rough microsecond delay for the manual bus-clocking in oled_bus_recover(). It only has
+// to be slow enough to stay inside the I2C spec, so a calibrated spin is fine and avoids
+// depending on DWT, which is not started until after oled_init() runs.
+static void oled_delay_us(uint32_t us)
+{
+    volatile uint32_t n = us * 28u;   // ~6 cycles an iteration at 168 MHz
+    while (n--) { __NOP(); }
+}
+
+static bool oled_send_page(int page)
 {
     // Set page address
-    oled_cmd(0xB0 | page);
+    if (!oled_cmd(0xB0 | page)) return false;
     // Set column address (low nibble, high nibble) with SH1106 offset
-    oled_cmd(0x00 | (COL_OFFSET & 0x0F));
-    oled_cmd(0x10 | (COL_OFFSET >> 4));
+    if (!oled_cmd(0x00 | (COL_OFFSET & 0x0F))) return false;
+    if (!oled_cmd(0x10 | (COL_OFFSET >> 4))) return false;
 
     // Send 128 bytes of pixel data for this page
     // I2C data write: 0x40 prefix byte then 128 data bytes
@@ -45,12 +87,53 @@ static void oled_send_page(int page)
     for (int i = 0; i < OLED_W; i++) {
         buf[1 + i] = fb[page * OLED_W + i];
     }
-    HAL_I2C_Master_Transmit(&hi2c1, SH1106_ADDR, buf, 1 + OLED_W, 10);
+    return HAL_I2C_Master_Transmit(&hi2c1, SH1106_ADDR, buf, 1 + OLED_W,
+                                   OLED_I2C_TIMEOUT) == HAL_OK;
+}
+
+// Release the bus from a slave that is holding SDA low.
+//
+// Nine clock pulses is one byte plus its ACK slot - enough for any slave to finish the
+// byte it believed it was in the middle of and let go of the line. Then a manual STOP
+// puts it back at a known idle, and the peripheral and display are re-initialised.
+static void oled_bus_recover(void)
+{
+    HAL_I2C_DeInit(&hi2c1);
+
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    GPIO_InitTypeDef g = {};
+    g.Pin   = GPIO_PIN_8 | GPIO_PIN_9;
+    g.Mode  = GPIO_MODE_OUTPUT_OD;
+    g.Pull  = GPIO_PULLUP;
+    g.Speed = GPIO_SPEED_FREQ_LOW;
+    HAL_GPIO_Init(GPIOB, &g);
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8 | GPIO_PIN_9, GPIO_PIN_SET);  // both released
+    oled_delay_us(10);
+
+    for (int i = 0; i < 9; i++) {
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+        oled_delay_us(5);
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+        oled_delay_us(5);
+    }
+
+    // STOP: SDA low while SCL is high, then release SDA.
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+    oled_delay_us(5);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+    oled_delay_us(5);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+    oled_delay_us(5);
+
+    oled_hw_init();
 }
 
 // --- Public API ---
 
-void oled_init(void)
+// Peripheral and display configuration only - deliberately does not touch the
+// framebuffer, so recovery can re-run it and then re-send the picture already in hand.
+static void oled_hw_init(void)
 {
     // Enable I2C1 and GPIOB clocks
     __HAL_RCC_I2C1_CLK_ENABLE();
@@ -103,18 +186,71 @@ void oled_init(void)
     oled_cmd(0xA4);  // Entire display ON (follow RAM)
     oled_cmd(0xA6);  // Normal display (not inverted)
     oled_cmd(0xAF);  // Display ON
+}
+
+void oled_init(void)
+{
+    oled_hw_init();
 
     // Clear framebuffer and push all pages
     oled_clear();
+    bool ok = true;
     for (int p = 0; p < PAGES; p++) {
-        oled_send_page(p);
+        if (!oled_send_page(p)) { ok = false; break; }
     }
+
+    if (ok) {
+        memcpy(fb_sent, fb, sizeof(fb_sent));
+        fb_force = 0;
+    } else {
+        // A display that will not take its first frame is in exactly the state
+        // oled_update() knows how to dig out of, so hand it over rather than starting
+        // up believing the screen is fine. fb_force is left at PAGES: nothing is on
+        // the display, so everything has to go out once the bus is back.
+        oled_faults++;
+        oled_jammed = true;
+        oled_retry_at = HAL_GetTick() + OLED_RETRY_MS;
+    }
+}
+
+uint32_t oled_fault_count(void)
+{
+    return oled_faults;
 }
 
 void oled_update(void)
 {
-    oled_send_page(current_page);
-    current_page = (current_page + 1) % PAGES;
+    if (oled_jammed) {
+        // Leave a jammed bus completely alone between attempts: recovery clocks the bus
+        // by hand and re-runs the init sequence, which is far too expensive to repeat
+        // every pass, and a display that is genuinely dead would otherwise bog the whole
+        // loop down - taking the pots and buttons with it.
+        if ((int32_t)(HAL_GetTick() - oled_retry_at) < 0) return;
+        oled_bus_recover();
+        oled_jammed = false;
+        fb_force = PAGES;    // the display's contents are unknown after a re-init
+    }
+
+    // One page per call at most, and only if it has changed.
+    for (int n = 0; n < PAGES; n++) {
+        const int page = current_page;
+        current_page = (current_page + 1) % PAGES;
+
+        if (fb_force == 0 &&
+            memcmp(&fb[page * OLED_W], &fb_sent[page * OLED_W], OLED_W) == 0) {
+            continue;
+        }
+
+        if (oled_send_page(page)) {
+            memcpy(&fb_sent[page * OLED_W], &fb[page * OLED_W], OLED_W);
+            if (fb_force) fb_force--;
+        } else {
+            oled_faults++;
+            oled_jammed = true;
+            oled_retry_at = HAL_GetTick() + OLED_RETRY_MS;
+        }
+        return;
+    }
 }
 
 void oled_clear(void)

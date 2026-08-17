@@ -45,6 +45,10 @@ void oled_hline(int x, int y, int w);
 // Access the raw framebuffer (1024 bytes, page-major: 8 pages x 128 cols).
 uint8_t* oled_framebuffer(void);
 
+// Number of times the I2C link to the display has jammed and been recovered.
+// Zero on a healthy module; anything else is worth knowing about, so the UI shows it.
+uint32_t oled_fault_count(void);
+
 #ifdef __cplusplus
 }
 #endif

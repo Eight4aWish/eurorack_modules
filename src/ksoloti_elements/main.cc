@@ -405,9 +405,10 @@ int main(void)
     act_prev[8] = val_contour;
 
     // --- Main control loop ---
-    // Rate is set by the OLED: a redraw pushes ~1 KB over I2C at 400 kHz, so a pass that
-    // redraws costs milliseconds. Anything needing a steady rate (the encoders) is polled
-    // from the audio ISR instead.
+    // The OLED sets the rate: a pass that pushes a page costs a few milliseconds, and one
+    // that finds nothing changed costs nothing. Either way the rate is neither fast nor
+    // even, so anything needing a steady one - the encoders, and the button edges - is
+    // polled from the audio ISR instead.
     while (1) {
         adc_poll();      // encoders are polled in the audio ISR — see computebufI
         uint32_t now = HAL_GetTick();
@@ -664,7 +665,7 @@ int main(void)
                          (char)('A' + cv_sel), cv_target_full[cv_assign[cv_sel]]);
                 oled_str(0, 53, line);
             }
-            oled_update();   // ~1 KB over I2C at 400 kHz: only worth doing on a redraw
+            oled_update();   // sends one page, and only if that page changed
         }
         oled_tick = (oled_tick + 1) % 8;
 
