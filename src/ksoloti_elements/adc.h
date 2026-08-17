@@ -63,6 +63,17 @@ void enc_poll(void);
 int enc1_read(void);   // ENC1 (PG11/PG12)
 int enc2_read(void);   // ENC2 (PG10/PA15)
 
+// Momentary presses, edge-detected and debounced at the rate btn_poll() is called.
+// Like the encoders these are polled from the audio ISR: an edge is a moment, and the
+// main loop is neither fast nor evenly spaced enough to be sure of catching one - a
+// single slow pass swallows the press entirely. The ISR latches it instead, and the
+// loop collects it whenever it gets there.
+// btn_*_pressed() returns true once per press, clearing the latch.
+void btn_poll(void);
+bool btn_s1_pressed(void);   // ENC1 push - cycle resonator model
+bool btn_s2_pressed(void);   // ENC2 push - cycle selected CV
+bool btn_s4_pressed(void);   // S4       - cycle P5-P7 state
+
 #ifdef __cplusplus
 }
 #endif

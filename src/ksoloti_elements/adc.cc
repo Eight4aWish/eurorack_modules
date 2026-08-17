@@ -118,6 +118,53 @@ void enc_poll(void)
     else if (enc2_sub <= -2) { enc2_accum--; enc2_sub = 0; }
 }
 
+// --- Button edge latching ---
+// Debounce is counted in polls rather than milliseconds: btn_poll() runs from the audio
+// ISR at a fixed 2 kHz, so 400 polls is 200 ms and no tick lookup is needed inside the
+// interrupt.
+#define BTN_LOCKOUT_POLLS 400
+
+static volatile bool btn_evt[3]  = { false, false, false };
+static bool          btn_prev[3] = { false, false, false };
+static uint16_t      btn_lock[3] = { 0, 0, 0 };
+
+static void btn_edge(int i, bool now)
+{
+    if (btn_lock[i]) btn_lock[i]--;
+    if (now && !btn_prev[i] && btn_lock[i] == 0) {
+        btn_evt[i]  = true;
+        btn_lock[i] = BTN_LOCKOUT_POLLS;
+    }
+    btn_prev[i] = now;
+}
+
+// Seed the previous states so a button held down at power-up is not read as a press.
+static void btn_init(void)
+{
+    btn_prev[0] = button_enc1();
+    btn_prev[1] = button_enc2();
+    btn_prev[2] = button_s4();
+    for (int i = 0; i < 3; i++) { btn_evt[i] = false; btn_lock[i] = 0; }
+}
+
+void btn_poll(void)
+{
+    btn_edge(0, button_enc1());
+    btn_edge(1, button_enc2());
+    btn_edge(2, button_s4());
+}
+
+static bool btn_take(int i)
+{
+    bool v = btn_evt[i];
+    btn_evt[i] = false;
+    return v;
+}
+
+bool btn_s1_pressed(void) { return btn_take(0); }
+bool btn_s2_pressed(void) { return btn_take(1); }
+bool btn_s4_pressed(void) { return btn_take(2); }
+
 int enc1_read(void)
 {
     int v = enc1_accum;
@@ -265,6 +312,7 @@ void adc_init(void)
 
     // Seed encoder state from actual pin values
     enc_init();
+    btn_init();
 }
 
 // ---------------------------------------------------------------------------

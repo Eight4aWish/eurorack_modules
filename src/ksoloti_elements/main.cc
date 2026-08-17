@@ -154,6 +154,9 @@ extern "C" void computebufI(int32_t *inp, int32_t *outp)
     // the other way it counts backwards. Polling here gives a steady 2 kHz for four GPIO
     // reads, which is nothing against the block budget.
     enc_poll();
+    // Buttons for the same reason: a press is an edge, and the main loop stalls
+    // whenever the OLED is slow. Sampled here, no press can fall down that gap.
+    btn_poll();
 
     if ((DWT->CYCCNT - t0) > kCpuOverloadCycles) cpu_overload = true;
 }
@@ -360,14 +363,6 @@ int main(void)
     int cv_assign[3] = { CVT_FLOW, CVT_MALLET, CVT_NONE };
     int cv_sel = 0;           // currently selected CV for editing (0=A, 1=B, 2=C)
 
-    // Button debounce state
-    bool enc1_push_prev = button_enc1();
-    uint32_t enc1_push_last = 0;
-    bool s4_prev = button_s4();
-    uint32_t s4_last = 0;
-    bool s2_prev = button_enc2();
-    uint32_t s2_last = 0;
-
     // Pot pickup for P5-P7 when S4 changes what they drive
     bool pot_picked[3] = {true, true, true};
     float pickup_target[3] = {0};
@@ -515,19 +510,17 @@ int main(void)
         // which reads as a broken input rather than a shallow one.
         // CV X/Y (pitch and FM) are read in the audio callback - see computebufI.
 
-        // --- S1 (ENC1 push): cycle resonator model (debounced 200ms) ---
-        bool enc1_now = button_enc1();
-        if (enc1_now && !enc1_push_prev && (now - enc1_push_last > 200)) {
+        // --- S1 (ENC1 push): cycle resonator model ---
+        // Edge detection and the 200 ms debounce happen in the audio ISR; this collects
+        // the latched press whenever the loop next comes round.
+        if (btn_s1_pressed()) {
             resonator_model = (resonator_model + 1) % 3;
             part.set_resonator_model(
                 static_cast<elements::ResonatorModel>(resonator_model));
-            enc1_push_last = now;
         }
-        enc1_push_prev = enc1_now;
 
-        // --- S4: cycle P5-P7 state (debounced 200ms) ---
-        bool s4_now = button_s4();
-        if (s4_now && !s4_prev && (now - s4_last > 200)) {
+        // --- S4: cycle P5-P7 state ---
+        if (btn_s4_pressed()) {
             const int prev_mode = pot_mode;
             pot_mode = (pot_mode + 1) % 3;
             for (int i = 0; i < 3; i++) {
@@ -540,18 +533,13 @@ int main(void)
                     pickup_target[i] = *pot_target(i, pot_mode);
                 }
             }
-            s4_last = now;
         }
-        s4_prev = s4_now;
 
-        // --- S2 (ENC2 push): cycle selected CV (debounced 200ms) ---
-        bool s2_now = button_enc2();
-        if (s2_now && !s2_prev && (now - s2_last > 200)) {
+        // --- S2 (ENC2 push): cycle selected CV ---
+        if (btn_s2_pressed()) {
             cv_sel = (cv_sel + 1) % 3;
             cv_act_ts = now;
-            s2_last = now;
         }
-        s2_prev = s2_now;
 
         // --- E2 rotate: cycle CV target for selected CV ---
         int enc2_delta = enc2_read();
