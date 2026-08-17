@@ -21,8 +21,15 @@ Import("env")
 #
 # Budget is 84000 cycles per block (16 samples at 32 kHz, 168 MHz). Mutable ship 52 with
 # the comment "Runs with 56 extremely tightly" on the same budget. LED2 lights at 95%.
+#
+# Dropped from 44 to 40 while chasing an intermittent screen lockup. The screen talks over
+# a polled I2C link that only makes progress when the audio ISR is not running, so the
+# closer the DSP sits to the ceiling, the more likely a transfer is starved past its
+# timeout and jams the bus. The driver now recovers from that by itself, and this is
+# belt and braces on top: four partials is not an audible loss, and 44 can come back once
+# the recovery has proved itself.
 
-RESOLUTION = 44
+RESOLUTION = 40
 
 PROJECT = env.subst("$PROJECT_DIR")
 VOICE = join(PROJECT, "third_party", "eurorack", "elements", "dsp", "voice.cc")
