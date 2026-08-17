@@ -61,8 +61,10 @@ Elements' 0-2 range, and Elements clamps everything except freeze at 1.0:
 | 87-100% | >=1.75 | reverb frozen |
 
 The inert top half is a consequence of the x2 scaling: 1.75 has to be reachable for freeze,
-but nothing between 1.0 and 1.75 has any effect. Worth remapping if the knob feel matters
-more than matching Elements' own numbers.
+but nothing between 1.0 and 1.75 has any effect. **Left as it is deliberately** (2026-08-17):
+a piecewise map would spread the useful range across the whole knob, but this is Elements'
+own curve, and anyone who knows the original should find Girl's space control behaves the
+way theirs does. Faithfulness beat knob feel. Not a TODO.
 
 ### CV Inputs
 
