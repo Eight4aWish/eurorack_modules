@@ -26,10 +26,13 @@
 // SH1106 has 132-column RAM but 128-column display — offset by 2
 #define COL_OFFSET 2
 
-// Per-transfer timeout. A page is 129 bytes at 400 kHz - under 3 ms when the bus is
-// healthy - so 2 ms of grace on top of that is plenty. It used to be 10 ms, which is
-// mostly time the main loop spends stalled once things are going wrong.
-#define OLED_I2C_TIMEOUT  2u
+// Per-transfer timeout, measured by the HAL across the whole call rather than per byte.
+// A page is 130 bytes once the address and control byte are counted; at 400 kHz that is
+// 2.9 ms before the audio ISR steals any time, so anything near 3 ms abandons every
+// transfer mid-page - which is the very thing that jams the bus. 10 ms is the proven
+// value and there is no longer any reason to shave it: the buttons moved to the audio
+// ISR, so a slow pass through the main loop no longer costs playability.
+#define OLED_I2C_TIMEOUT  10u
 
 // How long to leave a jammed bus alone before trying to recover it. Recovery clocks the
 // bus by hand and re-runs the init sequence, so hammering it every pass would be worse
