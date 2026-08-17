@@ -589,6 +589,17 @@ int main(void)
             snprintf(line, sizeof(line), "S1:%s", model_names[resonator_model]);
             oled_str(0, 0, line);
 
+            // Screen-link faults, right-aligned, and only once there have been any.
+            // A jam and its recovery are otherwise invisible - the screen is the thing
+            // that fails, so it cannot report at the time. This says it happened.
+            const uint32_t faults = oled_fault_count();
+            if (faults) {
+                char f[8];
+                snprintf(f, sizeof(f), "E%u",
+                         (unsigned)(faults > 99u ? 99u : faults));
+                oled_str(128 - 6 * (int)strlen(f), 0, f);
+            }
+
             oled_hline(0, 9, 128);
 
             // Rows 1-3 sit under the controls they belong to: four columns of five
