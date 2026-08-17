@@ -17,7 +17,7 @@ Based on the **Elements** modal synthesis voice by [Émilie Gillet](https://gith
 - **MCLK**: 8 MHz HSE routed via MCO1 (PA8)
 - **DMA**: Double-buffered, 16-sample blocks (~500 us per callback)
 - **Display**: SH1106 128x64 OLED (I2C1, PB8/PB9), 5x7 font, 1 KB framebuffer
-- **Resources**: RAM 69.4%, Flash 19.7%
+- **Resources**: RAM 44.8%, Flash 19.7%
 
 ## Controls
 
@@ -168,7 +168,7 @@ You just need the firmware `.bin` file and a free tool called `dfu-util` to flas
 
 ### Step 1: Download
 
-Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.2).
+Download `girl.bin` from the [latest Girl release](https://github.com/Eight4aWish/eurorack_modules/releases/tag/girl-v1.2.3).
 
 ### Step 2: Install dfu-util
 
@@ -238,7 +238,7 @@ src/ksoloti_elements/
 
 scripts/
   elements_build.py    — PlatformIO build script (FPU flags, Elements source
-                       dirs, and RESOLUTION: the resonator mode count, 44)
+                       dirs, and RESOLUTION: the resonator mode count, 40)
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core
@@ -254,11 +254,14 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
 
 ## Known Limitations
 
-- Resonator resolution is 44 modes, against Mutable's 52. Found by testing rather than
-  assumed: 52 produced audible dropouts on this board, 44 runs clean. The budget is the
-  same 84,000 cycles per block Elements has (16 samples at 32 kHz, 168 MHz), so the
-  shortfall is Ksoloti overhead rather than a slower chip. Set in scripts/elements_build.py
-  as RESOLUTION - one number, rewritten into the vendored source at build time.
+- Resonator resolution ships at 40 modes, against Mutable's 52. Found by testing rather
+  than assumed: 52 and 48 produced audible dropouts on this board, 44 ran clean. 40 is 44
+  with margin, dropped in v1.2.3 while chasing an intermittent display lockup - the OLED's
+  I2C transfers are polled and only advance when the audio ISR is not running, so DSP
+  headroom and screen reliability are not independent. The budget is the same 84,000
+  cycles per block Elements has (16 samples at 32 kHz, 168 MHz), so the shortfall is
+  Ksoloti overhead rather than a slower chip. Set in scripts/elements_build.py as
+  RESOLUTION - one number, rewritten into the vendored source at build time.
 - The reverb buffer lives in CCM RAM (64 KB at 0x10000000), which DMA cannot reach, so
   its traffic no longer contends with the SAI audio stream or the free-running ADC scan
   for SRAM. This did **not** change the mode ceiling — 48 still drops out — so contention

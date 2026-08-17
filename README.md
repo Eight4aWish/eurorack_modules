@@ -177,7 +177,7 @@ See [src/amyboard_patchbank/README.md](src/amyboard_patchbank/README.md) for har
 
 - **Status**: Fully playable with single-page OLED UI, dual pot mode, CV assignment, all buttons and encoders working.
 - **Audio**: L in = blow exciter, R in = strike exciter, L out = main, R out = aux (reverb).
-- **Resonator**: 36 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via S1: modal, string, chords.
+- **Resonator**: 40 modes (reduced from 52 to fit CPU budget at 168 MHz). Three models selectable via S1: modal, string, chords.
 - **Controls**: POT1-4 = resonator (geometry/brightness/damping/position, CV-summable). S4 toggles POT5-8 between levels (bow/blow/strike/space) and timbres (blow timbre/flow/mallet/strike timbre). E1 = contour (levels mode) or bow timbre (timbres mode). CV A-C = assignable modulation (S2 selects, E2 assigns target). CV D = gate + velocity. CV X = V/Oct. CV Y = FM. S3 = play (manual gate).
 - **Display**: Single-page OLED with control reference, active pot mode underline, CV assignments, and real-time parameter name + value on pot/encoder activity.
 - **Indicators**: LED1 green = gate. LED2 red = CPU overload. LED4 dual = resonator model (green/red/both). Gate1 = gate echo output.
@@ -212,7 +212,7 @@ src/ksoloti_elements/
 
 scripts/
   elements_build.py    — PlatformIO build script (FPU flags, source dirs,
-                       and RESOLUTION: the resonator mode count, 44)
+                       and RESOLUTION: the resonator mode count, 40)
 
 third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   elements/dsp/        — Elements DSP core
