@@ -437,7 +437,13 @@ void onControlChange(byte ch, byte cc, byte val){
 }
 
 // MIDI clock
-static volatile uint32_t midiTickCount=0; static const uint8_t BEAT_DIV=24;
+// MIDI clock is 24 ppqn, so BEAT_DIV sets what lands on PIN_CLOCK: 24 = quarter
+// notes, 6 = 16th notes. Sixteenths, because that is a step for the drum
+// modules this feeds. A module clocked at step resolution advances on real
+// edges; clocked at quarter notes it has to invent the three steps in between
+// by extrapolating from the last measured period, which is only ever as steady
+// as the incoming clock and cannot carry timing that is deliberately uneven.
+static volatile uint32_t midiTickCount=0; static const uint8_t BEAT_DIV=6;
 static void resetMidiClockCounter(){ midiTickCount=BEAT_DIV-1; } // so first onClock() fires beat 1
 void onStart(){ rst=true; rstUntil=millis()+8; GATE_WRITE(PIN_RESET,true); resetMidiClockCounter(); }
 void onStop(){ gate1=false; gate2=false; gate3=false; gate4=false; clk=false; rst=false; GATE_WRITE(PIN_CLOCK,false); resetMidiClockCounter(); }

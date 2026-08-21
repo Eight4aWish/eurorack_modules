@@ -122,7 +122,11 @@ Signal chain — a stereo FX send on the line passthrough:
 ## MIDI Clock
 
 - Input: 24 PPQN
-- Output: quarter-note pulses on `PIN_CLOCK` (5 ms default pulse width)
+- Output: **16th-note** pulses on `PIN_CLOCK` (5 ms pulse width) — `BEAT_DIV=6`
+  against MIDI's 24 ppqn. Set `BEAT_DIV=24` for quarter notes.
+  Step-resolution clocking suits the drum modules downstream: they advance on
+  a real edge per step rather than extrapolating the gaps from the last
+  measured period.
 - Start: emits a short Reset pulse on `PIN_RESET` and resets the clock counter
 - Stop / Continue: counter reset; Stop also clears all gates
 
