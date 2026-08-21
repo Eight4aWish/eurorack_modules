@@ -195,7 +195,13 @@ static const uint32_t OLED_FPS_MS=250;  // Slower refresh -> fewer I2C bursts (n
 static bool screenAsleep=false;
 static uint32_t lastUiActivityMs=0;
 static bool btnWakeConsumed=false;
-static const uint32_t SCREEN_SLEEP_MS=10000;
+// 0 disables screen sleep and the display stays on. Be aware of what sleep was
+// there for: DISPLAYOFF stops the charge-pump and the I2C refresh bursts, which
+// are the two things that couple OLED noise into the audio path. Grounding (star
+// return) did most of that work and sleep was belt-and-braces, so staying awake
+// should be fine - but if a faint whine appears in the audio with the screen lit,
+// this is the first thing to put back. 10000 restores the old ten-second sleep.
+static const uint32_t SCREEN_SLEEP_MS=0;
 static inline void drawRow(uint8_t row,const char* s){ oled.setCursor(0,row*8); oled.print(s); }
 static char lineBuf[64];
 static uint8_t gOledPage = 0; // 0 = STATUS (all channels; pots -> Mod1-4), 1 = FX
@@ -636,7 +642,7 @@ void loop(){
   }
   
   // Power the screen down after a spell of no UI activity.
-  if (!screenAsleep && (now - lastUiActivityMs >= SCREEN_SLEEP_MS)) {
+  if (SCREEN_SLEEP_MS && !screenAsleep && (now - lastUiActivityMs >= SCREEN_SLEEP_MS)) {
     oled.ssd1306_command(SSD1306_DISPLAYOFF);
     screenAsleep = true;
   }
