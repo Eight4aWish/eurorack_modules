@@ -67,12 +67,61 @@ timeout-to-off.
 
 - **Blue switch (Link enable)**: momentary. Each press toggles
   `link_enabled`. Boot default is **OFF** — the module powers up quiet
-  and doesn't try to join WiFi until explicitly enabled. State is not
-  persisted across reboots.
+  and emits nothing until Link is explicitly enabled. WiFi itself comes
+  up at boot regardless (see below), so that a press produces peers
+  immediately rather than starting a connect. State is not persisted
+  across reboots.
 - **Red switch (Capture)**: momentary. Falling edge fires one HTTP
   POST to the Mac recorder app. While the request is in flight, the
   red LED is on. No queueing — pressing again before the previous
   request completes is ignored.
+
+## WiFi bring-up
+
+WiFi connects during `setup()`, before Link is enabled, and the sequence
+is deliberately ordered:
+
+1. `WiFi.mode(WIFI_STA)` — this is what initialises the Wi-Fi driver.
+   **Every `esp_wifi_*` setter must come after it**; called earlier they
+   return `ESP_ERR_WIFI_NOT_INIT` and are silently discarded.
+2. Power save off (`WiFi.setSleep(false)` + `WIFI_PS_NONE`) *before*
+   associating, so association, DHCP and Link's multicast discovery all
+   run without modem-sleep DTIM gaps.
+3. `esp_wifi_set_country_code("GB", false)` — sets the regulatory tables
+   for both bands. Without it the chip stays in the IDF default `"01"`
+   world-safe mode, where much of the 5 GHz band is scanned *passively*
+   (a full beacon interval per channel) — the original cause of
+   multi-second connects. The deprecated `esp_wifi_set_country()` only
+   ever described the 2.4 GHz channel list and is not used.
+4. `esp_wifi_set_band_mode(WIFI_BAND_MODE_5G_ONLY)` — skips the 2.4 GHz
+   half of the scan and stops router band-steering moving the module
+   between radios mid-session. Set `WIFI_PREFER_5G` to `false` to run
+   dual-band.
+5. Association, in order of preference:
+   - **Cached AP** — the last good BSSID + channel, stored in NVS, is
+     joined with no scan at all. A stale entry clears itself.
+   - **Scan** on the configured band.
+   - **Dual-band scan**, if 5 GHz-only found nothing.
+
+`loop()` carries a non-blocking retry backstop every 15 s. It never
+blocks: a Eurorack clock must not stall for seconds because the AP went
+away.
+
+Measured on a Xiao ESP32-C5 against a domestic AP on 5 GHz ch 36:
+
+| Path | Time to associated + IP |
+|---|---|
+| Cold (NVS wiped, full 5 GHz scan) | ~1.6 s |
+| Warm (cached BSSID, no scan) | ~1.5 s |
+
+Roughly 1.1 s of both figures is DHCP; a static IP would remove most of
+it. Set `WIFI_DEBUG_LOG` to `1` in `main.cpp` to raise the IDF `wifi`
+tags to INFO — that shows the scan/auth/assoc timeline, which is how you
+tell scan cost from handshake cost when a connect is slow.
+
+The boot log reports the channel, band, RSSI, BSSID and IP, and warns if
+the AP is on a DFS channel (52-144): those are scanned passively and the
+AP may channel-switch out from under the session under radar.
 
 ## Pin allocation (XIAO ESP32-C5)
 

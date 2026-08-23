@@ -49,6 +49,8 @@
 #include <HTTPClient.h>
 #include <ESPmDNS.h>
 #include <esp_wifi.h>
+#include <Preferences.h>
+#include <soc/soc_caps.h>
 #include <esp_timer.h>
 #include <esp_chip_info.h>
 #include <esp_system.h>
@@ -62,6 +64,11 @@
 #include "abl_link.h"
 #include "esp32_clklinkrec/pins.h"
 #include "esp32_clklinkrec/secrets.h"
+
+// Set to 0 once WiFi bring-up is settled. At 1 the IDF wifi tags log at
+// INFO, which shows the scan/auth/assoc timeline — that is how you tell
+// scan cost from handshake cost when a connect is slow.
+#define WIFI_DEBUG_LOG 1
 
 static inline void assert_out(int p)  { digitalWrite(p, LOW);  }
 static inline void release_out(int p) { digitalWrite(p, HIGH); }
@@ -433,6 +440,235 @@ static void update_red_led(unsigned long now_ms) {
     }
 }
 
+// --- WiFi -----------------------------------------------------------------
+// Bring-up ordering matters. Arduino initialises the Wi-Fi driver inside
+// WiFi.mode(); any esp_wifi_* setter called before that returns
+// ESP_ERR_WIFI_NOT_INIT and is silently discarded. Everything here runs
+// after mode() for that reason.
+//
+// The C5 is dual-band, so a plain connect scans 2.4 GHz *and* the whole
+// 5 GHz band — and under the IDF default country ("01", world-safe mode,
+// 802.11d on) many of those channels are scanned passively, a full beacon
+// interval each. That is where multi-second connects come from. Three
+// things cut it down, each with a fallback:
+//   1. a real country code    -> active scanning on legal channels
+//   2. 5 GHz-only band mode   -> the 2.4 GHz half of the scan disappears
+//   3. a cached BSSID+channel -> a known AP is joined with no scan at all
+// Stale cache falls back to a scan; no 5 GHz AP falls back to dual band.
+
+constexpr char     WIFI_COUNTRY[]               = "GB";
+constexpr uint32_t WIFI_FAST_CONNECT_TIMEOUT_MS = 4000;   // cached-BSSID path
+constexpr uint32_t WIFI_RETRY_INTERVAL_MS       = 15000;  // loop() backstop
+constexpr bool     WIFI_PREFER_5G               = true;
+
+static bool          wifi_band_5g_only  = false;
+static unsigned long wifi_next_retry_ms = 0;
+
+// 5 GHz channels 52–144 are DFS: the AP must vacate them if it detects
+// radar, and stations scan them passively. Worth flagging in the log —
+// it is a real source of mid-session disconnects.
+static bool channel_is_dfs(uint8_t ch) { return ch >= 52 && ch <= 144; }
+
+// --- Last-known-good AP cache (NVS) --------------------------------------
+static bool wifi_cache_load(uint8_t bssid[6], uint8_t* channel) {
+    Preferences p;
+    if (!p.begin("clklinkrec", true)) return false;
+    size_t n = p.getBytes("bssid", bssid, 6);
+    uint8_t ch = p.getUChar("chan", 0);
+    p.end();
+    if (n != 6 || ch == 0) return false;
+    *channel = ch;
+    return true;
+}
+
+static void wifi_cache_store(const uint8_t bssid[6], uint8_t channel) {
+    Preferences p;
+    if (!p.begin("clklinkrec", false)) return;
+    p.putBytes("bssid", bssid, 6);
+    p.putUChar("chan", channel);
+    p.end();
+}
+
+static void wifi_cache_clear() {
+    Preferences p;
+    if (!p.begin("clklinkrec", false)) return;
+    p.remove("bssid");
+    p.remove("chan");
+    p.end();
+}
+
+// --- Radio configuration --------------------------------------------------
+static void wifi_set_band_mode(bool five_g_only) {
+#if defined(SOC_WIFI_SUPPORT_5G) && SOC_WIFI_SUPPORT_5G
+    wifi_band_mode_t mode = five_g_only ? WIFI_BAND_MODE_5G_ONLY
+                                        : WIFI_BAND_MODE_AUTO;
+    esp_err_t err = esp_wifi_set_band_mode(mode);
+    if (err == ESP_OK) {
+        wifi_band_5g_only = five_g_only;
+        Serial.printf("[WiFi] band mode: %s\n",
+                      five_g_only ? "5 GHz only" : "2.4 + 5 GHz");
+    } else {
+        wifi_band_5g_only = false;
+        Serial.printf("[WiFi] esp_wifi_set_band_mode failed: %s\n",
+                      esp_err_to_name(err));
+    }
+#else
+    wifi_band_5g_only = false;
+    (void)five_g_only;
+#endif
+}
+
+// Everything that must happen after esp_wifi_init() (i.e. after
+// WiFi.mode()) but before association.
+static void wifi_apply_radio_config() {
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+
+    // Power save off *before* associating, so the association and DHCP
+    // exchange don't run through modem-sleep DTIM gaps either. Link's
+    // multicast discovery needs this on permanently.
+    WiFi.setSleep(false);
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) {
+        Serial.printf("[WiFi] esp_wifi_set_ps failed: %s\n", esp_err_to_name(err));
+    }
+
+    // Deprecated esp_wifi_set_country() only ever described the 2.4 GHz
+    // channel list. The country code call sets the regulatory tables for
+    // both bands. ieee80211d_enabled = false so the configured country is
+    // always used rather than whatever the AP advertises.
+    err = esp_wifi_set_country_code(WIFI_COUNTRY, false);
+    if (err != ESP_OK) {
+        Serial.printf("[WiFi] esp_wifi_set_country_code(%s) failed: %s\n",
+                      WIFI_COUNTRY, esp_err_to_name(err));
+    } else {
+        char cc[3] = {};
+        esp_wifi_get_country_code(cc);
+        Serial.printf("[WiFi] country: %s (active scan on %s channels)\n",
+                      cc, cc);
+    }
+
+    wifi_set_band_mode(WIFI_PREFER_5G);
+
+    // Only valid once the driver is started.
+    Serial.printf("[WiFi] MAC: %s\n", WiFi.macAddress().c_str());
+}
+
+// --- Association ----------------------------------------------------------
+// One association attempt. Passing a bssid/channel skips the scan
+// entirely; passing nullptr does a normal scan-and-join.
+static bool wifi_attempt(const uint8_t* bssid, uint8_t channel,
+                         uint32_t timeout_ms, const char* what) {
+    unsigned long t0 = millis();
+    // Clear any stored AP config first, otherwise a previously pinned
+    // (and now stale) BSSID keeps being retried by the driver.
+    WiFi.disconnect(false, true);
+    delay(20);
+
+    if (bssid) {
+        WiFi.begin(WIFI_SSID, WIFI_PASS, (int32_t)channel, bssid);
+    } else {
+        WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+
+    while (WiFi.status() != WL_CONNECTED && (millis() - t0) < timeout_ms) {
+        delay(25);
+    }
+    bool ok = (WiFi.status() == WL_CONNECTED);
+    Serial.printf("[WiFi] %s: %s in %lu ms\n", what,
+                  ok ? "associated" : "no association",
+                  millis() - t0);
+    return ok;
+}
+
+// Log what we actually landed on and refresh the AP cache.
+static void wifi_on_connected() {
+    wifi_ap_record_t ap = {};
+    if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+        Serial.printf("[WiFi] %s  ch %u (%s)  RSSI %d dBm  "
+                      "BSSID %02x:%02x:%02x:%02x:%02x:%02x  IP %s\n",
+                      WiFi.SSID().c_str(), ap.primary, band_of(ap.primary),
+                      ap.rssi,
+                      ap.bssid[0], ap.bssid[1], ap.bssid[2],
+                      ap.bssid[3], ap.bssid[4], ap.bssid[5],
+                      WiFi.localIP().toString().c_str());
+        if (channel_is_dfs(ap.primary)) {
+            Serial.println("[WiFi] note: this is a DFS channel — the AP may "
+                           "channel-switch under radar, and scans of it are "
+                           "passive. A non-DFS channel (36-48 / 149-165) is "
+                           "more stable for clock sync.");
+        }
+        wifi_cache_store(ap.bssid, ap.primary);
+    } else {
+        Serial.printf("[WiFi] connected, IP %s\n",
+                      WiFi.localIP().toString().c_str());
+    }
+}
+
+// Boot-time connect. Blocking is fine here — nothing else is running yet.
+static bool wifi_connect_blocking() {
+    wifi_apply_radio_config();
+
+    uint8_t bssid[6];
+    uint8_t channel = 0;
+    if (wifi_cache_load(bssid, &channel)) {
+        Serial.printf("[WiFi] cached AP %02x:%02x:%02x:%02x:%02x:%02x ch %u — "
+                      "joining without a scan\n",
+                      bssid[0], bssid[1], bssid[2],
+                      bssid[3], bssid[4], bssid[5], channel);
+        if (wifi_attempt(bssid, channel, WIFI_FAST_CONNECT_TIMEOUT_MS,
+                         "cached AP")) {
+            wifi_on_connected();
+            return true;
+        }
+        Serial.println("[WiFi] cached AP didn't answer — clearing cache");
+        wifi_cache_clear();
+    }
+
+    if (wifi_attempt(nullptr, 0, WIFI_CONNECT_TIMEOUT_MS,
+                     wifi_band_5g_only ? "scan (5 GHz)" : "scan (2.4 + 5 GHz)")) {
+        wifi_on_connected();
+        return true;
+    }
+
+    if (wifi_band_5g_only) {
+        Serial.println("[WiFi] nothing on 5 GHz — retrying across both bands");
+        wifi_set_band_mode(false);
+        if (wifi_attempt(nullptr, 0, WIFI_CONNECT_TIMEOUT_MS,
+                         "scan (2.4 + 5 GHz)")) {
+            wifi_on_connected();
+            return true;
+        }
+    }
+
+    Serial.println("[WiFi] not connected — Link + Recorder will retry in "
+                   "the background");
+    return false;
+}
+
+// Backstop retry from loop(). Deliberately non-blocking: a Eurorack clock
+// must not stall for seconds because the AP went away, so this only kicks
+// off an attempt and lets the status edge in loop() pick up the result.
+static void wifi_maintain(unsigned long now_ms) {
+    if (WiFi.status() == WL_CONNECTED) {
+        wifi_next_retry_ms = 0;
+        return;
+    }
+    if (wifi_next_retry_ms != 0 && (long)(now_ms - wifi_next_retry_ms) < 0) {
+        return;
+    }
+    wifi_next_retry_ms = now_ms + WIFI_RETRY_INTERVAL_MS;
+
+    uint8_t bssid[6];
+    uint8_t channel = 0;
+    Serial.println("[WiFi] disconnected — re-attempting association");
+    if (wifi_cache_load(bssid, &channel)) {
+        WiFi.begin(WIFI_SSID, WIFI_PASS, (int32_t)channel, bssid);
+    } else {
+        WiFi.begin(WIFI_SSID, WIFI_PASS);
+    }
+}
+
 // --- Setup ----------------------------------------------------------------
 static void print_chip_info() {
     esp_chip_info_t info = {};
@@ -454,8 +690,13 @@ void setup() {
 
     Serial.setDebugOutput(true);
     esp_log_level_set("*",         ESP_LOG_INFO);
+#if WIFI_DEBUG_LOG
+    esp_log_level_set("wifi",      ESP_LOG_INFO);
+    esp_log_level_set("wifi_init", ESP_LOG_INFO);
+#else
     esp_log_level_set("wifi",      ESP_LOG_WARN);
     esp_log_level_set("wifi_init", ESP_LOG_WARN);
+#endif
     esp_log_level_set("phy_init",  ESP_LOG_WARN);
 
     print_chip_info();
@@ -469,35 +710,9 @@ void setup() {
     pinMode(PIN_SW_CAPTURE, INPUT_PULLUP);
     pinMode(PIN_RESET_IN,   INPUT);
 
-    wifi_country_t gb = {};
-    memcpy(gb.cc, "GB", 2);
-    gb.cc[2]  = 0;
-    gb.schan  = 1;
-    gb.nchan  = 13;
-    gb.policy = WIFI_COUNTRY_POLICY_MANUAL;
-    esp_wifi_set_country(&gb);
+    Serial.printf("[WiFi] target SSID \"%s\"\n", WIFI_SSID);
 
-    WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
-    Serial.printf("[WiFi] MAC: %s, connecting to \"%s\"...\n",
-                  WiFi.macAddress().c_str(), WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-
-    t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && (millis() - t0) < WIFI_CONNECT_TIMEOUT_MS) {
-        delay(100);
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        WiFi.setSleep(false);
-        esp_wifi_set_ps(WIFI_PS_NONE);
-
-        wifi_ap_record_t ap = {};
-        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
-            Serial.printf("[WiFi] connected: ch %u (%s), RSSI %d dBm, IP %s\n",
-                          ap.primary, band_of(ap.primary), ap.rssi,
-                          WiFi.localIP().toString().c_str());
-        }
-
+    if (wifi_connect_blocking()) {
         WiFiUDP udp;
         if (udp.beginPacket(IPAddress(224, 76, 78, 75), 20808)) {
             udp.print("clklinkrec-mcast-test");
@@ -517,8 +732,6 @@ void setup() {
         }
         resolve_recorder_address();
         check_recorder_healthz();
-    } else {
-        Serial.println("[WiFi] not connected — Link + Recorder will retry on reconnect");
     }
 
     link_init();
@@ -542,14 +755,22 @@ void loop() {
     // WiFi reconnect detection: on the false→true edge, re-resolve the
     // recorder address. The Mac may have moved to a new IP, or we may
     // have come up before the recorder did.
-    static bool wifi_was_connected = false;
+    // Seeded from the real state on first entry: setup() has already done
+    // the connect and the recorder lookup, and repeating the (blocking,
+    // ~3 s) mDNS query here would just delay the module coming up.
+    static bool wifi_was_connected = (WiFi.status() == WL_CONNECTED);
     bool wifi_is_connected = (WiFi.status() == WL_CONNECTED);
     if (wifi_is_connected && !wifi_was_connected) {
         Serial.println("[WiFi] reconnected — re-resolving recorder address");
+        wifi_on_connected();
         resolve_recorder_address();
         check_recorder_healthz();
     }
     wifi_was_connected = wifi_is_connected;
+
+    // Backstop for the driver's own auto-reconnect: if we're still down
+    // after WIFI_RETRY_INTERVAL_MS, kick off another association attempt.
+    wifi_maintain(now_ms);
 
     // Periodic Link telemetry, only when something changes.
     static unsigned long last_log_ms       = 0;
