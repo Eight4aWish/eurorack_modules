@@ -50,12 +50,22 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   trajectories are bit-identical to the pre-extraction code across a sweep of
 >   each algorithm's parameter range. See
 >   [`libs/chaos_core/README.md`](../libs/chaos_core/README.md).
-> - **Known issue — Rössler NaN.** With CHAR (`a`) above ≈0.38 (top ~7% of the
->   pot) and CHAOS (`c`) ≥ 3, Rössler's RK4 diverges at any RATE. Unlike
->   `ChaosVanDerPol`, `ChaosRossler` has no `isfinite` reset, so the state stays
->   non-finite — silence on the audio outs and a stuck rail on X/Y — until the
->   algorithm is changed. Pre-existing, found while verifying the extraction;
->   not yet fixed.
+> - **Divergence guard on all six algorithms.** Rössler diverged to NaN with
+>   CHAR (`a`) above ≈0.38 — the top ~7% of that pot — for CHAOS ≥ 3 at any RATE,
+>   and having no `isfinite` reset it stayed dead (silence on the audio outs, a
+>   stuck rail on X/Y) until the algorithm was changed. Every `stepSample()` now
+>   ends by testing its state against a per-algorithm `divergeBound` and
+>   re-seeding via `init()` if it has escaped, so an unstable corner is a brief
+>   glitch rather than a dead voice. Van der Pol and Chua already had ad-hoc
+>   guards; those keep their tuned bounds and exact semantics, now expressed
+>   through the shared helpers. Verified over a 9x9x5 parameter sweep per
+>   algorithm: no algorithm reaches a non-finite state, no guard fires at nominal
+>   settings, and stable-region trajectories are bit-identical to before.
+>
+>   Note this makes those corners *survivable*, not musical: Rössler at CHAR 100%
+>   now re-seeds repeatedly rather than dying, which is a stuttering burst. The
+>   follow-up would be clamping `a` (or `dt` against it) the way
+>   `ChaosVanDerPol::setParams` already clamps `dt` against `mu`.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
 >   front, **SR** = sustain level + release tail. When **off** (default) the VCA

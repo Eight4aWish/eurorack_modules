@@ -28,6 +28,7 @@ Subclasses fill in the metadata fields in their constructor and implement
 | `name`, `chaosLabel`, `charLabel` | display strings |
 | `chaosMin/Max`, `rateMin/Max`, `charMin/Max` | parameter ranges the panel maps onto |
 | `dtBase` | largest numerically-safe integration step |
+| `divergeBound` | magnitude past which the state is treated as diverged |
 | `oversampleMax` | ceiling on integration steps per audio sample (see below) |
 | `modScale` | chaos-parameter units per volt of MOD CV |
 | `gainL`, `gainR` | pre-saturation amplitude scale for the audio outs |
@@ -77,12 +78,29 @@ some algorithms, a stability clamp on `dt`. Swapping the active `ChaosBase*`
 is safe on a core with word-sized atomic pointer stores, but call `init()`
 before making a new one live.
 
-## Known issue
+## Divergence guard
 
-**Rössler diverges to NaN** with `charV` (a) above ≈0.38 — the top ~7% of the
-CHAR pot's travel — for any `chaos` (c) ≥ 3, at any `rate`. Unlike
-`ChaosVanDerPol`, `ChaosRossler` carries no `isfinite` reset, so the state stays
-non-finite until `init()` is called again. Pre-existing; not yet fixed.
+RK4 runs away at the edges of some parameter ranges — Rössler above `a`≈0.38,
+Chua at its `chaosMax`. Once the state is non-finite every later step inherits
+it, so the voice goes silent with X/Y stuck on a rail until the algorithm is
+changed. Every `stepSample()` therefore ends by testing its state and re-seeding
+via `init()` if it has escaped, which turns a dead module into a brief glitch.
+
+Two tests are available to subclasses:
+
+- `diverged(v)` — non-finite **or** `|v| > divergeBound`. Apply to the variable
+  the bound was chosen for.
+- `nonFinite(v)` — the unrecoverable case only. For state that legitimately
+  ranges wider than that bound: Chua's `z` exceeds the value that catches a
+  runaway in `x`, as does Van der Pol's `y`, so bounding them would reset
+  healthy trajectories.
+
+Bounds sit well above each attractor's measured extent, because divergence is
+exponential — a runaway crosses any threshold within a handful of samples, while
+a healthy trajectory never approaches one. Verified across a 9x9x5 sweep of every
+algorithm's parameter space (8.1M steps each): no algorithm reaches a non-finite
+state, no guard fires at nominal settings, and stable-region trajectories are
+bit-identical to the unguarded code.
 
 ## Adding an algorithm
 

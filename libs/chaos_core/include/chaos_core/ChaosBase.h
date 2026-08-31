@@ -37,6 +37,18 @@ namespace chaos_core {
         float xMin = -1.0f, xRange = 2.0f;     // plot window
         float yMin = -1.0f, yRange = 2.0f;
         float cvScaleX = 0.5f, cvScaleY = 0.5f; // state → ±5V CV
+        // Divergence guard. RK4 runs away at the edges of some parameter ranges,
+        // and once the state is non-finite every later step inherits it: the
+        // voice goes silent with X/Y stuck on a rail until the algorithm is
+        // changed. stepSample() tests its state against this bound and re-seeds
+        // via init() instead, turning a dead module into a brief glitch.
+        //
+        // Set well above the attractor's natural extent. Divergence is
+        // exponential, so a runaway crosses any threshold within a handful of
+        // samples, while a healthy trajectory never approaches one — the cost of
+        // a generous bound is a few more samples of garbage, the cost of a tight
+        // one is re-seeding a perfectly good trajectory.
+        float divergeBound = 1.0e3f;
 
         virtual ~ChaosBase() {}
         virtual void  init()                                          = 0;
@@ -44,6 +56,18 @@ namespace chaos_core {
         virtual void  stepSample()                                    = 0;
         virtual float getX() const                                    = 0;
         virtual float getY() const                                    = 0;
+
+    protected:
+        // True once `v` has left the region any healthy trajectory stays in.
+        // Apply to the variable `divergeBound` was chosen for.
+        bool diverged(float v) const {
+            return !isfinite(v) || fabsf(v) > divergeBound;
+        }
+        // The unrecoverable case only, without the magnitude test — for state
+        // that legitimately ranges wider than the bound (Chua's z reaches past
+        // the value that catches a runaway in x, and Van der Pol's y past the
+        // one that catches x), where a shared bound would reset healthy runs.
+        static bool nonFinite(float v) { return !isfinite(v); }
     };
 
 }  // namespace chaos_core

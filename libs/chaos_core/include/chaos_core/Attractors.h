@@ -19,6 +19,7 @@ namespace chaos_core {
             chaosMin   = 2.0f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.1f;   dtBase = 0.1f;
             oversampleMax = 64.0f;   // ~85 cyc/step
+        divergeBound  = 200.0f;   // outputs reach ~13 where stable
             charMin    = 0.1f;   charMax  = 0.4f;
             modScale   = 1.0f;
             gainL      = 0.12f;  gainR    = 0.12f;
@@ -43,6 +44,7 @@ namespace chaos_core {
             x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
             y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
             z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
+            if (diverged(x_) || diverged(y_) || diverged(z_)) init();
         }
         float getX() const override { return x_; }
         float getY() const override { return y_; }
@@ -64,6 +66,7 @@ namespace chaos_core {
             chaosMin   = 0.1f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.15f;  dtBase = 0.15f;
             oversampleMax = 64.0f;   // ~83 cyc/step
+        divergeBound  = 20.0f;    // unchanged; |x| peaks ~2.0
             charMin    = 0.0f;   charMax  = 1.0f;  // reserved
             modScale   = 1.0f;
             gainL      = 0.45f;  gainR    = 0.20f;
@@ -89,10 +92,7 @@ namespace chaos_core {
             float dx4 = y4, dy4 = mu_*(1.0f - x4*x4)*y4 - x4;
             x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
             y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
-            // Safety net: reset if numerics diverge (edge case at extreme mu+dt)
-            if (!isfinite(x_) || !isfinite(y_) || fabsf(x_) > 20.0f) {
-                x_ = 2.0f; y_ = 0.0f;
-            }
+            if (diverged(x_) || nonFinite(y_)) init();
         }
         float getX() const override { return x_; }
         float getY() const override { return y_; }
@@ -113,6 +113,7 @@ namespace chaos_core {
             chaosMin   = 24.0f;  chaosMax = 32.0f;
             rateMin    = 0.001f; rateMax  = 0.003f;  dtBase = 0.003f;
             oversampleMax = 64.0f;   // ~89 cyc/step
+        divergeBound  = 200.0f;   // |z| reaches ~60 at high rho
             charMin    = 6.0f;   charMax  = 14.0f;
             modScale   = 2.0f;
             gainL      = 0.05f;  gainR    = 0.05f;
@@ -137,6 +138,7 @@ namespace chaos_core {
             x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
             y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
             z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
+            if (diverged(x_) || diverged(y_) || diverged(z_)) init();
         }
         float getX() const override { return x_; }
         float getY() const override { return z_ - rho_; }  // centred: audio + plot
@@ -160,6 +162,7 @@ namespace chaos_core {
             chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
             rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
             oversampleMax = 32.0f;   // ~178 cyc/step - 2x a Rossler step
+        divergeBound  = 8.0f;     // unchanged; load-bearing at chaosMax, where Chua genuinely diverges
             charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
             modScale   = 1.0f;
             gainL      = 0.28f;  gainR    = 0.25f;
@@ -186,10 +189,7 @@ namespace chaos_core {
             x_ += dt_/6.0f*(dx1 + 2*dx2 + 2*dx3 + dx4);
             y_ += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
             z_ += dt_/6.0f*(dz1 + 2*dz2 + 2*dz3 + dz4);
-            // Guard: reset if trajectory escapes the attractor
-            if (!isfinite(x_) || !isfinite(z_) || fabsf(x_) > 8.0f) {
-                x_ = 0.5f; y_ = 0.0f; z_ = 0.0f;
-            }
+            if (diverged(x_) || nonFinite(z_)) init();
         }
         float getX() const override { return x_; }
         float getY() const override { return z_; }
@@ -224,6 +224,7 @@ namespace chaos_core {
             chaosMin   = 0.1f;   chaosMax = 0.8f;
             rateMin    = 0.005f; rateMax  = 0.10f;  dtBase = 0.10f;
             oversampleMax = 8.0f;    // ~543 cyc/step - 3x cosf, 6x a Rossler step
+        divergeBound  = 50.0f;    // outputs peak ~2.2
             charMin    = 0.8f;   charMax  = 1.4f;
             modScale   = 0.35f;
             gainL      = 0.55f;  gainR    = 0.55f;
@@ -258,6 +259,7 @@ namespace chaos_core {
             y_   += dt_/6.0f*(dy1 + 2*dy2 + 2*dy3 + dy4);
             phi_ += dt_*omega_;
             if (phi_ > 6.28318f) phi_ -= 6.28318f;  // keep phi in [0, 2π)
+            if (diverged(x_) || diverged(y_)) init();
         }
         float getX() const override { return x_; }
         float getY() const override { return y_; }
@@ -285,6 +287,7 @@ namespace chaos_core {
             chaosMin   = 2.0f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.10f;  dtBase = 0.10f;
             oversampleMax = 32.0f;   // ~178 cyc/step - two coupled systems
+        divergeBound  = 200.0f;   // outputs reach ~16
             charMin    = 0.0f;   charMax  = 0.5f;
             modScale   = 1.0f;
             gainL      = 0.10f;  gainR    = 0.10f;
@@ -337,6 +340,8 @@ namespace chaos_core {
             x2_ += dt_/6.0f*(dx2a + 2*dx2b + 2*dx2c + dx2d);
             y2_ += dt_/6.0f*(dy2a + 2*dy2b + 2*dy2c + dy2d);
             z2_ += dt_/6.0f*(dz2a + 2*dz2b + 2*dz2c + dz2d);
+            if (diverged(x1_) || diverged(y1_) || diverged(z1_) ||
+                diverged(x2_) || diverged(y2_) || diverged(z2_)) init();
         }
         float getX() const override { return x1_; }
         float getY() const override { return x2_; }
