@@ -121,15 +121,36 @@ a≈0.385 escapes even at a `dt` 500× smaller than `dtBase`, so the Van der Pol
 trick of clamping `dt` against the parameter (`setParams`) cannot help; only
 excluding the parameter value can.
 
-### Known issue — Chua
+### Chua — the one case a range cannot fix
 
-Chua loses its bounded attractor **inside its own pot range**: above a≈9.25 at
-low b (roughly the top third of CHAOS against the bottom half of CHAR) it
-escapes and the guard re-seeds repeatedly, which sounds like a stutter rather
-than a voice. `modMax` is pinned to `chaosMax` because no MOD limit can help
-with an instability the pots already reach. The fix is to narrow `chaosMax`
-(~9.25) or raise `charMin` (~14), trading range for a clean top end.
-Pre-existing — Chua has always carried a re-seeding guard — and not yet changed.
+Chua loses its bounded attractor **inside its own pot range**, so unlike the
+others it cannot be fixed by moving a limit: above a≈9.25 the attractor stays
+bounded only while b clears a floor that rises with a. Excluding that corner by
+range means either `chaosMax` ≈ 9.25 (losing 58% of the CHAOS travel, including
+part of the double-scroll band) or `charMin` ≈ 14.75 (losing 69% of CHAR, and
+putting canonical b=14.286 out of reach).
+
+`ChaosChua::charInUse()` clamps the *pair* instead, which keeps both pots at
+full travel. The floor is measured at `dtBase` across the whole MOD-reachable
+range and is linear in a to within the sweep resolution:
+
+| a | ≤9.25 | 9.50 | 10.00 | 10.50 | 11.00 |
+| --- | --- | --- | --- | --- | --- |
+| min stable b | 12.00 | 12.35 | 13.15 | 13.95 | 14.75 |
+
+giving `b ≥ 12.0 + 1.6·(a − 9.25)`. It engages on 12.5% of the CHAR plane and
+never below a=9.25. Verified over the full reachable space — a across
+`[modMin, modMax]`, b across the CHAR pot, dt from `rateMin` to `dtBase`, 73,629
+combinations — with zero guard trips. `divergeBound` stays as a backstop behind
+it.
+
+This is genuinely the ODE and not the integration: a=11, b=14 escapes at a `dt`
+1024× smaller too, so `ChaosVanDerPol`'s trick of clamping `dt` against the
+parameter cannot help. Only the parameter pair can.
+
+Because the clamp makes the running b differ from the requested one, algorithms
+that clamp override `charInUse()` and the firmware displays its result, so the
+panel shows what is actually running.
 
 ## Adding an algorithm
 

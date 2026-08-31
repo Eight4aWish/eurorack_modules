@@ -89,13 +89,43 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   Verified by sweeping the firmware's own control path — CHAOS x CHAR x RATE
 >   pots against the full ±5 V MOD range, 1584 settings per algorithm: zero guard
 >   trips on five of six, down from divergence on Rössler and Coupled Rössler.
-> - **Known issue — Chua.** Chua loses its bounded attractor *inside its own pot
->   range*: above a≈9.25 at low b it escapes and the guard re-seeds repeatedly, a
->   stutter rather than a voice. No MOD limit can help with something the pots
->   already reach, so `modMax` is pinned to `chaosMax`. The fix is narrowing
->   `chaosMax` to ~9.25 or raising `charMin` to ~14, trading range for a clean
->   top end. Pre-existing — Chua has always carried a re-seeding guard — and not
->   yet changed.
+> - **Chua CHAR clamped against CHAOS.** Chua loses its bounded attractor *inside
+>   its own pot range* — above a≈9.25 it stays bounded only while b clears a floor
+>   that rises with a — so no MOD limit helps and no range change is cheap:
+>   `chaosMax`≈9.25 costs 58% of the CHAOS travel, `charMin`≈14.75 costs 69% of
+>   CHAR and puts canonical b=14.286 out of reach. `ChaosChua::charInUse()` clamps
+>   the pair instead, `b ≥ 12.0 + 1.6·(a − 9.25)`, keeping both pots at full
+>   travel. Measured across the MOD-reachable range at `dtBase`:
+>
+>   | a | ≤9.25 | 9.50 | 10.00 | 10.50 | 11.00 |
+>   | --- | --- | --- | --- | --- | --- |
+>   | min stable b | 12.00 | 12.35 | 13.15 | 13.95 | 14.75 |
+>
+>   Verified over the full reachable space (73,629 combinations of a, b and dt):
+>   zero guard trips, and the clamp never engages below a=9.25. It is the ODE and
+>   not RK4 — a=11, b=14 escapes at a `dt` 1024× smaller — so clamping `dt` the
+>   way Van der Pol does cannot help. Turning CHAR below the floor at high CHAOS
+>   therefore stops changing the sound; the panel shows the value in force, not
+>   the pot's.
+> - **Control path hardened against the audio ISR and the I²C bus.**
+>   `setParams()` writes several floats and `init()` writes the whole state; the
+>   audio ISR could preempt either and integrate a block from a mixed set. For
+>   Chua that is not cosmetic — a new high `a` against the old `b` is the
+>   unbounded corner the clamp exists to prevent — so both now run inside
+>   `AudioNoInterrupts()`. On the ADS1115 side, conversions are now waited on by
+>   polling the config register's OS bit instead of a fixed 1200 µs (only ~3%
+>   clear of the nominal 1.163 ms, so a slow conversion returned the *previous
+>   channel's* value), and a failed I²C read holds the last good sample instead of
+>   yielding 0xFFFF — which read as ~+5.5 V on every input, slamming the chaos
+>   parameter, maxing oversampling and firing a spurious RST gate.
+> - **Audio-ISR load governor.** The `oversampleMax` figures above are static
+>   estimates, and an overrun latches: `update()` runs in the audio ISR, which
+>   preempts `loop()`, and only `loop()` can lower the step rate — so a block that
+>   overruns starves the control loop and the module looks frozen, dead panel and
+>   stuck CV, until it is power-cycled. `update()` now times itself and throttles
+>   the step count above 75% of the block budget, recovering below 50%. It should
+>   never engage; if it does, that algorithm's `oversampleMax` is too high. A `!`
+>   before the CPU figure says it is active — the pitch is running flat.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
 >   front, **SR** = sustain level + release tail. When **off** (default) the VCA

@@ -166,17 +166,13 @@ namespace chaos_core {
         ChaosChua() {
             name       = "CHUA";
             chaosLabel = "a"; charLabel = "b";
-            // NOTE: Chua loses its bounded attractor inside this range — above
-            // a~9.25 at low b it escapes and the guard re-seeds repeatedly. That
-            // is pre-existing, and a modMax above chaosMax cannot help; the fix
-            // is to narrow chaosMax (or raise charMin). See docs/TEENSY_CHAOS.md.
             chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
             rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
             oversampleMax = 32.0f;   // ~178 cyc/step - 2x a Rossler step
-            divergeBound  = 8.0f;     // unchanged; load-bearing at chaosMax, where Chua genuinely diverges
+            divergeBound  = 8.0f;     // backstop behind the b clamp in setParams
             charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
             modScale   = 1.0f;
-            modMin = 6.0f;    modMax = 11.0f;   // no upward headroom: see note on chaosMax below
+            modMin = 6.0f;    modMax = 11.0f;   // pinned to chaosMax; b is clamped instead
             gainL      = 0.28f;  gainR    = 0.25f;
             xMin       = -5.0f;  xRange   = 10.0f;
             yMin       = -6.0f;  yRange   = 12.0f;  // z axis for phase plot
@@ -184,7 +180,24 @@ namespace chaos_core {
         }
         void init() override { x_ = 0.5f; y_ = 0.0f; z_ = 0.0f; }
         void setParams(float chaos, float rate, float charV) override {
-            alpha_ = chaos; dt_ = rate; beta_ = charV;
+            alpha_ = chaos; dt_ = rate; beta_ = charInUse(chaos, charV);
+        }
+        // Chua is the one system whose unbounded region sits *inside* its own pot
+        // range, so no choice of chaosMin/Max or charMin/Max excludes it without
+        // gutting an axis: above a~9.25 the attractor only stays bounded while b
+        // clears a rising floor. Clamp the pair instead, which keeps both pots at
+        // full travel and canonical b=14.286 reachable.
+        //
+        // This is the ODE, not the integration — it escapes at a dt 1024x smaller
+        // too — so ChaosVanDerPol's trick of clamping dt against the parameter
+        // cannot help here. Floor measured across a = 6..11 at dtBase, and linear
+        // in a to within the 0.05 sweep resolution:
+        //     a  9.25   9.50   10.00   10.50   11.00
+        //     b 12.00  12.35   13.15   13.95   14.75
+        float charInUse(float chaos, float charV) const override {
+            float bMin = 12.0f + 1.6f * (chaos - 9.25f);   // fitted boundary
+            if (bMin < charMin) bMin = charMin;            // no floor below a~9.25
+            return (charV < bMin) ? bMin : charV;
         }
         void stepSample() override {
             float h1 = chuaF(x_);

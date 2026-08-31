@@ -30,22 +30,54 @@ static bool adsWriteCfg(uint8_t mux) {
     return Wire1.endTransmission() == 0;
 }
 
-static int16_t adsReadConv() {
+static bool adsReadConv(int16_t& out) {
     Wire1.beginTransmission(ADS_ADDR);
     Wire1.write(ADS_REG_CONV);
-    Wire1.endTransmission(false);
-    Wire1.requestFrom((int)ADS_ADDR, 2);
+    if (Wire1.endTransmission(false) != 0)      return false;
+    if (Wire1.requestFrom((int)ADS_ADDR, 2) != 2) return false;
     uint8_t msb = Wire1.read();
     uint8_t lsb = Wire1.read();
-    return (int16_t)((uint16_t(msb) << 8) | lsb);
+    out = (int16_t)((uint16_t(msb) << 8) | lsb);
+    return true;
+}
+
+// Wait for the conversion to land, by polling the config register's OS bit
+// rather than trusting a fixed delay. 860 SPS is nominally 1.163 ms, but that
+// rate comes from the ADS1115's own oscillator and carries a tolerance, so a
+// blind 1200 us wait sat only ~3% clear of it — and a conversion that ran even
+// slightly long returned the *previous* channel's result instead. That reads as
+// one CV input briefly taking another's value: MOD jumping because RST moved.
+// Sleep most of the interval, then poll, so the common case costs no more than
+// the old delay did.
+static bool adsWaitReady(uint32_t timeoutUs) {
+    delayMicroseconds(1000);
+    uint32_t t0 = micros();
+    while ((micros() - t0) < timeoutUs) {
+        Wire1.beginTransmission(ADS_ADDR);
+        Wire1.write(ADS_REG_CFG);
+        if (Wire1.endTransmission(false) != 0)        return false;
+        if (Wire1.requestFrom((int)ADS_ADDR, 2) != 2) return false;
+        uint8_t msb = Wire1.read(); (void)Wire1.read();
+        if (msb & 0x80) return true;   // OS = 1 → conversion complete
+    }
+    return false;
 }
 
 static void adsReadAll(int16_t out[4]) {
+    // Hold the last good sample per channel. A dropped I2C read used to surface
+    // as 0xFFFF → −1, and −1 reads as roughly +5.5 V on every input: the chaos
+    // parameter slams to its limit, V/Oct jumps to maximum oversampling, and RST
+    // crosses its gate threshold — a spurious note plus an attractor re-init from
+    // one bus hiccup. Seeded with the measured 0 V codes so a failure before the
+    // first successful read is quiet rather than garbage.
+    static int16_t last[4] = { 13236, 13240, 13241, 13241 };
     for (int ch = 0; ch < 4; ch++) {
-        adsWriteCfg(0b100 + ch);
-        delayMicroseconds(1200);  // 860 SPS → ~1.16ms per conversion
-        out[ch] = adsReadConv();
+        if (!adsWriteCfg(0b100 + ch)) continue;
+        if (!adsWaitReady(2000))      continue;
+        int16_t v;
+        if (adsReadConv(v)) last[ch] = v;
     }
+    for (int ch = 0; ch < 4; ch++) out[ch] = last[ch];
 }
 
 // ─── AudioChaosEngine ─────────────────────────────────────────────────────────
@@ -72,6 +104,7 @@ public:
         if (a) a->init();      // initialise state before making live
         dcL_ = dcR_ = 0.0f;   // flush DC history on switch
         stepAcc_ = 0.0f;
+        loadScale_ = 1.0f;     // the throttle described the old algorithm's cost
         algo_ = a;             // atomic pointer store
     }
 
@@ -79,10 +112,20 @@ public:
     float getX() const { ChaosBase* a = algo_; return a ? a->getX() : 0.0f; }
     float getY() const { ChaosBase* a = algo_; return a ? a->getY() : 0.0f; }
 
-    void  setStepsPerSample(float s) { stepsPerSample_ = (s < 1.0f) ? 1.0f : s; }
+    // Guard the ceiling and NaN as well as the floor. A NaN would pass a plain
+    // `s < 1` test, and then stall the integrator for good: stepAcc_ becomes NaN,
+    // so (int)stepAcc_ is always 0, no step ever runs, and only setAlgo() clears
+    // it. STEPS_ABS_MAX sits well above any algorithm's oversampleMax, so it
+    // bounds garbage without ever trimming a legitimate setting.
+    void  setStepsPerSample(float s) {
+        if (!(s >= 1.0f))            s = 1.0f;            // false for NaN too
+        else if (s > STEPS_ABS_MAX)  s = STEPS_ABS_MAX;
+        stepsPerSample_ = s;
+    }
     void  setEnvEnabled(bool e)      { envEnabled_ = e; }   // off → VCA stays open (drone)
     void  setEnvGate(bool g)         { envGate_ = g; }      // RST used as a gate
     EnvStage envStage() const        { return envStage_; }
+    float loadScale() const          { return loadScale_; }   // < 1 → governor throttling
 
     // Attack linear; decay/release exponential (~ -60 dB). Decay approaches the
     // sustain level, release falls from there to zero.
@@ -98,6 +141,7 @@ public:
     }
 
     void update() override {
+        const uint32_t tStart = ARM_DWT_CYCCNT;
         ChaosBase* a = algo_;   // single atomic load — consistent for this block
         if (!a) return;
         audio_block_t* bL = allocate();
@@ -108,7 +152,11 @@ public:
         // Enable / gate-edge handling (block rate — inaudible latency).
         if (!envEnabled_) {
             // Disabled: VCA fully open (original drone behaviour), ignore the gate.
-            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envGatePrev_ = envGate_;
+            // Hold the edge detector low rather than tracking the live gate, so a
+            // gate that is already high when the envelope is switched on still
+            // reads as a rising edge and starts the note straight away, instead
+            // of leaving the voice closed until the gate next cycles.
+            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envGatePrev_ = false;
         } else {
             if (envStage_ == ENV_OPEN) { envStage_ = ENV_CLOSED; envLevel_ = 0.0f; }
             bool g = envGate_;
@@ -118,7 +166,8 @@ public:
         }
 
         float gL = a->gainL, gR = a->gainR;
-        float steps = stepsPerSample_;
+        float steps = stepsPerSample_ * loadScale_;
+        if (steps < 1.0f) steps = 1.0f;
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
             // Advance the attractor by `steps` integration steps this sample.
             stepAcc_ += steps;
@@ -138,9 +187,35 @@ public:
         }
         transmit(bL, 0); transmit(bR, 1);
         release(bL); release(bR);
+        governLoad(ARM_DWT_CYCCNT - tStart);
     }
 
 private:
+    // Load governor. The per-algorithm oversampleMax ceilings are estimates from
+    // static instruction counts, so a mis-set one could still let a block overrun
+    // its slice — and that failure latches. This update() runs in the audio ISR,
+    // which preempts loop(); only loop() can lower the step rate, so once a block
+    // takes longer than a block period the control loop is starved and can never
+    // wind the rate back. The module looks frozen: dead panel, stuck CV.
+    //
+    // So measure the block and throttle the step count if it runs long. A note
+    // that goes flat under an extreme patch beats a module that needs a power
+    // cycle. It should never engage in normal use — if it does, the algorithm's
+    // oversampleMax is set too high. `!` on the OLED next to the CPU figure says
+    // it is active.
+    inline void governLoad(uint32_t cycles) {
+        const uint32_t budget = AUDIO_BLOCK_SAMPLES * (F_CPU_ACTUAL / 44100u);
+        float sc = loadScale_;
+        if (cycles > (budget >> 1) + (budget >> 2)) {          // over 75% of the block
+            sc *= 0.85f;                                       // ~4 blocks (12 ms) to halve
+            if (sc < 0.02f) sc = 0.02f;
+        } else if (cycles < (budget >> 1) && sc < 1.0f) {      // under 50%: creep back
+            sc += 0.02f;
+            if (sc > 1.0f) sc = 1.0f;
+        }
+        loadScale_ = sc;
+    }
+
     inline void envAdvance() {
         switch (envStage_) {
             case ENV_ATTACK:
@@ -164,6 +239,8 @@ private:
     ChaosBase* algo_ = nullptr;
     float dcL_ = 0.0f, dcR_ = 0.0f;
     float stepsPerSample_ = 1.0f, stepAcc_ = 0.0f;
+    static constexpr float STEPS_ABS_MAX = 256.0f;   // backstop above every oversampleMax
+    volatile float loadScale_ = 1.0f;                // load-governor throttle, 0.02..1
     // Envelope (VCA) — gate-driven AD/SR
     volatile bool envEnabled_ = false;   // off by default — module is a drone voice
     volatile bool envGate_ = false;      // RST gate level
@@ -302,6 +379,10 @@ void loop() {
     static uint32_t btnDownMs = 0;
     static bool     envPage   = false;   // false = main params, true = ENV config
     static Pickup3  pagePickup;
+    // The ENV page turns CHAOS into the envelope on/off switch. Latch it out
+    // until the pot is actually moved on this page — see the ENV branch below.
+    static float    envSwitchRef  = 0.0f;
+    static bool     envSwitchLive = false;
     bool btn = !digitalRead(PIN_BTN);
     if (btn && !lastBtn) btnDownMs = millis();
     if (!btn && lastBtn) {
@@ -309,6 +390,7 @@ void loop() {
         if (held >= BTN_LONG_MS) {
             envPage = !envPage;                          // CHAOS/CHAR/DEPTH change meaning…
             pickup3_arm(pagePickup, p1n, p3n, p4n);      // …so hold them until re-caught
+            envSwitchRef = p1n; envSwitchLive = false;   // and don't flip ENV on entry
         } else if (held > 20) {                          // debounce short press
             algoIdx = (algoIdx + 1) % N_ALGOS;
             engine.setAlgo(algos[algoIdx]);
@@ -336,8 +418,16 @@ void loop() {
     } else {
         // CHAOS pot is the enable switch (deadband around centre); CHAR = AD macro
         // (attack+decay), DEPTH = SR macro (sustain+release), with soft-takeover.
-        if (p1n > 0.55f)      envEnabled = true;
-        else if (p1n < 0.45f) envEnabled = false;
+        //
+        // The switch stays inert until the pot is moved on this page. Reading it
+        // on entry meant that long-pressing to look at the ENV page while CHAOS
+        // happened to sit above 55% switched the envelope on there and then —
+        // and with nothing patched to RST that is silence you did not ask for.
+        if (!envSwitchLive && fabsf(p1n - envSwitchRef) > 0.05f) envSwitchLive = true;
+        if (envSwitchLive) {
+            if (p1n > 0.55f)      envEnabled = true;
+            else if (p1n < 0.45f) envEnabled = false;
+        }
         if (pickup3_update(pagePickup, 1, p3n, ctlAdNorm))    ctlAdNorm    = p3n;
         if (pickup3_update(pagePickup, 2, p4n, ctlSrNorm))    ctlSrNorm    = p4n;
     }
@@ -361,8 +451,22 @@ void loop() {
         else                           { stepDt = algo->dtBase;  steps = desiredDt / algo->dtBase; }
         rateDisp = desiredDt;
 
+        // setParams writes several floats. Each store is atomic, but the *set* is
+        // not: the audio ISR can preempt between them and integrate a whole block
+        // from a mixed parameter set. Mostly that is inaudible, since consecutive
+        // sets differ by a pot's worth of smoothing — but for Chua it is not
+        // cosmetic. A new high alpha against the not-yet-written beta is exactly
+        // the unbounded corner charInUse() exists to keep out of reach, and one
+        // block is thousands of RK4 steps, plenty for an exponential runaway.
+        // Hold off the audio ISR for the handful of stores instead.
+        AudioNoInterrupts();
         algo->setParams(chaos, stepDt, charV);
         engine.setStepsPerSample(steps);
+        AudioInterrupts();
+        // Report what is actually in force. Chua clamps CHAR against CHAOS to
+        // stay inside its bounded region, so below that floor the pot and the
+        // running value part company and the panel should follow the latter.
+        charV = algo->charInUse(chaos, charV);
     }
 
     // DEPTH = output amplitude; on the ENV page CHAR/DEPTH are the AD/SR macros.
@@ -383,7 +487,11 @@ void loop() {
     bool prevGate = gateHigh;
     if (!gateHigh && cv[3] < RST_ON)      gateHigh = true;
     else if (gateHigh && cv[3] > RST_OFF) gateHigh = false;
-    if (gateHigh && !prevGate && algo) algo->init();   // attractor re-init on attack
+    if (gateHigh && !prevGate && algo) {
+        AudioNoInterrupts();       // same reason: init() writes 3-6 state floats,
+        algo->init();              // and half a reset is not a point on any orbit
+        AudioInterrupts();
+    }
     engine.setEnvGate(gateHigh);
 
     // Phase plot ring buffer — sampled every loop iteration
@@ -395,6 +503,11 @@ void loop() {
     if (algo) {
         float px = (engine.getX() - algo->xMin) * (PLOT_W - 1) / algo->xRange;
         float py = (engine.getY() - algo->yMin) * (PLOT_H - 1) / algo->yRange;
+        // constrain() compares, and every comparison against NaN is false, so a
+        // NaN would pass straight through to the cast. The divergence guards make
+        // that transient rather than permanent, but plot it as 0 regardless.
+        if (!isfinite(px)) px = 0.0f;
+        if (!isfinite(py)) py = 0.0f;
         trailX[trailHead] = (uint8_t)constrain(px, 0, PLOT_W - 1);
         trailY[trailHead] = (uint8_t)constrain(PLOT_H - 1 - py, 0, PLOT_H - 1);
         trailHead = (trailHead + 1) % TRAIL;
@@ -420,10 +533,14 @@ void loop() {
         {
             int cpu = (int)(AudioProcessorUsageMax() + 0.5f);
             if (cpu > 999) cpu = 999;
+            // '!' prefix if the load governor is throttling the step count — the
+            // pitch is running flat to keep the audio ISR inside its slice.
+            bool governed = engine.loadScale() < 0.999f;
             int digits = (cpu >= 100) ? 3 : (cpu >= 10 ? 2 : 1);
-            int w = (digits + 1) * 6;   // digits + '%', 6 px per char at size 1
+            int w = (digits + 1 + (governed ? 1 : 0)) * 6;   // digits + '%' (+ '!'), 6 px/char
             display.fillRect(127 - w, 0, w + 1, 8, SSD1306_BLACK);
             display.setCursor(128 - w, 0);
+            if (governed) display.print('!');
             display.print(cpu); display.print('%');
         }
 
