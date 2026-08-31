@@ -40,7 +40,20 @@ namespace chaos_core {
         // repeating re-seed. Always at least [chaosMin, chaosMax], so the pot's
         // own range stays reachable; beyond that, measured per algorithm.
         float modMin = 0.0f, modMax = 1.0f;
-        float gainL    = 0.12f, gainR = 0.12f;  // pre-tanh amplitude scale
+        // Pre-tanh amplitude scale. The host writes tanhf(state * gain) * 32000,
+        // so the tanh is a soft limiter and these are a voicing decision, not a
+        // safety one — nothing can exceed full scale whatever they are set to.
+        //
+        // Set by measurement so all six algorithms sit at the same level: gain =
+        // atanh(0.90) / median peak |state| over a 5x5x3 sweep of the pot range.
+        // The MEDIAN matters. Calibrating on the maximum drags everything down —
+        // and for Chua the maximum is its divergence spike (max|x| lands exactly
+        // on divergeBound), which is not a thing anyone plays. So normal settings
+        // land at 90% of full scale and the loud corners saturate into the tanh,
+        // which is what it is there for. L and R are measured separately because
+        // getX() and getY() are different state variables with different extents
+        // (Van der Pol's y swings 6x its x).
+        float gainL    = 0.12f, gainR = 0.12f;
         float xMin = -1.0f, xRange = 2.0f;     // plot window
         float yMin = -1.0f, yRange = 2.0f;
         float cvScaleX = 0.5f, cvScaleY = 0.5f; // state → ±5V CV

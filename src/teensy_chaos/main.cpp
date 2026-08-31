@@ -292,6 +292,19 @@ void dacWriteVolts(uint8_t ch, float volts) {
     dacWrite(ch, (uint16_t)constrain(code, 0, 4095));
 }
 
+// ─── Output level ─────────────────────────────────────────────────────────────
+// SGTL5000 CHIP_LINE_OUT_VOL, via codec.lineOutLevel(). The field runs 13..31 and
+// is an ATTENUATION, so lower is LOUDER: 13 ≈ 3.16 V p-p, 31 ≈ 1.16 V p-p, in
+// 0.5 dB steps. This sat at 29 — near the quiet end, leaving ~8 dB unused, which
+// is why every algorithm read as quiet no matter how the DSP was scaled.
+//
+// Turned up to 24 (+2.5 dB), deliberately a modest step rather than a jump to 13.
+// The codec is not the only gain in the chain: the module's analog output stage
+// has its own headroom, and past some point driving the codec harder just clips
+// there instead. Lower this further by ear or on a scope until it stops getting
+// cleaner, then back off one.
+static constexpr uint8_t LINE_OUT_LEVEL = 24;
+
 // ─── Envelope + control tunables ──────────────────────────────────────────────
 // AD macro spans attack + decay; SR macro spans sustain level + release.
 static constexpr float    ENV_ATK_MIN_MS = 0.5f,  ENV_ATK_MAX_MS = 1000.0f;
@@ -345,7 +358,7 @@ void setup() {
     codec.inputSelect(AUDIO_INPUT_LINEIN);
     codec.lineInLevel(5);
     codec.volume(0.7);
-    codec.lineOutLevel(29);
+    codec.lineOutLevel(LINE_OUT_LEVEL);
     ampL.gain(1.0f);
     ampR.gain(1.0f);
 

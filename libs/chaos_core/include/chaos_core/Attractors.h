@@ -27,7 +27,7 @@ namespace chaos_core {
             charMin    = 0.1f;   charMax  = 0.36f;
             modScale   = 1.0f;
             modMin = 1.5f;    modMax = 10.0f;   // escapes below c~1.25, stable to ~10.5
-            gainL      = 0.12f;  gainR    = 0.12f;
+            gainL      = 0.144f; gainR    = 0.150f;   // level-matched, see ChaosBase
             xMin       = -11.0f; xRange   = 24.0f;
             yMin       = -11.0f; yRange   = 22.0f;
             cvScaleX   = 0.50f;  cvScaleY = 0.50f;
@@ -75,7 +75,7 @@ namespace chaos_core {
             charMin    = 0.0f;   charMax  = 1.0f;  // reserved
             modScale   = 1.0f;
             modMin = -1.5f;   modMax = 8.5f;    // stable -1.88..8.66
-            gainL      = 0.45f;  gainR    = 0.20f;
+            gainL      = 0.729f; gainR    = 0.230f;   // level-matched, see ChaosBase
             xMin       = -3.0f;  xRange   = 6.0f;
             yMin       = -8.0f;  yRange   = 16.0f;
             cvScaleX   = 2.00f;  cvScaleY = 0.60f;
@@ -123,7 +123,7 @@ namespace chaos_core {
             charMin    = 6.0f;   charMax  = 14.0f;
             modScale   = 2.0f;
             modMin = 22.0f;   modMax = 34.0f;   // wide margin either side; unchanged
-            gainL      = 0.05f;  gainR    = 0.05f;
+            gainL      = 0.081f; gainR    = 0.064f;   // level-matched, see ChaosBase
             xMin       = -20.0f; xRange   = 40.0f;
             yMin       = -28.0f; yRange   = 55.0f;  // z-rho: ≈ -28 to +27
             cvScaleX   = 0.25f;  cvScaleY = 0.15f;
@@ -173,7 +173,7 @@ namespace chaos_core {
             charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
             modScale   = 1.0f;
             modMin = 6.0f;    modMax = 11.0f;   // pinned to chaosMax; b is clamped instead
-            gainL      = 0.28f;  gainR    = 0.25f;
+            gainL      = 0.644f; gainR    = 0.456f;   // level-matched, see ChaosBase
             xMin       = -5.0f;  xRange   = 10.0f;
             yMin       = -6.0f;  yRange   = 12.0f;  // z axis for phase plot
             cvScaleX   = 1.30f;  cvScaleY = 1.00f;
@@ -245,7 +245,7 @@ namespace chaos_core {
             charMin    = 0.8f;   charMax  = 1.4f;
             modScale   = 0.35f;
             modMin = -1.9f;   modMax = 2.8f;    // verified stable; unchanged
-            gainL      = 0.55f;  gainR    = 0.55f;
+            gainL      = 0.992f; gainR    = 1.631f;   // level-matched, see ChaosBase
             xMin       = -2.0f;  xRange   = 4.0f;
             yMin       = -2.5f;  yRange   = 5.0f;
             cvScaleX   = 3.00f;  cvScaleY = 2.50f;
@@ -309,7 +309,7 @@ namespace chaos_core {
             charMin    = 0.0f;   charMax  = 0.5f;
             modScale   = 1.0f;
             modMin = 1.0f;    modMax = 13.0f;   // escapes below c~0.5, stable to ~13.75
-            gainL      = 0.10f;  gainR    = 0.10f;
+            gainL      = 0.146f; gainR    = 0.146f;   // level-matched, see ChaosBase
             xMin       = -13.0f; xRange   = 26.0f;
             yMin       = -11.0f; yRange   = 22.0f;
             cvScaleX   = 0.45f;  cvScaleY = 0.45f;
