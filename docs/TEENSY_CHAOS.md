@@ -14,6 +14,33 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   raise pitch by running more integration sub-steps per sample rather than
 >   enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over
 >   several octaves without diverging.
+> - **Per-algorithm oversampling ceiling.** Oversampling is the one control that
+>   buys pitch with CPU, and a step is not the same price in every system: a
+>   Duffing step costs ~6x a Rössler step (three `cosf` calls per RK4 step), and
+>   Chua / Coupled Rössler ~2x. The former global `OVERSAMPLE_MAX` was therefore
+>   simultaneously unsafe for the expensive systems and needlessly tight for the
+>   cheap ones, so the ceiling now lives on `ChaosBase::oversampleMax` and is set
+>   per algorithm to land each one at a similar share of the per-sample budget:
+>
+>   | Algorithm | cyc/step | `oversampleMax` | Octaves above `dtBase` | Est. peak CPU |
+>   | --- | ---: | ---: | ---: | ---: |
+>   | Rössler | ~88 | 64 | 6 | 46% |
+>   | Van der Pol | ~83 | 64 | 6 | 43% |
+>   | Lorenz | ~89 | 64 | 6 | 46% |
+>   | Chua | ~178 | 32 | 5 | 46% |
+>   | Coupled Rössler | ~178 | 32 | 5 | 46% |
+>   | Duffing | ~543 | 8 | 3 | 36% |
+>
+>   Costs are static counts from the emitted Cortex-M7 code (instructions, `vdiv`
+>   penalty and libm calls), against a 13,605-cycle budget per sample at 600 MHz
+>   / 44.1 kHz plus ~570 cycles fixed per-sample overhead (two `tanhf`, the DC
+>   blockers and the envelope). Chua and Coupled Rössler previously reached ~88%
+>   and Duffing an estimated ~260% — i.e. Duffing could overrun the audio budget
+>   at high V/Oct. Estimates, not measurements: raise a cap only against the
+>   on-screen CPU figure below.
+> - **Peak CPU readout.** Top-right of the OLED, over the phase plot: peak audio
+>   -ISR load (`AudioProcessorUsageMax()`) as a percentage, reset on every
+>   algorithm change so the figure always describes what is currently running.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
 >   front, **SR** = sustain level + release tail. When **off** (default) the VCA

@@ -59,7 +59,8 @@ A 10 HP chaotic / fractal synthesis voice that exploits the Teensy 4.1's 600 MHz
 
 - **Algorithms**: the shipping firmware cycles **6 continuous-ODE attractors** — Rössler, Van der Pol, Lorenz, Chua, Duffing, Coupled Rössler — by short-pressing BTN. (A larger 14-algorithm suite across Melodic / Percussive / Texture groups is the design roadmap, not yet wired up.)
 - **Controls**: CHAOS (bifurcation), RATE (integration step / frequency), CHAR (secondary parameter), DEPTH (mix / envelope decay). MOD adds bipolar modulation to CHAOS; ASGN is a menu-assignable mod target.
-- **V/Oct by oversampling**: CLK pitch raises the integration sub-step count per sample rather than enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over several octaves without diverging.
+- **V/Oct by oversampling**: CLK pitch raises the integration sub-step count per sample rather than enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over several octaves without diverging. The ceiling on those extra steps is **per algorithm** (`ChaosBase::oversampleMax`), scaled by each system's measured per-step cost so none can overrun the audio budget.
+- **Peak CPU on screen**: top-right of the OLED shows peak audio-ISR load, reset on each algorithm change.
 - **Onboard AD envelope (VCA)**, off by default: long-press BTN opens the **ENV page** where CHAOS toggles it on/off and CHAR / DEPTH set Attack / Decay. When on, an RST rising edge fires a one-shot for a self-contained percussion voice; when off the module is a free-running drone.
 - **Display**: SSD1306 128×64 OLED — algorithm name, real-time phase-space plot, and parameter bars.
 

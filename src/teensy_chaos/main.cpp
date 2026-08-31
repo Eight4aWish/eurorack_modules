@@ -58,6 +58,13 @@ public:
     // alone can reach is produced by oversampling (multiple steps per audio
     // sample) instead of growing dt, so V/Oct tracks without diverging.
     float dtBase   = 0.05f;
+    // Ceiling on those extra steps. Oversampling is the one control that buys
+    // pitch with CPU, so the cap has to be per-algorithm: a Duffing step costs
+    // ~6x a Rossler step (three cosf calls), and a single global cap is either
+    // unsafe for the expensive systems or needlessly tight for the cheap ones.
+    // Values are set so every algorithm tops out at a similar share of the
+    // per-sample cycle budget. Raise one only against a measured CPU figure.
+    float oversampleMax = 64.0f;
     float modScale = 1.0f;          // chaos-param units per volt of MOD CV
     float gainL    = 0.12f, gainR = 0.12f;  // pre-tanh amplitude scale
     float xMin = -1.0f, xRange = 2.0f;     // plot window
@@ -82,6 +89,7 @@ public:
         chaosLabel = "c"; charLabel = "a";
         chaosMin   = 2.0f;   chaosMax = 8.0f;
         rateMin    = 0.002f; rateMax  = 0.1f;   dtBase = 0.1f;
+        oversampleMax = 64.0f;   // ~85 cyc/step
         charMin    = 0.1f;   charMax  = 0.4f;
         modScale   = 1.0f;
         gainL      = 0.12f;  gainR    = 0.12f;
@@ -126,6 +134,7 @@ public:
         chaosLabel = "u"; charLabel = "a";
         chaosMin   = 0.1f;   chaosMax = 8.0f;
         rateMin    = 0.002f; rateMax  = 0.15f;  dtBase = 0.15f;
+        oversampleMax = 64.0f;   // ~83 cyc/step
         charMin    = 0.0f;   charMax  = 1.0f;  // reserved
         modScale   = 1.0f;
         gainL      = 0.45f;  gainR    = 0.20f;
@@ -174,6 +183,7 @@ public:
         chaosLabel = "r"; charLabel = "s";
         chaosMin   = 24.0f;  chaosMax = 32.0f;
         rateMin    = 0.001f; rateMax  = 0.003f;  dtBase = 0.003f;
+        oversampleMax = 64.0f;   // ~89 cyc/step
         charMin    = 6.0f;   charMax  = 14.0f;
         modScale   = 2.0f;
         gainL      = 0.05f;  gainR    = 0.05f;
@@ -348,6 +358,7 @@ public:
         chaosLabel = "a"; charLabel = "b";
         chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
         rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
+        oversampleMax = 32.0f;   // ~178 cyc/step - 2x a Rossler step
         charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
         modScale   = 1.0f;
         gainL      = 0.28f;  gainR    = 0.25f;
@@ -411,6 +422,7 @@ public:
         chaosLabel = "g"; charLabel  = "w";
         chaosMin   = 0.1f;   chaosMax = 0.8f;
         rateMin    = 0.005f; rateMax  = 0.10f;  dtBase = 0.10f;
+        oversampleMax = 8.0f;    // ~543 cyc/step - 3x cosf, 6x a Rossler step
         charMin    = 0.8f;   charMax  = 1.4f;
         modScale   = 0.35f;
         gainL      = 0.55f;  gainR    = 0.55f;
@@ -471,6 +483,7 @@ public:
         chaosLabel = "c"; charLabel  = "k";
         chaosMin   = 2.0f;   chaosMax = 8.0f;
         rateMin    = 0.002f; rateMax  = 0.10f;  dtBase = 0.10f;
+        oversampleMax = 32.0f;   // ~178 cyc/step - two coupled systems
         charMin    = 0.0f;   charMax  = 0.5f;
         modScale   = 1.0f;
         gainL      = 0.10f;  gainR    = 0.10f;
@@ -592,7 +605,6 @@ void dacWriteVolts(uint8_t ch, float volts) {
 static constexpr float    ENV_ATK_MIN_MS = 0.5f,  ENV_ATK_MAX_MS = 1000.0f;
 static constexpr float    ENV_DEC_MIN_MS = 2.0f,  ENV_DEC_MAX_MS = 2000.0f;
 static constexpr float    ENV_REL_MIN_MS = 2.0f,  ENV_REL_MAX_MS = 4000.0f;
-static constexpr float    OVERSAMPLE_MAX = 64.0f;  // cap steps/sample (~6 oct above dtBase)
 static constexpr uint16_t BTN_LONG_MS    = 500;    // long-press toggles the ENV page
 // RST used as a gate: lower ADS code = higher Eurorack voltage (inverting front-end).
 static constexpr int16_t  RST_ON  = 10820;  // ~+1V — gate goes high
@@ -685,6 +697,7 @@ void loop() {
         } else if (held > 20) {                          // debounce short press
             algoIdx = (algoIdx + 1) % N_ALGOS;
             engine.setAlgo(algos[algoIdx]);
+            AudioProcessorUsageMaxReset();   // peak CPU is per-algorithm
         }
     }
     lastBtn = btn;
@@ -727,7 +740,7 @@ void loop() {
         // realise it as a safe step size × oversampling so it stays stable.
         float potDt    = algo->rateMin + (p2 / 1023.0f) * (algo->rateMax - algo->rateMin);
         float desiredDt = potDt * powf(2.0f, clkVolts + asgnVolts);
-        desiredDt = constrain(desiredDt, 1.0e-5f, algo->dtBase * OVERSAMPLE_MAX);
+        desiredDt = constrain(desiredDt, 1.0e-5f, algo->dtBase * algo->oversampleMax);
         float stepDt, steps;
         if (desiredDt <= algo->dtBase) { stepDt = desiredDt;     steps = 1.0f; }
         else                           { stepDt = algo->dtBase;  steps = desiredDt / algo->dtBase; }
@@ -785,6 +798,19 @@ void loop() {
 
         display.setTextSize(1);
         display.setTextColor(SSD1306_WHITE);
+
+        // Peak audio-ISR load since the last algorithm change, top-right over
+        // the plot. Oversampling buys pitch with CPU, so this is the number
+        // that says how close a patch is to overrunning the audio budget.
+        {
+            int cpu = (int)(AudioProcessorUsageMax() + 0.5f);
+            if (cpu > 999) cpu = 999;
+            int digits = (cpu >= 100) ? 3 : (cpu >= 10 ? 2 : 1);
+            int w = (digits + 1) * 6;   // digits + '%', 6 px per char at size 1
+            display.fillRect(127 - w, 0, w + 1, 8, SSD1306_BLACK);
+            display.setCursor(128 - w, 0);
+            display.print(cpu); display.print('%');
+        }
 
         if (algo) {
             // Row 1: algorithm name + (chaos param | ENV on/off)
