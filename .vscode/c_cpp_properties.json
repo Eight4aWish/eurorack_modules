@@ -357,7 +357,7 @@
                 ]
             },
             "defines": [
-                "PLATFORMIO=60200",
+                "PLATFORMIO=60119",
                 "ARDUINO_RASPBERRY_PI_PICO_2W",
                 "ARDUINO_ARCH_RP2040",
                 "USBD_MAX_POWER_MA=250",
