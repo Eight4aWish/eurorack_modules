@@ -454,19 +454,15 @@ void loop() {
         // setParams writes several floats. Each store is atomic, but the *set* is
         // not: the audio ISR can preempt between them and integrate a whole block
         // from a mixed parameter set. Mostly that is inaudible, since consecutive
-        // sets differ by a pot's worth of smoothing — but for Chua it is not
-        // cosmetic. A new high alpha against the not-yet-written beta is exactly
-        // the unbounded corner charInUse() exists to keep out of reach, and one
-        // block is thousands of RK4 steps, plenty for an exponential runaway.
+        // sets differ by a pot's worth of smoothing — but a new high alpha landing
+        // against a not-yet-written beta can put Chua in its unbounded corner when
+        // neither the old nor the new setting was there, and one block is thousands
+        // of RK4 steps, plenty for a runaway the player never asked for.
         // Hold off the audio ISR for the handful of stores instead.
         AudioNoInterrupts();
         algo->setParams(chaos, stepDt, charV);
         engine.setStepsPerSample(steps);
         AudioInterrupts();
-        // Report what is actually in force. Chua clamps CHAR against CHAOS to
-        // stay inside its bounded region, so below that floor the pot and the
-        // running value part company and the panel should follow the latter.
-        charV = algo->charInUse(chaos, charV);
     }
 
     // DEPTH = output amplitude; on the ENV page CHAR/DEPTH are the AD/SR macros.

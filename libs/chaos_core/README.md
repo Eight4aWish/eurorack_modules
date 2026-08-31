@@ -130,27 +130,29 @@ range means either `chaosMax` ≈ 9.25 (losing 58% of the CHAOS travel, includin
 part of the double-scroll band) or `charMin` ≈ 14.75 (losing 69% of CHAR, and
 putting canonical b=14.286 out of reach).
 
-`ChaosChua::charInUse()` clamps the *pair* instead, which keeps both pots at
-full travel. The floor is measured at `dtBase` across the whole MOD-reachable
-range and is linear in a to within the sweep resolution:
+The floor is measured at `dtBase` across the whole MOD-reachable range and is
+linear in a to within the sweep resolution:
 
 | a | ≤9.25 | 9.50 | 10.00 | 10.50 | 11.00 |
 | --- | --- | --- | --- | --- | --- |
 | min stable b | 12.00 | 12.35 | 13.15 | 13.95 | 14.75 |
 
-giving `b ≥ 12.0 + 1.6·(a − 9.25)`. It engages on 12.5% of the CHAR plane and
-never below a=9.25. Verified over the full reachable space — a across
-`[modMin, modMax]`, b across the CHAR pot, dt from `rateMin` to `dtBase`, 73,629
-combinations — with zero guard trips. `divergeBound` stays as a backstop behind
-it.
+giving `b ≥ 12.0 + 1.6·(a − 9.25)`.
 
-This is genuinely the ODE and not the integration: a=11, b=14 escapes at a `dt`
-1024× smaller too, so `ChaosVanDerPol`'s trick of clamping `dt` against the
-parameter cannot help. Only the parameter pair can.
+**This is deliberately not enforced.** A `charInUse()` clamp holding b above that
+floor was written, verified (73,629 combinations, zero guard trips) — and
+reverted after playing it. Past the floor the guard re-seeds repeatedly, which is
+a stuttering burst, not a dead voice; that texture is what the algorithm is *for*.
+The clamp also silenced the bottom of the CHAR pot across the top third of CHAOS,
+so a knob stopped responding over the exact region the character lives in. Zero
+guard trips is a numerical goal, not a musical one, and this is an instrument.
 
-Because the clamp makes the running b differ from the requested one, algorithms
-that clamp override `charInUse()` and the firmware displays its result, so the
-panel shows what is actually running.
+The lesson generalises: `divergeBound` exists to stop an unrecoverable state
+killing the voice. It is not licence to engineer away every region that trips it.
+
+For the record, it is genuinely the ODE and not the integration: a=11, b=14
+escapes at a `dt` 1024× smaller too, so `ChaosVanDerPol`'s trick of clamping `dt`
+against the parameter could not have helped here in any case.
 
 ## Adding an algorithm
 

@@ -89,24 +89,21 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   Verified by sweeping the firmware's own control path — CHAOS x CHAR x RATE
 >   pots against the full ±5 V MOD range, 1584 settings per algorithm: zero guard
 >   trips on five of six, down from divergence on Rössler and Coupled Rössler.
-> - **Chua CHAR clamped against CHAOS.** Chua loses its bounded attractor *inside
->   its own pot range* — above a≈9.25 it stays bounded only while b clears a floor
->   that rises with a — so no MOD limit helps and no range change is cheap:
->   `chaosMax`≈9.25 costs 58% of the CHAOS travel, `charMin`≈14.75 costs 69% of
->   CHAR and puts canonical b=14.286 out of reach. `ChaosChua::charInUse()` clamps
->   the pair instead, `b ≥ 12.0 + 1.6·(a − 9.25)`, keeping both pots at full
->   travel. Measured across the MOD-reachable range at `dtBase`:
+> - **Chua's unstable corner is left alone, on purpose.** Chua loses its bounded
+>   attractor *inside its own pot range* — above a≈9.25 it stays bounded only
+>   while b clears a floor that rises with a (measured at `dtBase`):
 >
 >   | a | ≤9.25 | 9.50 | 10.00 | 10.50 | 11.00 |
 >   | --- | --- | --- | --- | --- | --- |
 >   | min stable b | 12.00 | 12.35 | 13.15 | 13.95 | 14.75 |
 >
->   Verified over the full reachable space (73,629 combinations of a, b and dt):
->   zero guard trips, and the clamp never engages below a=9.25. It is the ODE and
->   not RK4 — a=11, b=14 escapes at a `dt` 1024× smaller — so clamping `dt` the
->   way Van der Pol does cannot help. Turning CHAR below the floor at high CHAOS
->   therefore stops changing the sound; the panel shows the value in force, not
->   the pot's.
+>   A clamp holding `b ≥ 12.0 + 1.6·(a − 9.25)` was written and verified (73,629
+>   combinations, zero guard trips) — then **reverted after playing it**. Past the
+>   floor the guard re-seeds repeatedly, which is a stuttering burst rather than a
+>   dead voice, and that is the character of the algorithm rather than a fault.
+>   The clamp also froze the bottom of the CHAR pot across the top third of CHAOS.
+>   Zero guard trips is a numerical goal, not a musical one. The guard stays as the
+>   backstop against an unrecoverable state; nothing above it is enforced.
 > - **Control path hardened against the audio ISR and the I²C bus.**
 >   `setParams()` writes several floats and `init()` writes the whole state; the
 >   audio ISR could preempt either and integrate a block from a mixed set. For

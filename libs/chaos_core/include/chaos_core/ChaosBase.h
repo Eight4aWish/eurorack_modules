@@ -60,13 +60,6 @@ namespace chaos_core {
         virtual ~ChaosBase() {}
         virtual void  init()                                          = 0;
         virtual void  setParams(float chaos, float rate, float charV) = 0;
-        // The CHAR value actually in force. Defaults to what was requested; an
-        // algorithm that clamps CHAR against CHAOS for stability overrides this
-        // so the panel reports what is really running rather than what the pot
-        // asked for. See ChaosChua.
-        virtual float charInUse(float chaos, float charV) const {
-            (void)chaos; return charV;
-        }
         virtual void  stepSample()                                    = 0;
         virtual float getX() const                                    = 0;
         virtual float getY() const                                    = 0;

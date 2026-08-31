@@ -179,25 +179,17 @@ namespace chaos_core {
             cvScaleX   = 1.30f;  cvScaleY = 1.00f;
         }
         void init() override { x_ = 0.5f; y_ = 0.0f; z_ = 0.0f; }
+        // Chua's unbounded region sits *inside* its own pot range: above a~9.25
+        // the attractor only stays bounded while b clears a floor that rises with
+        // a (measured at dtBase: b >= 12.0 + 1.6*(a - 9.25)). Deliberately NOT
+        // clamped. Past that floor the divergence guard re-seeds repeatedly,
+        // which is a stuttering burst rather than a dead voice — and that texture
+        // is the point of the algorithm, not a defect to engineer out. A clamp
+        // was tried and removed: it silenced the bottom of the CHAR pot across
+        // the top third of CHAOS, which is exactly where the character lives.
+        // Leave the guard as the only backstop; it catches the unrecoverable case.
         void setParams(float chaos, float rate, float charV) override {
-            alpha_ = chaos; dt_ = rate; beta_ = charInUse(chaos, charV);
-        }
-        // Chua is the one system whose unbounded region sits *inside* its own pot
-        // range, so no choice of chaosMin/Max or charMin/Max excludes it without
-        // gutting an axis: above a~9.25 the attractor only stays bounded while b
-        // clears a rising floor. Clamp the pair instead, which keeps both pots at
-        // full travel and canonical b=14.286 reachable.
-        //
-        // This is the ODE, not the integration — it escapes at a dt 1024x smaller
-        // too — so ChaosVanDerPol's trick of clamping dt against the parameter
-        // cannot help here. Floor measured across a = 6..11 at dtBase, and linear
-        // in a to within the 0.05 sweep resolution:
-        //     a  9.25   9.50   10.00   10.50   11.00
-        //     b 12.00  12.35   13.15   13.95   14.75
-        float charInUse(float chaos, float charV) const override {
-            float bMin = 12.0f + 1.6f * (chaos - 9.25f);   // fitted boundary
-            if (bMin < charMin) bMin = charMin;            // no floor below a~9.25
-            return (charV < bMin) ? bMin : charV;
+            alpha_ = chaos; dt_ = rate; beta_ = charV;
         }
         void stepSample() override {
             float h1 = chuaF(x_);
