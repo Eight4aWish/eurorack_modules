@@ -33,6 +33,13 @@ namespace chaos_core {
         // per-sample cycle budget. Raise one only against a measured CPU figure.
         float oversampleMax = 64.0f;
         float modScale = 1.0f;          // chaos-param units per volt of MOD CV
+        // Absolute limits the chaos parameter may be driven to once MOD CV is
+        // added. These are not decoration: several systems lose their bounded
+        // attractor just outside the pot range — Rossler below c~1.25, Coupled
+        // Rossler below c~0.5 — so a CV that overshoots turns the voice into a
+        // repeating re-seed. Always at least [chaosMin, chaosMax], so the pot's
+        // own range stays reachable; beyond that, measured per algorithm.
+        float modMin = 0.0f, modMax = 1.0f;
         float gainL    = 0.12f, gainR = 0.12f;  // pre-tanh amplitude scale
         float xMin = -1.0f, xRange = 2.0f;     // plot window
         float yMin = -1.0f, yRange = 2.0f;

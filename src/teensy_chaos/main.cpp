@@ -348,7 +348,7 @@ void loop() {
     if (algo) {
         chaos = algo->chaosMin + ctlChaosNorm * (algo->chaosMax - algo->chaosMin);
         chaos = constrain(chaos + modVolts * algo->modScale,
-                          algo->chaosMin - 2.0f, algo->chaosMax + 2.0f);
+                          algo->modMin, algo->modMax);
         charV = algo->charMin + ctlCharNorm * (algo->charMax - algo->charMin);
 
         // Pitch: desired simulated-time-per-audio-sample from RATE + V/Oct, then

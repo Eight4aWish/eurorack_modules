@@ -19,9 +19,14 @@ namespace chaos_core {
             chaosMin   = 2.0f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.1f;   dtBase = 0.1f;
             oversampleMax = 64.0f;   // ~85 cyc/step
-        divergeBound  = 200.0f;   // outputs reach ~13 where stable
-            charMin    = 0.1f;   charMax  = 0.4f;
+            divergeBound  = 200.0f;   // outputs reach ~13 where stable
+            // charMax was 0.4, where Rossler has no bounded attractor for c >= 3:
+            // it escapes to infinity. Not a step-size problem — it escapes at dt
+            // 500x smaller too — so the range itself has to exclude it. 0.36
+            // leaves margin below the ~0.385 threshold.
+            charMin    = 0.1f;   charMax  = 0.36f;
             modScale   = 1.0f;
+            modMin = 1.5f;    modMax = 10.0f;   // escapes below c~1.25, stable to ~10.5
             gainL      = 0.12f;  gainR    = 0.12f;
             xMin       = -11.0f; xRange   = 24.0f;
             yMin       = -11.0f; yRange   = 22.0f;
@@ -66,9 +71,10 @@ namespace chaos_core {
             chaosMin   = 0.1f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.15f;  dtBase = 0.15f;
             oversampleMax = 64.0f;   // ~83 cyc/step
-        divergeBound  = 20.0f;    // unchanged; |x| peaks ~2.0
+            divergeBound  = 20.0f;    // unchanged; |x| peaks ~2.0
             charMin    = 0.0f;   charMax  = 1.0f;  // reserved
             modScale   = 1.0f;
+            modMin = -1.5f;   modMax = 8.5f;    // stable -1.88..8.66
             gainL      = 0.45f;  gainR    = 0.20f;
             xMin       = -3.0f;  xRange   = 6.0f;
             yMin       = -8.0f;  yRange   = 16.0f;
@@ -113,9 +119,10 @@ namespace chaos_core {
             chaosMin   = 24.0f;  chaosMax = 32.0f;
             rateMin    = 0.001f; rateMax  = 0.003f;  dtBase = 0.003f;
             oversampleMax = 64.0f;   // ~89 cyc/step
-        divergeBound  = 200.0f;   // |z| reaches ~60 at high rho
+            divergeBound  = 200.0f;   // |z| reaches ~60 at high rho
             charMin    = 6.0f;   charMax  = 14.0f;
             modScale   = 2.0f;
+            modMin = 22.0f;   modMax = 34.0f;   // wide margin either side; unchanged
             gainL      = 0.05f;  gainR    = 0.05f;
             xMin       = -20.0f; xRange   = 40.0f;
             yMin       = -28.0f; yRange   = 55.0f;  // z-rho: ≈ -28 to +27
@@ -159,12 +166,17 @@ namespace chaos_core {
         ChaosChua() {
             name       = "CHUA";
             chaosLabel = "a"; charLabel = "b";
+            // NOTE: Chua loses its bounded attractor inside this range — above
+            // a~9.25 at low b it escapes and the guard re-seeds repeatedly. That
+            // is pre-existing, and a modMax above chaosMax cannot help; the fix
+            // is to narrow chaosMax (or raise charMin). See docs/TEENSY_CHAOS.md.
             chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
             rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
             oversampleMax = 32.0f;   // ~178 cyc/step - 2x a Rossler step
-        divergeBound  = 8.0f;     // unchanged; load-bearing at chaosMax, where Chua genuinely diverges
+            divergeBound  = 8.0f;     // unchanged; load-bearing at chaosMax, where Chua genuinely diverges
             charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
             modScale   = 1.0f;
+            modMin = 6.0f;    modMax = 11.0f;   // no upward headroom: see note on chaosMax below
             gainL      = 0.28f;  gainR    = 0.25f;
             xMin       = -5.0f;  xRange   = 10.0f;
             yMin       = -6.0f;  yRange   = 12.0f;  // z axis for phase plot
@@ -224,9 +236,10 @@ namespace chaos_core {
             chaosMin   = 0.1f;   chaosMax = 0.8f;
             rateMin    = 0.005f; rateMax  = 0.10f;  dtBase = 0.10f;
             oversampleMax = 8.0f;    // ~543 cyc/step - 3x cosf, 6x a Rossler step
-        divergeBound  = 50.0f;    // outputs peak ~2.2
+            divergeBound  = 50.0f;    // outputs peak ~2.2
             charMin    = 0.8f;   charMax  = 1.4f;
             modScale   = 0.35f;
+            modMin = -1.9f;   modMax = 2.8f;    // verified stable; unchanged
             gainL      = 0.55f;  gainR    = 0.55f;
             xMin       = -2.0f;  xRange   = 4.0f;
             yMin       = -2.5f;  yRange   = 5.0f;
@@ -287,9 +300,10 @@ namespace chaos_core {
             chaosMin   = 2.0f;   chaosMax = 8.0f;
             rateMin    = 0.002f; rateMax  = 0.10f;  dtBase = 0.10f;
             oversampleMax = 32.0f;   // ~178 cyc/step - two coupled systems
-        divergeBound  = 200.0f;   // outputs reach ~16
+            divergeBound  = 200.0f;   // outputs reach ~16
             charMin    = 0.0f;   charMax  = 0.5f;
             modScale   = 1.0f;
+            modMin = 1.0f;    modMax = 13.0f;   // escapes below c~0.5, stable to ~13.75
             gainL      = 0.10f;  gainR    = 0.10f;
             xMin       = -13.0f; xRange   = 26.0f;
             yMin       = -11.0f; yRange   = 22.0f;

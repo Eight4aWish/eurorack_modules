@@ -62,10 +62,40 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   algorithm: no algorithm reaches a non-finite state, no guard fires at nominal
 >   settings, and stable-region trajectories are bit-identical to before.
 >
->   Note this makes those corners *survivable*, not musical: Rössler at CHAR 100%
->   now re-seeds repeatedly rather than dying, which is a stuttering burst. The
->   follow-up would be clamping `a` (or `dt` against it) the way
->   `ChaosVanDerPol::setParams` already clamps `dt` against `mu`.
+>   Note this makes those corners *survivable*, not musical — so the ranges were
+>   then corrected too, below.
+> - **Parameter ranges corrected from measurement.** The guard is a backstop; the
+>   ranges themselves should not reach a region with no bounded attractor. Two
+>   changes:
+>   - **Rössler `charMax` 0.40 → 0.36.** Above a≈0.385 Rössler escapes to
+>     infinity for c ≥ 3. This is a property of the ODE, not of RK4 — it escapes
+>     at a `dt` 500x smaller too — so `ChaosVanDerPol`'s trick of clamping `dt`
+>     against the parameter cannot help; the range has to exclude it.
+>   - **Per-algorithm MOD limits replace the global ±2.** `chaosMin - 2` put
+>     Rössler at c = 0 and Coupled Rössler at c = 0.5, both of which diverge at
+>     *any* CHAR setting including the defaults — reachable with about −2 V into
+>     MOD on a default patch. `ChaosBase::modMin`/`modMax` now carry measured
+>     limits per algorithm, always covering at least the pot's own range:
+>
+>   | Algorithm | Pot range | Old (±2) | Measured safe | Now |
+>   | --- | --- | --- | --- | --- |
+>   | Rössler | 2.0–8.0 | 0.0–10.0 | 1.25–10.50 | 1.5–10.0 |
+>   | Van der Pol | 0.1–8.0 | −1.9–10.0 | −1.88–8.66 | −1.5–8.5 |
+>   | Lorenz | 24–32 | 22–34 | well beyond | 22–34 |
+>   | Chua | 8.0–11.0 | 6.0–13.0 | 5.0–(see below) | 6.0–11.0 |
+>   | Duffing | 0.1–0.8 | −1.9–2.8 | beyond ±2 | −1.9–2.8 |
+>   | Coupled Rössler | 2.0–8.0 | 0.0–10.0 | 0.50–13.75 | 1.0–13.0 |
+>
+>   Verified by sweeping the firmware's own control path — CHAOS x CHAR x RATE
+>   pots against the full ±5 V MOD range, 1584 settings per algorithm: zero guard
+>   trips on five of six, down from divergence on Rössler and Coupled Rössler.
+> - **Known issue — Chua.** Chua loses its bounded attractor *inside its own pot
+>   range*: above a≈9.25 at low b it escapes and the guard re-seeds repeatedly, a
+>   stutter rather than a voice. No MOD limit can help with something the pots
+>   already reach, so `modMax` is pinned to `chaosMax`. The fix is narrowing
+>   `chaosMax` to ~9.25 or raising `charMin` to ~14, trading range for a clean
+>   top end. Pre-existing — Chua has always carried a re-seeding guard — and not
+>   yet changed.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
 >   front, **SR** = sustain level + release tail. When **off** (default) the VCA

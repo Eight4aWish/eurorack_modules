@@ -31,6 +31,7 @@ Subclasses fill in the metadata fields in their constructor and implement
 | `divergeBound` | magnitude past which the state is treated as diverged |
 | `oversampleMax` | ceiling on integration steps per audio sample (see below) |
 | `modScale` | chaos-parameter units per volt of MOD CV |
+| `modMin`, `modMax` | absolute limits MOD CV may drive the chaos parameter to |
 | `gainL`, `gainR` | pre-saturation amplitude scale for the audio outs |
 | `xMin`, `xRange`, `yMin`, `yRange` | plot window |
 | `cvScaleX`, `cvScaleY` | state → ±5 V CV scaling |
@@ -101,6 +102,34 @@ a healthy trajectory never approaches one. Verified across a 9x9x5 sweep of ever
 algorithm's parameter space (8.1M steps each): no algorithm reaches a non-finite
 state, no guard fires at nominal settings, and stable-region trajectories are
 bit-identical to the unguarded code.
+
+## Parameter ranges are a safety boundary, not just taste
+
+Several of these systems lose their bounded attractor just outside — and in one
+case inside — the range the panel exposes. The guard makes that survivable, but
+it is a backstop: the ranges themselves have to exclude it, and they are set
+from measurement.
+
+- `charMin`/`charMax`, `chaosMin`/`chaosMax` bound what the pots reach.
+- `modMin`/`modMax` bound what MOD CV can add on top. They are always at least
+  `[chaosMin, chaosMax]`, so the pot's own range stays reachable, but they are
+  **not** a fixed margin — Rössler escapes below c≈1.25 and Coupled Rössler
+  below c≈0.5, while Lorenz and Duffing are stable far past ±2.
+
+Note this is genuinely a range problem, not a step-size one. Rössler above
+a≈0.385 escapes even at a `dt` 500× smaller than `dtBase`, so the Van der Pol
+trick of clamping `dt` against the parameter (`setParams`) cannot help; only
+excluding the parameter value can.
+
+### Known issue — Chua
+
+Chua loses its bounded attractor **inside its own pot range**: above a≈9.25 at
+low b (roughly the top third of CHAOS against the bottom half of CHAR) it
+escapes and the guard re-seeds repeatedly, which sounds like a stutter rather
+than a voice. `modMax` is pinned to `chaosMax` because no MOD limit can help
+with an instability the pots already reach. The fix is to narrow `chaosMax`
+(~9.25) or raise `charMin` (~14), trading range for a clean top end.
+Pre-existing — Chua has always carried a re-seeding guard — and not yet changed.
 
 ## Adding an algorithm
 
