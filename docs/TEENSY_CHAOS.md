@@ -41,6 +41,21 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 > - **Peak CPU readout.** Top-right of the OLED, over the phase plot: peak audio
 >   -ISR load (`AudioProcessorUsageMax()`) as a percentage, reset on every
 >   algorithm change so the figure always describes what is currently running.
+> - **Attractor DSP extracted to `libs/chaos_core/`.** `ChaosBase`, the six
+>   algorithms and the panel-order registry now live in a library whose only
+>   dependency is `<math.h>` — no Arduino, no HAL, no audio library — so it
+>   builds unchanged for Teensy 4.1, STM32H7 / Daisy and host compilers.
+>   `src/teensy_chaos/main.cpp` is now purely the platform layer: audio graph,
+>   ADS1115, MCP4822, OLED and control loop. Verified behaviour-preserving:
+>   trajectories are bit-identical to the pre-extraction code across a sweep of
+>   each algorithm's parameter range. See
+>   [`libs/chaos_core/README.md`](../libs/chaos_core/README.md).
+> - **Known issue — Rössler NaN.** With CHAR (`a`) above ≈0.38 (top ~7% of the
+>   pot) and CHAOS (`c`) ≥ 3, Rössler's RK4 diverges at any RATE. Unlike
+>   `ChaosVanDerPol`, `ChaosRossler` has no `isfinite` reset, so the state stays
+>   non-finite — silence on the audio outs and a stuck rail on X/Y — until the
+>   algorithm is changed. Pre-existing, found while verifying the extraction;
+>   not yet fixed.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay
 >   front, **SR** = sustain level + release tail. When **off** (default) the VCA

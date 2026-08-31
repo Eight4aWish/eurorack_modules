@@ -1,0 +1,103 @@
+# chaos_core
+
+Platform-independent chaotic-attractor DSP: the `ChaosBase` interface, six
+continuous-ODE attractors integrated with RK4, and the panel-order registry.
+
+The only dependency is `<math.h>`. Nothing here includes Arduino, a vendor HAL,
+or an audio library, so the same sources build for Teensy 4.1 (Cortex-M7), Daisy
+/ STM32H7, or a host compiler for offline testing. Integration into an audio
+callback, CV/gate I/O, calibration and UI all belong to the platform layer that
+owns these objects — see [`src/teensy_chaos/main.cpp`](../../src/teensy_chaos/main.cpp)
+for the reference consumer.
+
+## Files
+
+- `include/chaos_core/ChaosBase.h` — abstract base: four pure-virtual methods plus
+  the metadata each algorithm publishes about itself
+- `include/chaos_core/Attractors.h` — the six attractors, RK4 per `stepSample()`
+- `include/chaos_core/Registry.h` / `src/Registry.cpp` — `algos[]` and `N_ALGOS`,
+  the shipping set in panel order
+
+## ChaosBase
+
+Subclasses fill in the metadata fields in their constructor and implement
+`init()`, `setParams(chaos, rate, charV)`, `stepSample()`, `getX()`, `getY()`.
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `chaosLabel`, `charLabel` | display strings |
+| `chaosMin/Max`, `rateMin/Max`, `charMin/Max` | parameter ranges the panel maps onto |
+| `dtBase` | largest numerically-safe integration step |
+| `oversampleMax` | ceiling on integration steps per audio sample (see below) |
+| `modScale` | chaos-parameter units per volt of MOD CV |
+| `gainL`, `gainR` | pre-saturation amplitude scale for the audio outs |
+| `xMin`, `xRange`, `yMin`, `yRange` | plot window |
+| `cvScaleX`, `cvScaleY` | state → ±5 V CV scaling |
+
+The platform layer reads these rather than hard-coding any of it, so adding an
+algorithm needs no changes outside this library.
+
+## Pitch, `dtBase` and `oversampleMax`
+
+RK4 diverges if `dt` grows past what a given system tolerates, so pitch above
+what `dtBase` reaches is produced by running **more integration steps per audio
+sample**, not by enlarging `dt`. That buys pitch with CPU, and a step is not the
+same price in every system, so the ceiling is per-algorithm:
+
+| Algorithm | X / Y outputs | cyc/step (M7) | `oversampleMax` |
+| --- | --- | ---: | ---: |
+| Rössler | x, y | ~88 | 64 |
+| Van der Pol | x, y | ~83 | 64 |
+| Lorenz | x, z−ρ (centred) | ~89 | 64 |
+| Chua | x, z | ~178 | 32 |
+| Duffing | x, y | ~543 | 8 |
+| Coupled Rössler | x₁, x₂ (the other oscillator) | ~178 | 32 |
+
+Costs are static counts from emitted Cortex-M7 code. See
+[`docs/TEENSY_CHAOS.md`](../../docs/TEENSY_CHAOS.md) for the budget arithmetic
+and for the on-screen CPU figure to raise a cap against.
+
+## Usage
+
+```cpp
+#include "chaos_core/Registry.h"
+using namespace chaos_core;
+
+ChaosBase* algo = algos[0];          // Rössler
+algo->init();
+algo->setParams(/*chaos*/ 5.7f, /*rate (dt)*/ 0.05f, /*char*/ 0.2f);
+
+// per audio sample, `steps` from the V/Oct oversampling calculation
+for (int k = 0; k < steps; k++) algo->stepSample();
+float outL = algo->getX(), outR = algo->getY();
+```
+
+`setParams` may be called at any rate; it is just field assignment plus, in
+some algorithms, a stability clamp on `dt`. Swapping the active `ChaosBase*`
+is safe on a core with word-sized atomic pointer stores, but call `init()`
+before making a new one live.
+
+## Known issue
+
+**Rössler diverges to NaN** with `charV` (a) above ≈0.38 — the top ~7% of the
+CHAR pot's travel — for any `chaos` (c) ≥ 3, at any `rate`. Unlike
+`ChaosVanDerPol`, `ChaosRossler` carries no `isfinite` reset, so the state stays
+non-finite until `init()` is called again. Pre-existing; not yet fixed.
+
+## Adding an algorithm
+
+Subclass `ChaosBase` in `Attractors.h`, set the metadata in the constructor
+(including `oversampleMax`, scaled by the new system's per-step cost), then add
+an instance to `Registry.cpp` and bump `N_ALGOS`. No platform file changes.
+
+## Notes
+
+- Single-precision throughout; assumes a hardware FPU.
+- Not thread-safe. `stepSample()` is expected to run in one audio context while
+  `setParams()` is called from a control context — the field writes are
+  word-sized, and a torn parameter update is at worst one sample of a stale
+  coefficient.
+- Compatible with Teensy 4.1, STM32H7 / Daisy, and host builds.
+
+See the project's root `README.md` and `docs/TEENSY_CHAOS.md` for the module,
+its I/O map and the algorithm-suite roadmap.
