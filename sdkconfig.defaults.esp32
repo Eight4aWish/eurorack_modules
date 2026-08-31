@@ -1,0 +1,15 @@
+# Classic-ESP32-only overrides (esp32_clklink, board = esp32dev).
+# Applied only when the IDF target is "esp32", so these never leak into
+# the single-core Xiao ESP32-C5 (esp32_clklinkrec) build.
+
+# Pin Link's task to core 1 to avoid contention with the WiFi task on
+# core 0. Only meaningful on a dual-core part — on the single-core C5 the
+# Kconfig symbol is gated behind !FREERTOS_UNICORE and would be dropped,
+# so keeping it out of the shared defaults avoids the confusing "set but
+# ignored" warning there.
+CONFIG_LINK_ESP_TASK_CORE_ID=1
+
+# This particular ESP32-Dev board has a 2 MB flash chip, not the more
+# common 4 MB. The bootloader-detected size must match or it refuses
+# to boot.
+CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y

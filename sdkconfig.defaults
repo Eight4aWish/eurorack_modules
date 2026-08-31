@@ -1,5 +1,7 @@
-# Env-specific ESP-IDF config overrides for the esp32_clklink build.
-# Picked up automatically by pioarduino when building this env.
+# Shared ESP-IDF config overrides for the Ableton Link builds
+# (esp32_clklink on classic ESP32, esp32_clklinkrec on Xiao ESP32-C5).
+# Picked up automatically by pioarduino for every env. Target-specific
+# overrides live in sdkconfig.defaults.<target> (e.g. .esp32, .esp32c5).
 
 # Arduino-as-IDF-component requires 1000 Hz tick rate.
 CONFIG_FREERTOS_HZ=1000
@@ -12,11 +14,3 @@ CONFIG_COMPILER_CXX_RTTI=y
 # Make the Arduino framework provide app_main() that calls our setup()/loop().
 # Without this we get "undefined reference to app_main" at link time.
 CONFIG_AUTOSTART_ARDUINO=y
-
-# Pin Link's task to core 1 to avoid contention with the WiFi task on core 0.
-CONFIG_LINK_ESP_TASK_CORE_ID=1
-
-# This particular ESP32-Dev board has a 2 MB flash chip, not the more
-# common 4 MB. The bootloader-detected size must match or it refuses
-# to boot.
-CONFIG_ESPTOOLPY_FLASHSIZE_2MB=y

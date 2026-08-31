@@ -15,7 +15,9 @@
 // --- Front-panel inputs ----------------------------------------------------
 constexpr int PIN_SW_LINK     = 1;    // Xiao D0   — momentary, Link enable toggle
 constexpr int PIN_SW_CAPTURE  = 9;    // Xiao D9   — momentary, Capture trigger
-constexpr int PIN_RESET_IN    = 10;   // Xiao D10  — Eurorack reset input (via 74HCT14 ch.6)
+// Xiao D10 / GPIO10 — was Eurorack reset input (74HCT14 ch.6); Reset In
+// removed in firmware (unused). Left unconfigured; the HCT14 output still
+// drives the pin but nothing reads it.
 
 // --- Trigger outputs (to 74HCT14 inputs; inverting) ------------------------
 constexpr int PIN_CLK_OUT     = 23;   // Xiao D4   — Clock pulse output

@@ -16,8 +16,6 @@
 //   Capture button (D9): POST /capture to the resolved recorder. Red LED
 //                        is solid for the duration of the request and
 //                        sticks if the request fails.
-//   Reset In jack (D10): rising edge fires one Reset Out pulse and
-//                        re-syncs Link beat phase.
 //
 // Link → Eurorack mapping (when enabled):
 //   Clock Out  — one pulse per beat (PPQN=1) while Link is playing
@@ -75,7 +73,6 @@ static inline void release_out(int p) { digitalWrite(p, HIGH); }
 static inline void led_on(int p)      { digitalWrite(p, LOW);  }
 static inline void led_off(int p)     { digitalWrite(p, HIGH); }
 static inline bool button_down(int p) { return digitalRead(p) == LOW; }
-static inline bool reset_in_active(int p) { return digitalRead(p) == LOW; }
 
 static const char* band_of(uint8_t channel) {
     if (channel >= 1 && channel <= 14)   return "2.4 GHz";
@@ -314,6 +311,38 @@ static void check_recorder_healthz() {
                   code, body.c_str());
 }
 
+// Address resolution (mDNS queryService ~3 s + optional .local queryHost
+// 2 s) and the healthz GET (up to 1.5 s) are all blocking. Running them
+// inline in setup() or loop() freezes the module — no clock pulses, dead
+// buttons — for several seconds, which on a flapping WiFi link reads as
+// "unresponsive". Do them on a one-shot task instead so loop() keeps
+// servicing the clock/buttons throughout.
+static volatile bool recorder_resolve_in_flight = false;
+
+static void recorder_resolve_task(void* arg) {
+    resolve_recorder_address();
+    check_recorder_healthz();
+    recorder_resolve_in_flight = false;
+    vTaskDelete(NULL);
+}
+
+// Kick off a background resolve+healthz. No-op if one is already running,
+// so repeated WiFi reconnect edges don't pile up tasks. Falls back to an
+// inline resolve only if the task can't be created.
+static void start_recorder_resolution() {
+    if (recorder_resolve_in_flight) return;
+    recorder_resolve_in_flight = true;
+    BaseType_t ok = xTaskCreate(recorder_resolve_task, "recresolve",
+                                /*stack*/ 8192, nullptr,
+                                /*prio*/ 4, nullptr);
+    if (ok != pdPASS) {
+        Serial.println("[Recorder] resolve task create failed; resolving inline");
+        recorder_resolve_in_flight = false;
+        resolve_recorder_address();
+        check_recorder_healthz();
+    }
+}
+
 // FreeRTOS task: do the POST /capture round-trip without blocking loop().
 // All UI/LED state changes back into the main loop happen via the
 // recorder_led_state / recorder_in_flight flags.
@@ -398,17 +427,6 @@ static void poll_buttons() {
     }
     link_prev    = link_now;
     capture_prev = capture_now;
-}
-
-static void poll_reset_in(unsigned long now_us) {
-    static bool prev = false;
-    bool now_active = reset_in_active(PIN_RESET_IN);
-    if (now_active && !prev) {
-        Serial.println("[Reset In] external trigger");
-        fire_reset_pulse(now_us);
-        last_link_beat = -1.0;
-    }
-    prev = now_active;
 }
 
 // --- LEDs -----------------------------------------------------------------
@@ -708,7 +726,6 @@ void setup() {
     pinMode(PIN_BLUE_LED, OUTPUT); led_off(PIN_BLUE_LED);
     pinMode(PIN_SW_LINK,    INPUT_PULLUP);
     pinMode(PIN_SW_CAPTURE, INPUT_PULLUP);
-    pinMode(PIN_RESET_IN,   INPUT);
 
     Serial.printf("[WiFi] target SSID \"%s\"\n", WIFI_SSID);
 
@@ -730,8 +747,7 @@ void setup() {
         } else {
             Serial.println("[mDNS] responder failed to start");
         }
-        resolve_recorder_address();
-        check_recorder_healthz();
+        start_recorder_resolution();
     }
 
     link_init();
@@ -746,7 +762,6 @@ void loop() {
     unsigned long now_ms = millis();
 
     poll_buttons();
-    poll_reset_in(now_us);
     link_tick(now_us);
     update_pulse_decay(now_us);
     update_blue_led(now_ms);
@@ -763,8 +778,7 @@ void loop() {
     if (wifi_is_connected && !wifi_was_connected) {
         Serial.println("[WiFi] reconnected — re-resolving recorder address");
         wifi_on_connected();
-        resolve_recorder_address();
-        check_recorder_healthz();
+        start_recorder_resolution();
     }
     wifi_was_connected = wifi_is_connected;
 
