@@ -26,10 +26,11 @@ Subclasses fill in the metadata fields in their constructor and implement
 | Field | Meaning |
 | --- | --- |
 | `name`, `chaosLabel`, `charLabel` | display strings |
-| `chaosMin/Max`, `rateMin/Max`, `charMin/Max` | parameter ranges the panel maps onto |
+| `chaosMin/Max`, `charMin/Max` | parameter ranges the panel maps onto |
+| `simRateMin/Max` | pitch range, in simulated time units per **second** |
 | `dtBase` | largest numerically-safe integration step |
 | `divergeBound` | magnitude past which the state is treated as diverged |
-| `oversampleMax` | ceiling on integration steps per audio sample (see below) |
+| `maxStepsPerSecond` | CPU ceiling, in integration steps per **second** (see below) |
 | `modScale` | chaos-parameter units per volt of MOD CV |
 | `modMin`, `modMax` | absolute limits MOD CV may drive the chaos parameter to |
 | `gainL`, `gainR` | pre-saturation amplitude scale for the audio outs |
@@ -39,14 +40,14 @@ Subclasses fill in the metadata fields in their constructor and implement
 The platform layer reads these rather than hard-coding any of it, so adding an
 algorithm needs no changes outside this library.
 
-## Pitch, `dtBase` and `oversampleMax`
+## Pitch, `dtBase` and `maxStepsPerSecond`
 
 RK4 diverges if `dt` grows past what a given system tolerates, so pitch above
 what `dtBase` reaches is produced by running **more integration steps per audio
 sample**, not by enlarging `dt`. That buys pitch with CPU, and a step is not the
 same price in every system, so the ceiling is per-algorithm:
 
-| Algorithm | X / Y outputs | cyc/step (M7) | `oversampleMax` |
+| Algorithm | X / Y outputs | cyc/step (M7) | steps/sample at 44.1 kHz |
 | --- | --- | ---: | ---: |
 | Rössler | x, y | ~88 | 64 |
 | Van der Pol | x, y | ~83 | 64 |
@@ -154,10 +155,29 @@ For the record, it is genuinely the ODE and not the integration: a=11, b=14
 escapes at a `dt` 1024× smaller too, so `ChaosVanDerPol`'s trick of clamping `dt`
 against the parameter could not have helped here in any case.
 
+## Why the rate fields are per second
+
+`dt` means simulated time advanced per audio sample, so the pitch heard is
+`dt x sampleRate`. That makes any per-sample rate figure sample-rate dependent,
+and `dtBase` was carrying two meanings at once: the largest numerically-safe
+integration *step* (a property of the equations, independent of sample rate) and
+the top of the pot's pitch range (not independent at all).
+
+They are now separate. `dtBase` is the stability limit only; `simRateMin/Max`
+hold the pitch range in simulated time units per second, and `maxStepsPerSecond`
+holds the CPU ceiling per second. `ChaosBase::scheduleFor(simRate, sampleRate)`
+turns a pitch request into a step size and a fractional step count.
+
+The reason is portability: a range measured at 44.1 kHz would have come out about
+1.1 octaves sharp at 96 kHz, and a per-sample step cap would have been more than
+twice as permissive as the CPU budget it was measured against. The characterisation
+harness asserts both properties — identity with the old per-sample formula at
+44.1 kHz, and pitch invariance across 44.1 / 48 / 96 kHz.
+
 ## Adding an algorithm
 
 Subclass `ChaosBase` in `Attractors.h`, set the metadata in the constructor
-(including `oversampleMax`, scaled by the new system's per-step cost), then add
+(including `maxStepsPerSecond`, scaled by the new system's per-step cost), then add
 an instance to `Registry.cpp` and bump `N_ALGOS`. No platform file changes.
 
 The metadata is the expensive part, because most of it can only be arrived at by
@@ -177,7 +197,7 @@ fraction of a percent.
 
 Two things it cannot tell you. `ns/step` is host x86: out-of-order execution
 flatters algorithms with instruction-level parallelism, and glibc's transcendentals
-are not newlib's, so use it to *rank* arithmetic cost and set `oversampleMax`
+are not newlib's, so use it to *rank* arithmetic cost and set `maxStepsPerSecond`
 against the on-device CPU readout at full oversampling. And a guard trip is not
 automatically a fault — see Chua above.
 

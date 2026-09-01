@@ -24,7 +24,7 @@ Before anything is renamed, the firmware's real behaviour (`src/teensy_chaos/mai
 | Panel label | Actually does | CV |
 | --- | --- | --- |
 | CHAOS | primary bifurcation parameter, `chaosMin..chaosMax`, then `+ modVolts × modScale` clamped to `modMin..modMax` | MOD |
-| RATE | `dt`, mapped **linearly** `rateMin..rateMax` (and `rateMax == dtBase` on all six) | CLK + ASGN |
+| RATE | pitch, mapped **linearly** over the algorithm's range (was per-sample `dt`; now `simRateMin..simRateMax` per second) | CLK + ASGN |
 | CHAR | secondary parameter, `charMin..charMax` | **none** |
 | DEPTH | output amplitude only — `ampL/ampR.gain(0.1 + 0.9·norm)` | **none** |
 
@@ -68,14 +68,14 @@ On Rössler (0.002–0.1) that puts **~1 octave in the top half of the knob and
 `expoMap()` already exists in `main.cpp` for the envelope times and is the fix:
 
 ```c
-float potDt = expoMap(p2 / 1023.0f, algo->rateMin, algo->rateMax);
+float potRate = expoMap(p2 / 1023.0f, algo->simRateMin, algo->simRateMax);
 ```
 
-Safe on all six (`rateMin` ≥ 0.001), and it changes neither range nor stability.
+Safe on all six (every `simRateMin` > 0), and it changes neither range nor stability.
 
 Total travel per algorithm, which is also why Lorenz feels static:
 
-| Algorithm | RATE range | Octaves |
+| Algorithm | RATE range (per-sample `dt` at 44.1 kHz) | Octaves |
 | --- | --- | ---: |
 | Van der Pol | 0.002–0.15 | 6.2 |
 | Rössler / Coupled Rössler | 0.002–0.10 | 5.6 |
@@ -104,7 +104,7 @@ cycle and nowhere to explore. Two ways out:
   smooth → spiky).
 - **Better, not free:** force it — `dy = mu(1-x²)y - x + A·cos(ωt)`, CHAR = drive
   amplitude. The forced Van der Pol is genuinely chaotic. Costs a `cosf` per step,
-  so `oversampleMax` would drop toward Duffing's.
+  so `maxStepsPerSecond` would drop toward Duffing's.
 
 ### Chua
 
@@ -117,7 +117,7 @@ so CV can only pull α *down* from 10.5, never up.
 
 ## Audio quality direction
 
-**Raising `oversampleMax` buys pitch range, not quality.** At a given pitch the step
+**Raising `maxStepsPerSecond` buys pitch range, not quality.** At a given pitch the step
 count is already determined; bigger caps only mean higher notes.
 
 The unused lever is `main.cpp:464`: at or below `dtBase` the engine runs **exactly
@@ -299,6 +299,43 @@ rather than somewhere unstable. The cheapest version needs no presets at all: th
 already survive algorithm switches on purpose, so changing algorithm keeps the knobs
 and the sound morphs under your hands.
 
+## Portability work done (2026-09-01)
+
+Two pieces landed ahead of the move, so that bench work on the Teensy carries over
+to the target hardware rather than being rewritten.
+
+**Rate figures are per second, not per sample.** `dt` means simulated time advanced
+per audio sample, so pitch is `dt x sampleRate` — which made `dtBase` carry two
+meanings at once: the largest numerically-safe integration *step* (a property of the
+equations) and the top of the pot's pitch range (not sample-rate independent at all).
+Left alone, every range tuned at 44.1 kHz would have come out ~1.1 octaves sharp at
+96 kHz, and the per-sample step cap would have been over twice as permissive as the
+CPU budget it was measured against — the block would overrun and the governor would
+be left to catch it.
+
+`dtBase` is now the stability limit only. `simRateMin/Max` carry the pitch range in
+simulated time units per second, `maxStepsPerSecond` the CPU ceiling per second, and
+`ChaosBase::scheduleFor(simRate, sampleRate)` turns a request into a step size and a
+fractional step count. The characterisation harness asserts both properties: identity
+with the old per-sample formula at 44.1 kHz, and pitch invariance across 44.1 / 48 /
+96 kHz.
+
+**`chaos_core::Voice`.** The attractor, the oversampling schedule, the gate-driven
+AD/SR envelope, DC blocking and the output limiter now live in the library and render
+to float buffers. Sample rate is a parameter throughout — envelope times and the DC
+blocker's corner are specified in real units and converted internally, so the same
+voice runs at 44.1 or 96 kHz untouched. (The DC blocker's fixed 0.0007 coefficient was
+the same class of bug: ~4.9 Hz at 44.1 kHz, ~10.7 Hz at 96 kHz.)
+
+`src/teensy_chaos/main.cpp` keeps only what is genuinely Teensy: the `AudioStream`
+callback and its blocks, the `ARM_DWT_CYCCNT` load governor, the critical section
+around `setParams()`, and the float→int16 conversion. Firmware builds clean; flash
+41,756 B, RAM1 variables 13,152 B.
+
+The constant-rate simulation and decimation work therefore belongs in `Voice`, where
+it will transfer — with the caveat that **N still has to be re-tuned after the move**,
+since 44.1 and 96 kHz start with different amounts of foldover to remove.
+
 ## Parked until the hardware is in hand
 
 - **Model-select UX.** Leading candidate: B1 enters select mode, all six rings show a
@@ -318,7 +355,7 @@ and the sound morphs under your hands.
 
 - **On-device peak CPU at full oversampling.** Duffing with TUNE at maximum and +3 V on
   V/Oct; Chua at +5 V. Watch for the `!` governor prefix. This is the only honest input
-  for retuning `oversampleMax` — the static estimates predicted Duffing at 36% and a
+  for retuning `maxStepsPerSecond` — the static estimates predicted Duffing at 36% and a
   partial reading showed 17%, consistent with ~2.6 steps rather than the cap's 8.
 - **Whether Alchemy Lab ships V1 or V2.**
 

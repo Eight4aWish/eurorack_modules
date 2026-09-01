@@ -19,10 +19,11 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   Duffing step costs ~6x a Rössler step (three `cosf` calls per RK4 step), and
 >   Chua / Coupled Rössler ~2x. The former global `OVERSAMPLE_MAX` was therefore
 >   simultaneously unsafe for the expensive systems and needlessly tight for the
->   cheap ones, so the ceiling now lives on `ChaosBase::oversampleMax` and is set
+>   cheap ones, so the ceiling now lives on `ChaosBase::maxStepsPerSecond` (per second since
+>   the sample rate stopped being fixed) and is set
 >   per algorithm to land each one at a similar share of the per-sample budget:
 >
->   | Algorithm | cyc/step | `oversampleMax` | Octaves above `dtBase` | Est. peak CPU |
+>   | Algorithm | cyc/step | steps/sample at 44.1 kHz | Octaves above `dtBase` | Est. peak CPU |
 >   | --- | ---: | ---: | ---: | ---: |
 >   | Rössler | ~88 | 64 | 6 | 46% |
 >   | Van der Pol | ~83 | 64 | 6 | 43% |
@@ -115,13 +116,13 @@ Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 >   channel's* value), and a failed I²C read holds the last good sample instead of
 >   yielding 0xFFFF — which read as ~+5.5 V on every input, slamming the chaos
 >   parameter, maxing oversampling and firing a spurious RST gate.
-> - **Audio-ISR load governor.** The `oversampleMax` figures above are static
+> - **Audio-ISR load governor.** The step-ceiling figures above are static
 >   estimates, and an overrun latches: `update()` runs in the audio ISR, which
 >   preempts `loop()`, and only `loop()` can lower the step rate — so a block that
 >   overruns starves the control loop and the module looks frozen, dead panel and
 >   stuck CV, until it is power-cycled. `update()` now times itself and throttles
 >   the step count above 75% of the block budget, recovering below 50%. It should
->   never engage; if it does, that algorithm's `oversampleMax` is too high. A `!`
+>   never engage; if it does, that algorithm's `maxStepsPerSecond` is too high. A `!`
 >   before the CPU figure says it is active — the pitch is running flat.
 > - **Onboard gate-driven AD/SR envelope (VCA), off by default.** A two-macro
 >   envelope (pico-Env / Plaits style) shapes the output: **AD** = attack + decay

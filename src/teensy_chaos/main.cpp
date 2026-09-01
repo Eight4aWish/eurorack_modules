@@ -8,6 +8,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "chaos_core/Registry.h"   // ChaosBase, the six attractors, algos[] / N_ALGOS
+#include "chaos_core/Voice.h"      // platform-free voice: schedule, envelope, output
 #include "teensy_chaos/pins.h"
 
 // The attractor DSP lives in libs/chaos_core and knows nothing about Teensy.
@@ -81,131 +82,68 @@ static void adsReadAll(int16_t out[4]) {
 }
 
 // ─── AudioChaosEngine ─────────────────────────────────────────────────────────
-// Single AudioStream. setAlgo() swaps the active ChaosBase* at any time;
-// pointer reads/writes are word-sized and atomic on Cortex-M7.
+// Thin platform binding: an AudioStream wrapper around chaos_core::Voice.
 //
-// Pitch comes from `stepsPerSample_`: the attractor is advanced that many
-// integration steps per audio sample (fractional via an accumulator), so V/Oct
-// raises pitch by oversampling at a safe dt rather than enlarging dt itself.
-//
-// An audio-rate envelope acts as a VCA on the output, driven by the RST input
-// used as a GATE. Two macros shape it (pico-Env / Plaits style): AD = attack +
-// decay front, SR = sustain level + release tail. Disabled by default — then the
-// VCA stays fully open and the module is a free-running drone. A short trigger on
-// RST gives an AD-style hit; a sustained gate gives full attack/sustain/release.
+// The attractor, the oversampling schedule, the AD/SR envelope, DC blocking and
+// the output limiter all live in the library now, so they move to other hardware
+// unchanged. What is left in this file is only what is genuinely Teensy — the
+// audio callback and its blocks, the DWT cycle counter the load governor
+// measures with, and the conversion from Voice's float output to the codec's
+// 16-bit samples.
 class AudioChaosEngine : public AudioStream {
 public:
-    enum EnvStage : uint8_t { ENV_OPEN, ENV_ATTACK, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE, ENV_CLOSED };
-
     AudioChaosEngine() : AudioStream(0, nullptr) {}
 
-    void setAlgo(ChaosBase* a) {
-        if (a == algo_) return;
-        if (a) a->init();      // initialise state before making live
-        dcL_ = dcR_ = 0.0f;   // flush DC history on switch
-        stepAcc_ = 0.0f;
-        loadScale_ = 1.0f;     // the throttle described the old algorithm's cost
-        algo_ = a;             // atomic pointer store
-    }
-
-    ChaosBase* algo() const { return algo_; }
-    float getX() const { ChaosBase* a = algo_; return a ? a->getX() : 0.0f; }
-    float getY() const { ChaosBase* a = algo_; return a ? a->getY() : 0.0f; }
-
-    // Guard the ceiling and NaN as well as the floor. A NaN would pass a plain
-    // `s < 1` test, and then stall the integrator for good: stepAcc_ becomes NaN,
-    // so (int)stepAcc_ is always 0, no step ever runs, and only setAlgo() clears
-    // it. STEPS_ABS_MAX sits well above any algorithm's oversampleMax, so it
-    // bounds garbage without ever trimming a legitimate setting.
-    void  setStepsPerSample(float s) {
-        if (!(s >= 1.0f))            s = 1.0f;            // false for NaN too
-        else if (s > STEPS_ABS_MAX)  s = STEPS_ABS_MAX;
-        stepsPerSample_ = s;
-    }
-    void  setEnvEnabled(bool e)      { envEnabled_ = e; }   // off → VCA stays open (drone)
-    void  setEnvGate(bool g)         { envGate_ = g; }      // RST used as a gate
-    EnvStage envStage() const        { return envStage_; }
-    float loadScale() const          { return loadScale_; }   // < 1 → governor throttling
-
-    // Attack linear; decay/release exponential (~ -60 dB). Decay approaches the
-    // sustain level, release falls from there to zero.
-    void setEnvADSR(float atkMs, float decMs, float sustain, float relMs) {
-        const float sr = 44100.0f / 1000.0f;
-        float atkSamp = atkMs * sr; if (atkSamp < 1.0f) atkSamp = 1.0f;
-        float decSamp = decMs * sr; if (decSamp < 1.0f) decSamp = 1.0f;
-        float relSamp = relMs * sr; if (relSamp < 1.0f) relSamp = 1.0f;
-        envAtkInc_ = 1.0f / atkSamp;
-        envDecMul_ = expf(-6.908f / decSamp);   // ln(0.001) ≈ -6.908
-        envRelMul_ = expf(-6.908f / relSamp);
-        envSus_    = (sustain < 0.0f) ? 0.0f : (sustain > 1.0f ? 1.0f : sustain);
-    }
+    chaos_core::Voice&       voice()       { return voice_; }
+    const chaos_core::Voice& voice() const { return voice_; }
 
     void update() override {
         const uint32_t tStart = ARM_DWT_CYCCNT;
-        ChaosBase* a = algo_;   // single atomic load — consistent for this block
-        if (!a) return;
+        if (!voice_.algo()) return;
         audio_block_t* bL = allocate();
         if (!bL) return;
         audio_block_t* bR = allocate();
         if (!bR) { release(bL); return; }
 
-        // Enable / gate-edge handling (block rate — inaudible latency).
-        if (!envEnabled_) {
-            // Disabled: VCA fully open (original drone behaviour), ignore the gate.
-            // Hold the edge detector low rather than tracking the live gate, so a
-            // gate that is already high when the envelope is switched on still
-            // reads as a rising edge and starts the note straight away, instead
-            // of leaving the voice closed until the gate next cycles.
-            envStage_ = ENV_OPEN; envLevel_ = 1.0f; envGatePrev_ = false;
-        } else {
-            if (envStage_ == ENV_OPEN) { envStage_ = ENV_CLOSED; envLevel_ = 0.0f; }
-            bool g = envGate_;
-            if (g && !envGatePrev_)       envStage_ = ENV_ATTACK;   // gate rising → (re)trigger
-            else if (!g && envGatePrev_ && envStage_ != ENV_CLOSED) envStage_ = ENV_RELEASE; // gate falling
-            envGatePrev_ = g;
-        }
-
-        float gL = a->gainL, gR = a->gainR;
-        float steps = stepsPerSample_ * loadScale_;
-        if (steps < 1.0f) steps = 1.0f;
+        // Static rather than automatic: two float blocks is 1 kB, and this runs
+        // in the audio interrupt. update() is not reentrant — the audio ISR does
+        // not preempt itself — so one shared pair is safe and keeps it off the
+        // interrupt stack.
+        static float l[AUDIO_BLOCK_SAMPLES], r[AUDIO_BLOCK_SAMPLES];
+        voice_.render(l, r, AUDIO_BLOCK_SAMPLES);
         for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
-            // Advance the attractor by `steps` integration steps this sample.
-            stepAcc_ += steps;
-            int n = (int)stepAcc_;
-            stepAcc_ -= (float)n;
-            for (int k = 0; k < n; k++) a->stepSample();
-
-            envAdvance();
-
-            float outL = tanhf(a->getX() * gL) * 32000.0f;
-            float outR = tanhf(a->getY() * gR) * 32000.0f;
-            outL -= dcL_; dcL_ += outL * 0.0007f;
-            outR -= dcR_; dcR_ += outR * 0.0007f;
-            outL *= envLevel_; outR *= envLevel_;
-            bL->data[i] = (int16_t)outL;
-            bR->data[i] = (int16_t)outR;
+            bL->data[i] = (int16_t)(l[i] * 32000.0f);
+            bR->data[i] = (int16_t)(r[i] * 32000.0f);
         }
+
         transmit(bL, 0); transmit(bR, 1);
         release(bL); release(bR);
         governLoad(ARM_DWT_CYCCNT - tStart);
     }
 
 private:
-    // Load governor. The per-algorithm oversampleMax ceilings are estimates from
-    // static instruction counts, so a mis-set one could still let a block overrun
-    // its slice — and that failure latches. This update() runs in the audio ISR,
-    // which preempts loop(); only loop() can lower the step rate, so once a block
-    // takes longer than a block period the control loop is starved and can never
-    // wind the rate back. The module looks frozen: dead panel, stuck CV.
+    // Load governor. The per-algorithm step ceilings are estimates from static
+    // instruction counts, so a mis-set one could still let a block overrun its
+    // slice — and that failure latches. update() runs in the audio ISR, which
+    // preempts loop(); only loop() can lower the step rate, so once a block takes
+    // longer than a block period the control loop is starved and can never wind
+    // the rate back. The module looks frozen: dead panel, stuck CV.
     //
     // So measure the block and throttle the step count if it runs long. A note
     // that goes flat under an extreme patch beats a module that needs a power
     // cycle. It should never engage in normal use — if it does, the algorithm's
-    // oversampleMax is set too high. `!` on the OLED next to the CPU figure says
-    // it is active.
+    // maxStepsPerSecond is set too high. `!` on the OLED next to the CPU figure
+    // says it is active.
+    //
+    // The policy lives here rather than in the library because only the platform
+    // knows what a block costs and what it is allowed to cost.
     inline void governLoad(uint32_t cycles) {
         const uint32_t budget = AUDIO_BLOCK_SAMPLES * (F_CPU_ACTUAL / 44100u);
-        float sc = loadScale_;
+        // The throttle is read back from the voice rather than mirrored here.
+        // Voice::setAlgo() resets it to 1.0 because a throttle describes the cost
+        // of the algorithm that earned it; a second copy in this class would
+        // survive that reset and wind the new algorithm straight back down.
+        float sc = voice_.loadScale();
         if (cycles > (budget >> 1) + (budget >> 2)) {          // over 75% of the block
             sc *= 0.85f;                                       // ~4 blocks (12 ms) to halve
             if (sc < 0.02f) sc = 0.02f;
@@ -213,44 +151,10 @@ private:
             sc += 0.02f;
             if (sc > 1.0f) sc = 1.0f;
         }
-        loadScale_ = sc;
+        voice_.setLoadScale(sc);
     }
 
-    inline void envAdvance() {
-        switch (envStage_) {
-            case ENV_ATTACK:
-                envLevel_ += envAtkInc_;
-                if (envLevel_ >= 1.0f) { envLevel_ = 1.0f; envStage_ = ENV_DECAY; }
-                break;
-            case ENV_DECAY:
-                envLevel_ = envSus_ + (envLevel_ - envSus_) * envDecMul_;
-                if (envLevel_ - envSus_ <= 0.0008f) { envLevel_ = envSus_; envStage_ = ENV_SUSTAIN; }
-                break;
-            case ENV_SUSTAIN: envLevel_ = envSus_; break;
-            case ENV_RELEASE:
-                envLevel_ *= envRelMul_;
-                if (envLevel_ <= 0.0008f) { envLevel_ = 0.0f; envStage_ = ENV_CLOSED; }
-                break;
-            case ENV_OPEN:   envLevel_ = 1.0f; break;
-            case ENV_CLOSED: envLevel_ = 0.0f; break;
-        }
-    }
-
-    ChaosBase* algo_ = nullptr;
-    float dcL_ = 0.0f, dcR_ = 0.0f;
-    float stepsPerSample_ = 1.0f, stepAcc_ = 0.0f;
-    static constexpr float STEPS_ABS_MAX = 256.0f;   // backstop above every oversampleMax
-    volatile float loadScale_ = 1.0f;                // load-governor throttle, 0.02..1
-    // Envelope (VCA) — gate-driven AD/SR
-    volatile bool envEnabled_ = false;   // off by default — module is a drone voice
-    volatile bool envGate_ = false;      // RST gate level
-    bool  envGatePrev_ = false;
-    EnvStage envStage_ = ENV_OPEN;
-    float envLevel_  = 1.0f;
-    float envAtkInc_ = 1.0f;      // per-sample linear attack increment
-    float envDecMul_ = 0.999f;    // per-sample exponential decay-to-sustain
-    float envRelMul_ = 0.999f;    // per-sample exponential release
-    float envSus_    = 0.0f;      // sustain level
+    chaos_core::Voice voice_;
 };
 
 // ─── Audio graph (single engine, no mixer needed) ─────────────────────────────
@@ -370,7 +274,8 @@ void setup() {
     display.clearDisplay();
     display.display();
 
-    engine.setAlgo(algos[0]);   // start with Rössler
+    engine.voice().setSampleRate(AUDIO_SAMPLE_RATE_EXACT);
+    engine.voice().setAlgo(algos[0]);   // start with Rössler
 }
 
 // ─── loop ─────────────────────────────────────────────────────────────────────
@@ -406,7 +311,7 @@ void loop() {
             envSwitchRef = p1n; envSwitchLive = false;   // and don't flip ENV on entry
         } else if (held > 20) {                          // debounce short press
             algoIdx = (algoIdx + 1) % N_ALGOS;
-            engine.setAlgo(algos[algoIdx]);
+            engine.voice().setAlgo(algos[algoIdx]);
             AudioProcessorUsageMaxReset();   // peak CPU is per-algorithm
         }
     }
@@ -446,7 +351,7 @@ void loop() {
     }
 
     // ── Apply controls to the active algorithm ──
-    ChaosBase* algo = engine.algo();
+    ChaosBase* algo = engine.voice().algo();
     float chaos = 0.0f, charV = 0.0f, rateDisp = 0.0f;
     if (algo) {
         chaos = algo->chaosMin + ctlChaosNorm * (algo->chaosMax - algo->chaosMin);
@@ -454,15 +359,12 @@ void loop() {
                           algo->modMin, algo->modMax);
         charV = algo->charMin + ctlCharNorm * (algo->charMax - algo->charMin);
 
-        // Pitch: desired simulated-time-per-audio-sample from RATE + V/Oct, then
-        // realise it as a safe step size × oversampling so it stays stable.
-        float potDt    = algo->rateMin + (p2 / 1023.0f) * (algo->rateMax - algo->rateMin);
-        float desiredDt = potDt * powf(2.0f, clkVolts + asgnVolts);
-        desiredDt = constrain(desiredDt, 1.0e-5f, algo->dtBase * algo->oversampleMax);
-        float stepDt, steps;
-        if (desiredDt <= algo->dtBase) { stepDt = desiredDt;     steps = 1.0f; }
-        else                           { stepDt = algo->dtBase;  steps = desiredDt / algo->dtBase; }
-        rateDisp = desiredDt;
+        // Pitch, in simulated time units per second: the pot spans the algorithm's
+        // range and V/Oct multiplies it. Turning that into a safe step size and a
+        // step count is Voice's job (ChaosBase::scheduleFor), so the same request
+        // produces the same pitch at any sample rate.
+        float potRate = algo->simRateMin + (p2 / 1023.0f) * (algo->simRateMax - algo->simRateMin);
+        float simRate = potRate * powf(2.0f, clkVolts + asgnVolts);
 
         // setParams writes several floats. Each store is atomic, but the *set* is
         // not: the audio ISR can preempt between them and integrate a whole block
@@ -473,9 +375,9 @@ void loop() {
         // of RK4 steps, plenty for a runaway the player never asked for.
         // Hold off the audio ISR for the handful of stores instead.
         AudioNoInterrupts();
-        algo->setParams(chaos, stepDt, charV);
-        engine.setStepsPerSample(steps);
+        engine.voice().setParams(chaos, charV, simRate);
         AudioInterrupts();
+        rateDisp = engine.voice().effectiveDt();
     }
 
     // DEPTH = output amplitude; on the ENV page CHAR/DEPTH are the AD/SR macros.
@@ -486,8 +388,8 @@ void loop() {
     float decMs   = expoMap(ctlAdNorm, ENV_DEC_MIN_MS, ENV_DEC_MAX_MS);  // AD → decay
     float sustain = ctlSrNorm;                                           // SR → sustain level
     float relMs   = expoMap(ctlSrNorm, ENV_REL_MIN_MS, ENV_REL_MAX_MS);  // SR → release
-    engine.setEnvADSR(atkMs, decMs, sustain, relMs);
-    engine.setEnvEnabled(envEnabled);
+    engine.voice().setEnvADSR(atkMs, decMs, sustain, relMs);
+    engine.voice().setEnvEnabled(envEnabled);
 
     // RST used as a GATE: rising edge re-inits the attractor (percussive transient)
     // and opens the envelope; held high it sustains, and it releases when RST falls.
@@ -501,7 +403,7 @@ void loop() {
         algo->init();              // and half a reset is not a point on any orbit
         AudioInterrupts();
     }
-    engine.setEnvGate(gateHigh);
+    engine.voice().setEnvGate(gateHigh);
 
     // Phase plot ring buffer — sampled every loop iteration
     #define PLOT_W  128
@@ -510,8 +412,8 @@ void loop() {
     static uint8_t trailX[TRAIL], trailY[TRAIL];
     static uint8_t trailHead = 0;
     if (algo) {
-        float px = (engine.getX() - algo->xMin) * (PLOT_W - 1) / algo->xRange;
-        float py = (engine.getY() - algo->yMin) * (PLOT_H - 1) / algo->yRange;
+        float px = (engine.voice().getX() - algo->xMin) * (PLOT_W - 1) / algo->xRange;
+        float py = (engine.voice().getY() - algo->yMin) * (PLOT_H - 1) / algo->yRange;
         // constrain() compares, and every comparison against NaN is false, so a
         // NaN would pass straight through to the cast. The divergence guards make
         // that transient rather than permanent, but plot it as 0 regardless.
@@ -544,7 +446,7 @@ void loop() {
             if (cpu > 999) cpu = 999;
             // '!' prefix if the load governor is throttling the step count — the
             // pitch is running flat to keep the audio ISR inside its slice.
-            bool governed = engine.loadScale() < 0.999f;
+            bool governed = engine.voice().loadScale() < 0.999f;
             int digits = (cpu >= 100) ? 3 : (cpu >= 10 ? 2 : 1);
             int w = (digits + 1 + (governed ? 1 : 0)) * 6;   // digits + '%' (+ '!'), 6 px/char
             display.fillRect(127 - w, 0, w + 1, 8, SSD1306_BLACK);
@@ -599,7 +501,7 @@ void loop() {
 
     // CV outputs: active algorithm state → X and Y jacks
     if (algo) {
-        dacWriteVolts(0, constrain(engine.getX() * algo->cvScaleX, -4.9f, 4.9f));
-        dacWriteVolts(1, constrain(engine.getY() * algo->cvScaleY, -4.9f, 4.9f));
+        dacWriteVolts(0, constrain(engine.voice().getX() * algo->cvScaleX, -4.9f, 4.9f));
+        dacWriteVolts(1, constrain(engine.voice().getY() * algo->cvScaleY, -4.9f, 4.9f));
     }
 }

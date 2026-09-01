@@ -17,8 +17,9 @@ namespace chaos_core {
             name       = "ROSSLER";
             chaosLabel = "c"; charLabel = "a";
             chaosMin   = 2.0f;   chaosMax = 8.0f;
-            rateMin    = 0.002f; rateMax  = 0.1f;   dtBase = 0.1f;
-            oversampleMax = 64.0f;   // ~85 cyc/step
+            simRateMin = 88.2f;  simRateMax = 4410.0f;   // was dt 0.002-0.1 per sample at 44.1k
+            dtBase     = 0.1f;
+            maxStepsPerSecond = 64.0f * kRefSampleRate;   // ~85 cyc/step, 64 steps/sample at 44.1k
             divergeBound  = 200.0f;   // outputs reach ~13 where stable
             // charMax was 0.4, where Rossler has no bounded attractor for c >= 3:
             // it escapes to infinity. Not a step-size problem — it escapes at dt
@@ -69,8 +70,9 @@ namespace chaos_core {
             name       = "VAN DER POL";
             chaosLabel = "u"; charLabel = "a";
             chaosMin   = 0.1f;   chaosMax = 8.0f;
-            rateMin    = 0.002f; rateMax  = 0.15f;  dtBase = 0.15f;
-            oversampleMax = 64.0f;   // ~83 cyc/step
+            simRateMin = 88.2f;  simRateMax = 6615.0f;   // was dt 0.002-0.15 per sample at 44.1k
+            dtBase     = 0.15f;
+            maxStepsPerSecond = 64.0f * kRefSampleRate;   // ~83 cyc/step, 64 steps/sample at 44.1k
             divergeBound  = 20.0f;    // unchanged; |x| peaks ~2.0
             charMin    = 0.0f;   charMax  = 1.0f;  // reserved
             modScale   = 1.0f;
@@ -117,8 +119,9 @@ namespace chaos_core {
             name       = "LORENZ";
             chaosLabel = "r"; charLabel = "s";
             chaosMin   = 24.0f;  chaosMax = 32.0f;
-            rateMin    = 0.001f; rateMax  = 0.003f;  dtBase = 0.003f;
-            oversampleMax = 64.0f;   // ~89 cyc/step
+            simRateMin = 44.1f;  simRateMax = 132.3f;   // was dt 0.001-0.003 per sample at 44.1k
+            dtBase     = 0.003f;
+            maxStepsPerSecond = 64.0f * kRefSampleRate;   // ~89 cyc/step, 64 steps/sample at 44.1k
             divergeBound  = 200.0f;   // |z| reaches ~60 at high rho
             charMin    = 6.0f;   charMax  = 14.0f;
             modScale   = 2.0f;
@@ -167,8 +170,9 @@ namespace chaos_core {
             name       = "CHUA";
             chaosLabel = "a"; charLabel = "b";
             chaosMin   = 8.0f;   chaosMax = 11.0f;   // double-scroll bounded ~8.5–10.5
-            rateMin    = 0.001f; rateMax  = 0.008f;  dtBase = 0.008f;
-            oversampleMax = 32.0f;   // ~178 cyc/step - 2x a Rossler step
+            simRateMin = 44.1f;  simRateMax = 352.8f;   // was dt 0.001-0.008 per sample at 44.1k
+            dtBase     = 0.008f;
+            maxStepsPerSecond = 32.0f * kRefSampleRate;   // ~178 cyc/step - 2x a Rossler step, 32 steps/sample at 44.1k
             divergeBound  = 8.0f;     // backstop behind the b clamp in setParams
             charMin    = 12.0f;  charMax  = 16.0f;   // canonical 14.286 near centre
             modScale   = 1.0f;
@@ -239,8 +243,9 @@ namespace chaos_core {
             name       = "DUFFING";
             chaosLabel = "g"; charLabel  = "w";
             chaosMin   = 0.1f;   chaosMax = 0.8f;
-            rateMin    = 0.005f; rateMax  = 0.10f;  dtBase = 0.10f;
-            oversampleMax = 8.0f;    // ~543 cyc/step - 3x cosf, 6x a Rossler step
+            simRateMin = 220.5f;  simRateMax = 4410.0f;   // was dt 0.005-0.1 per sample at 44.1k
+            dtBase     = 0.1f;
+            maxStepsPerSecond = 8.0f * kRefSampleRate;   // ~543 cyc/step - 3x cosf, 6x a Rossler step, 8 steps/sample at 44.1k
             divergeBound  = 50.0f;    // outputs peak ~2.2
             charMin    = 0.8f;   charMax  = 1.4f;
             modScale   = 0.35f;
@@ -303,8 +308,9 @@ namespace chaos_core {
             name       = "CPLROSSLER";
             chaosLabel = "c"; charLabel  = "k";
             chaosMin   = 2.0f;   chaosMax = 8.0f;
-            rateMin    = 0.002f; rateMax  = 0.10f;  dtBase = 0.10f;
-            oversampleMax = 32.0f;   // ~178 cyc/step - two coupled systems
+            simRateMin = 88.2f;  simRateMax = 4410.0f;   // was dt 0.002-0.1 per sample at 44.1k
+            dtBase     = 0.1f;
+            maxStepsPerSecond = 32.0f * kRefSampleRate;   // ~178 cyc/step - two coupled systems, 32 steps/sample at 44.1k
             divergeBound  = 200.0f;   // outputs reach ~16
             charMin    = 0.0f;   charMax  = 0.5f;
             modScale   = 1.0f;

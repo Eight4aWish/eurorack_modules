@@ -139,7 +139,8 @@ Result characterise(ChaosBase* a, long samples) {
         for (int hi = 0; hi < kCharSteps; hi++) {
             const float charV = lerp(a->charMin, a->charMax, hi, kCharSteps);
             for (int ri = 0; ri < kRateSteps; ri++) {
-                const float dt = lerp(a->rateMin, a->rateMax, ri, kRateSteps);
+                const float simRate = lerp(a->simRateMin, a->simRateMax, ri, kRateSteps);
+                const float dt = a->scheduleFor(simRate, kRefSampleRate).stepDt;
                 Combination c = measure(a, chaos, charV, dt, samples);
                 if (c.tripped) r.trips++;
                 // A tripped combination's extents describe a runaway, not a
@@ -268,11 +269,67 @@ int main(int argc, char** argv) {
         if (verbose) printVerbose(r, a);
     }
 
+    // ── Schedule checks ──────────────────────────────────────────────────────
+    // Two properties the per-second rate fields exist to provide, asserted rather
+    // than assumed: that the refactor is an identity at the rate everything was
+    // originally measured at, and that a pitch request survives a change of
+    // sample rate. The second is the whole point — a range tuned on 44.1 kHz
+    // hardware has to still mean the same pitch at 96 kHz.
+    {
+        int identityFails = 0, invarianceFails = 0;
+        for (int i = 0; i < N_ALGOS; i++) {
+            ChaosBase* a = algos[i];
+            // The pre-refactor per-sample equivalents, reconstructed.
+            const float legacyRateMin = a->simRateMin / kRefSampleRate;
+            const float legacyRateMax = a->simRateMax / kRefSampleRate;
+            const float legacyOversMax = a->maxStepsPerSecond / kRefSampleRate;
+
+            for (int p = 0; p <= 20; p++) {
+                for (int oct = -5; oct <= 6; oct++) {
+                    const float pot   = (float)p / 20.0f;
+                    const float voct  = std::pow(2.0f, (float)oct);
+
+                    // Legacy: pot spans dt directly, V/Oct multiplies, clamp, split.
+                    float desired = (legacyRateMin + pot * (legacyRateMax - legacyRateMin)) * voct;
+                    const float hi = a->dtBase * legacyOversMax;
+                    if (desired < 1.0e-5f) desired = 1.0e-5f; else if (desired > hi) desired = hi;
+                    const float legacyDt = desired;
+
+                    // Current: pot spans simulated time per second, Voice schedules it.
+                    const float simRate = (a->simRateMin + pot * (a->simRateMax - a->simRateMin)) * voct;
+                    const StepSchedule s44 = a->scheduleFor(simRate, kRefSampleRate);
+                    const float nowDt = s44.stepDt * s44.stepsPerSample;
+
+                    if (std::fabs(nowDt - legacyDt) > 1.0e-6f * std::fabs(legacyDt) + 1.0e-9f)
+                        identityFails++;
+
+                    // Pitch = dt x sampleRate, and must not move with sampleRate
+                    // wherever the request sits inside the clamps at both rates.
+                    for (float fs : {48000.0f, 96000.0f}) {
+                        const StepSchedule sN = a->scheduleFor(simRate, fs);
+                        const float pitch44 = nowDt * kRefSampleRate;
+                        const float pitchN  = sN.stepDt * sN.stepsPerSample * fs;
+                        const bool clamped  = (pitch44 < simRate * 0.999f) || (pitchN < simRate * 0.999f);
+                        if (!clamped && std::fabs(pitchN - pitch44) > 1.0e-4f * simRate)
+                            invarianceFails++;
+                    }
+                }
+            }
+        }
+        std::printf("\nSchedule checks\n");
+        std::printf("  identity at %.0f Hz vs the pre-refactor per-sample formula: %s\n",
+                    kRefSampleRate, identityFails ? "** FAIL **" : "pass");
+        std::printf("  pitch invariant across 44.1 / 48 / 96 kHz:                  %s\n",
+                    invarianceFails ? "** FAIL **" : "pass");
+        if (identityFails)   std::printf("  %d identity mismatches\n", identityFails);
+        if (invarianceFails) std::printf("  %d invariance mismatches\n", invarianceFails);
+    }
+
     std::printf("\nNotes\n"
                 "  - ns/step is host x86, not Cortex-M7: out-of-order execution flatters\n"
                 "    algorithms with instruction-level parallelism (two coupled systems\n"
                 "    especially), and glibc's transcendentals are not newlib's. Use `rel`\n"
-                "    to rank arithmetic cost; set oversampleMax against the on-device\n"
+                "    to rank arithmetic cost; set maxStepsPerSecond against the on-device\n"
                 "    CPU readout at full oversampling, never against this.\n"
                 "  - Guard trips are not automatically faults. Chua loses its bounded\n"
                 "    attractor inside its own pot range on purpose (see README.md); the\n"
