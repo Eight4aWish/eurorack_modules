@@ -72,7 +72,7 @@ pio run -e teensy_chaos
 pio run -e teensy_chaos -t upload
 ```
 
-See [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algorithm control detail, audio architecture, and the algorithm-suite roadmap.
+See [docs/TEENSY_CHAOS_V2.md](docs/TEENSY_CHAOS_V2.md) for the settled v2 control surface, platform analysis and hardware reference, and [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algorithm control detail, audio architecture, and the algorithm-suite roadmap.
 
 ## Pico 2 W — `pico2w_oc`
 

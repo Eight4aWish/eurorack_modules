@@ -1,9 +1,12 @@
 # Teensy Chaos — "Fractal Bits" design plan
 
-> **Status: design plan, not yet implemented.** This captures the agreed
-> direction for adding fractal/digital percussion to teensy_chaos. The current
-> shipping firmware is the CV chaos-oscillator with the gate-driven AD/SR
-> envelope ([TEENSY_CHAOS.md](TEENSY_CHAOS.md)).
+> **Status: superseded, kept as a record.** v2 scope is oscillator algorithms
+> only — see [TEENSY_CHAOS_V2.md](TEENSY_CHAOS_V2.md). The percussion suite, the
+> MIDI/trigger kit and the Oscillator|Kit menu below are **not** being built.
+> This document is retained for the model-suitability analysis and the audio
+> architecture notes, which remain accurate. The current shipping firmware is the
+> CV chaos-oscillator with the gate-driven AD/SR envelope
+> ([TEENSY_CHAOS.md](TEENSY_CHAOS.md)).
 
 ## Concept
 
