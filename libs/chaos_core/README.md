@@ -160,6 +160,27 @@ Subclass `ChaosBase` in `Attractors.h`, set the metadata in the constructor
 (including `oversampleMax`, scaled by the new system's per-step cost), then add
 an instance to `Registry.cpp` and bump `N_ALGOS`. No platform file changes.
 
+The metadata is the expensive part, because most of it can only be arrived at by
+measurement. `tools/characterise.cpp` does that sweep on a host compiler:
+
+```
+g++ -O2 -I libs/chaos_core/include \
+    libs/chaos_core/tools/characterise.cpp libs/chaos_core/src/Registry.cpp \
+    -o /tmp/characterise && /tmp/characterise
+```
+
+It runs the same 5x5x3 sweep and `atanh(0.90)/median` gain fit described above and
+prints the measured values against what the constructor declares — per-step cost,
+guard trips (with `--verbose` for a divergence map), gains, plot-window coverage
+and `divergeBound` headroom. It reproduces all six shipped gains to within a
+fraction of a percent.
+
+Two things it cannot tell you. `ns/step` is host x86: out-of-order execution
+flatters algorithms with instruction-level parallelism, and glibc's transcendentals
+are not newlib's, so use it to *rank* arithmetic cost and set `oversampleMax`
+against the on-device CPU readout at full oversampling. And a guard trip is not
+automatically a fault — see Chua above.
+
 ## Notes
 
 - Single-precision throughout; assumes a hardware FPU.
