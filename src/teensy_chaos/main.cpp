@@ -363,7 +363,11 @@ void loop() {
         // range and V/Oct multiplies it. Turning that into a safe step size and a
         // step count is Voice's job (ChaosBase::scheduleFor), so the same request
         // produces the same pitch at any sample rate.
-        float potRate = algo->simRateMin + (p2 / 1023.0f) * (algo->simRateMax - algo->simRateMin);
+        // Exponential, not linear: pitch is exponential in rate, so a linear pot
+        // put ~1 octave in the top half of the knob and ~2.6 in the bottom tenth
+        // on Rossler -- all the useful travel crushed against one end. expoMap
+        // spreads the octaves evenly. Range and stability are unchanged.
+        float potRate = expoMap(p2 / 1023.0f, algo->simRateMin, algo->simRateMax);
         float simRate = potRate * powf(2.0f, clkVolts + asgnVolts);
 
         // setParams writes several floats. Each store is atomic, but the *set* is

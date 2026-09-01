@@ -111,25 +111,56 @@ namespace chaos_core {
 
     // ─── ChaosLorenz ──────────────────────────────────────────────────────────────
     // dx = sigma*(y-x),  dy = x*(rho-z)-y,  dz = x*y - beta*z
-    // CHAOS = rho (bifurcation, 24–32),  CHAR = sigma (8–14)
+    // CHAOS = rho (bifurcation, 24–180),  CHAR = sigma (6–14)
     // getY() returns z-rho (centred around 0) for both audio and plot.
     class ChaosLorenz : public ChaosBase {
     public:
         ChaosLorenz() {
             name       = "LORENZ";
             chaosLabel = "r"; charLabel = "s";
-            chaosMin   = 24.0f;  chaosMax = 32.0f;
+            // rho 24-180, not 24-32. The old range sat entirely above the chaos
+            // onset near 24.74, so the CHAOS pot never crossed a bifurcation and
+            // Lorenz was noise everywhere -- alone among the six in having no
+            // pitched setting to find. A host sweep of the period order (distinct
+            // clusters in successive maxima of z-rho) puts the usable windows well
+            // above the old ceiling:
+            //
+            //   rho    28   99.6  100.5   148   150   160   166   216   260   350
+            //   period 46      8      3     8     4     2     2     8     2     1
+            //
+            // 180 keeps canonical rho=28 at the bottom of the travel and lands the
+            // 148-166 period-doubling cascade (8 -> 4 -> 2) across the top ~11%,
+            // so the knob finally sweeps chaos into pitch the way it does on every
+            // other algorithm. The narrow window at rho~100 is real but only ~1.2
+            // wide -- 0.4% of pot travel here, so not findable by hand; reaching it
+            // would mean giving up the cascade, which is the better window.
+            //
+            // Bench-found and worth keeping: rho 104.5, sigma 6.69, dt 0.0043 --
+            // a plucked-string voice, and the two outputs sit an octave apart
+            // because getX() is the lobe-switching x while getY() is z-rho, which
+            // peaks twice per orbit. It is on a small period-2/4 island, so it is
+            // as fragile as it is good. tools/periodmap.cpp maps where these are.
+            chaosMin   = 24.0f;  chaosMax = 180.0f;
             simRateMin = 44.1f;  simRateMax = 132.3f;   // was dt 0.001-0.003 per sample at 44.1k
             dtBase     = 0.003f;
             maxStepsPerSecond = 64.0f * kRefSampleRate;   // ~89 cyc/step, 64 steps/sample at 44.1k
-            divergeBound  = 200.0f;   // |z| reaches ~60 at high rho
+            // The guard tests raw z, which sits near rho -- not z-rho. At rho=180
+            // |z| reaches ~230 and at the MOD ceiling ~290, so the old 200 would
+            // have put the whole top of the range into permanent re-seeding.
+            divergeBound  = 600.0f;
             charMin    = 6.0f;   charMax  = 14.0f;
             modScale   = 2.0f;
-            modMin = 22.0f;   modMax = 34.0f;   // wide margin either side; unchanged
-            gainL      = 0.081f; gainR    = 0.064f;   // level-matched, see ChaosBase
-            xMin       = -20.0f; xRange   = 40.0f;
-            yMin       = -28.0f; yRange   = 55.0f;  // z-rho: ≈ -28 to +27
-            cvScaleX   = 0.25f;  cvScaleY = 0.15f;
+            modMin = 22.0f;   modMax = 200.0f;   // bounded to rho=200 on a host sweep
+            // Re-measured over the wider rho range (tools/characterise.cpp). The
+            // median peak |state| roughly doubles, so the gains halve -- which
+            // means canonical rho=28 now sits ~5 dB below where it used to. That
+            // is the deliberate trade: calibrating on the median keeps the high-rho
+            // periodic windows, the reason the range was widened at all, clean
+            // rather than saturated into the tanh.
+            gainL      = 0.044f; gainR    = 0.0245f;  // level-matched, see ChaosBase
+            xMin       = -58.0f; xRange   = 116.0f;
+            yMin       = -120.0f; yRange  = 235.0f;  // z-rho, measured -118.7..+112.9
+            cvScaleX   = 0.085f; cvScaleY = 0.041f;  // full state -> +/-4.9 V, was set for rho<=32
         }
         void init() override { x_ = 0.1f; y_ = 0.0f; z_ = 0.0f; }
         void setParams(float chaos, float rate, float charV) override {
