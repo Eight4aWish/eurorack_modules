@@ -202,22 +202,25 @@ void dacWriteVolts(uint8_t ch, float volts) {
 // 0.5 dB steps. This sat at 29 — near the quiet end, leaving ~8 dB unused, which
 // is why every algorithm read as quiet no matter how the DSP was scaled.
 //
-// Now at 13, the loud end. Measured on a Tiliqua vectorscope (XY, audio L/R =
-// the attractor's own coordinates): at 24 the codec gave 1.68 V p-p, which the
-// x3.3 output stage turned into +/-2.8 V -- about a third of the scope's
-// +/-8.192 V and roughly half of eurorack level. 13 gives 3.16 V p-p and so
-// +/-5.2 V, which is the +/-5 V standard.
+// Settled at 16, backed off from 13 by ear. Measured on a Tiliqua vectorscope
+// (XY, with the audio outs patched to it -- audio L/R already carry the
+// attractor's own coordinates, so the phase portrait draws itself):
 //
-// Do not calibrate this to "fills the scope". Tiliqua deliberately has more
-// headroom than eurorack uses, so a correctly levelled module occupies about
-// 60% of that display; driving it to the edges would mean +/-8 V and would clip
-// whatever it is patched into. If it still reads quiet here, the loss is
-// upstream in the per-algorithm scaling -- libs/chaos_core/tools/characterise.cpp
-// is the tool that measures it.
+//     level  codec p-p   after x3.3   vs Tiliqua +/-8.192 V
+//        24      1.68        +/-2.8            34%   (was here)
+//        16      2.66        +/-4.4            54%   (now)
+//        13      3.16        +/-5.2            64%   (tried, too hot)
 //
-// If the analog stage clips before the codec does, back this off one step at a
-// time; the output stage's own headroom is the limit, not this field.
-static constexpr uint8_t LINE_OUT_LEVEL = 13;
+// Do not calibrate this to "fills the scope". Tiliqua deliberately carries more
+// headroom than eurorack uses, so a correctly levelled module occupies roughly
+// 60% of that display; driving to the edges would mean +/-8 V and would clip
+// whatever it feeds. The analog output stage has its own ceiling too, and past
+// some point driving the codec harder just clips there instead.
+//
+// If it still reads quiet, the remaining loss is upstream in the per-algorithm
+// scaling -- libs/chaos_core/tools/characterise.cpp is the tool that measures
+// it, per algorithm, before the codec ever sees the signal.
+static constexpr uint8_t LINE_OUT_LEVEL = 16;
 
 // ─── Envelope + control tunables ──────────────────────────────────────────────
 // AD macro spans attack + decay; SR macro spans sustain level + release.
