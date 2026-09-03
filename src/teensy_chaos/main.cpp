@@ -202,14 +202,18 @@ void dacWriteVolts(uint8_t ch, float volts) {
 // 0.5 dB steps. This sat at 29 — near the quiet end, leaving ~8 dB unused, which
 // is why every algorithm read as quiet no matter how the DSP was scaled.
 //
-// Settled at 16, backed off from 13 by ear. Measured on a Tiliqua vectorscope
-// (XY, with the audio outs patched to it -- audio L/R already carry the
-// attractor's own coordinates, so the phase portrait draws itself):
+// At 13, the loud end. Measured on a Tiliqua vectorscope (XY, with the audio
+// outs patched to it -- audio L/R already carry the attractor's own
+// coordinates, so the phase portrait draws itself):
 //
 //     level  codec p-p   after x3.3   vs Tiliqua +/-8.192 V
-//        24      1.68        +/-2.8            34%   (was here)
-//        16      2.66        +/-4.4            54%   (now)
-//        13      3.16        +/-5.2            64%   (tried, too hot)
+//        24      1.68        +/-2.8            34%   (where it sat)
+//        16      2.66        +/-4.4            54%   (interim)
+//        13      3.16        +/-5.2            64%   (now: the +/-5 V standard)
+//
+// 13 read as too hot on first try; that turned out to be a fault elsewhere in
+// the chain rather than the level, and once fixed 13 is the right setting -- it
+// is what puts the module at the eurorack +/-5 V standard rather than under it.
 //
 // Do not calibrate this to "fills the scope". Tiliqua deliberately carries more
 // headroom than eurorack uses, so a correctly levelled module occupies roughly
@@ -220,7 +224,7 @@ void dacWriteVolts(uint8_t ch, float volts) {
 // If it still reads quiet, the remaining loss is upstream in the per-algorithm
 // scaling -- libs/chaos_core/tools/characterise.cpp is the tool that measures
 // it, per algorithm, before the codec ever sees the signal.
-static constexpr uint8_t LINE_OUT_LEVEL = 16;
+static constexpr uint8_t LINE_OUT_LEVEL = 13;
 
 // ─── Envelope + control tunables ──────────────────────────────────────────────
 // AD macro spans attack + decay; SR macro spans sustain level + release.
