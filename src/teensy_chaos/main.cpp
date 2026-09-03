@@ -202,12 +202,22 @@ void dacWriteVolts(uint8_t ch, float volts) {
 // 0.5 dB steps. This sat at 29 — near the quiet end, leaving ~8 dB unused, which
 // is why every algorithm read as quiet no matter how the DSP was scaled.
 //
-// Turned up to 24 (+2.5 dB), deliberately a modest step rather than a jump to 13.
-// The codec is not the only gain in the chain: the module's analog output stage
-// has its own headroom, and past some point driving the codec harder just clips
-// there instead. Lower this further by ear or on a scope until it stops getting
-// cleaner, then back off one.
-static constexpr uint8_t LINE_OUT_LEVEL = 24;
+// Now at 13, the loud end. Measured on a Tiliqua vectorscope (XY, audio L/R =
+// the attractor's own coordinates): at 24 the codec gave 1.68 V p-p, which the
+// x3.3 output stage turned into +/-2.8 V -- about a third of the scope's
+// +/-8.192 V and roughly half of eurorack level. 13 gives 3.16 V p-p and so
+// +/-5.2 V, which is the +/-5 V standard.
+//
+// Do not calibrate this to "fills the scope". Tiliqua deliberately has more
+// headroom than eurorack uses, so a correctly levelled module occupies about
+// 60% of that display; driving it to the edges would mean +/-8 V and would clip
+// whatever it is patched into. If it still reads quiet here, the loss is
+// upstream in the per-algorithm scaling -- libs/chaos_core/tools/characterise.cpp
+// is the tool that measures it.
+//
+// If the analog stage clips before the codec does, back this off one step at a
+// time; the output stage's own headroom is the limit, not this field.
+static constexpr uint8_t LINE_OUT_LEVEL = 13;
 
 // ─── Envelope + control tunables ──────────────────────────────────────────────
 // AD macro spans attack + decay; SR macro spans sustain level + release.
