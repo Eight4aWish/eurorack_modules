@@ -934,20 +934,36 @@ void euclid_render() {
 }
 Patch patch_euclid = { "Euclid", euclid_enter, euclid_tick, euclid_render, false };
 
-// ---- QuadLFO patch: 4 independent LFOs (Amp / Rate / Shape) ----
+// ---- QuadLFO patch: 4 independent LFOs (Amp / Rate / Shape+polarity) ----
 // Pots (smoothed, inverted):
-//   Pot1: Amplitude (0..1 -> 0..5V peak, bipolar)
+//   Pot1: Amplitude (0..1 -> 0..5V peak)
 //   Pot2: Rate (0.05Hz .. 20Hz, squared mapping for fine low-end control)
-//   Pot3: Shape selection (Sine/Tri/Square/Up/Dn)
+//   Pot3: Shape selection — every shape twice, bipolar then unipolar
 // Short press: cycle edited LFO (0..3)
 // Long press: return to menu (handled globally)
-
-enum LfoShape { LFO_SINE, LFO_TRI, LFO_SQUARE, LFO_RAMP_UP, LFO_RAMP_DOWN, LFO_COUNT };
-static const char* kLfoShapeNames[LFO_COUNT] = { "Sin", "Tri", "Sq", "Up", "Dn" };
+//
+// POLARITY IS PER-LFO, and it rides on the shape knob because the panel has no
+// spare control for it: the select runs Sin/Tri/Sq/Up/Dn (bipolar, -amp..+amp)
+// then +Sin/+Tri/+Sq/+Up/+Dn (unipolar, 0..+amp). Ten steps on one pot, the
+// same order of granularity Clock already asks of Pot3 with its 15 divisions.
+//
+// Unipolar earns its place because plenty of CV inputs clamp at 0V rather than
+// accepting a swing below it — a bipolar LFO into one of those spends half its
+// cycle parked against the clamp. Amp keeps meaning "peak", so switching a
+// shape to its unipolar twin halves the swing rather than offsetting it: the
+// wave sits on 0V instead of straddling it.
+enum LfoShape { LFO_SINE, LFO_TRI, LFO_SQUARE, LFO_RAMP_UP, LFO_RAMP_DOWN, LFO_SHAPE_COUNT };
+// Modes are shape + polarity: 0..4 bipolar, 5..9 the unipolar twins in the same
+// shape order, so `mode % LFO_SHAPE_COUNT` is the shape and `mode >=` the flag.
+static const int LFO_MODE_COUNT = LFO_SHAPE_COUNT * 2;
+static const char* kLfoModeNames[LFO_MODE_COUNT] = {
+  "Sin", "Tri", "Sq", "Up", "Dn", "+Sin", "+Tri", "+Sq", "+Up", "+Dn" };
+static inline uint8_t lfoModeShape(uint8_t mode) { return (uint8_t)(mode % LFO_SHAPE_COUNT); }
+static inline bool    lfoModeUni(uint8_t mode)   { return mode >= LFO_SHAPE_COUNT; }
 static float lfo_phase[4]     = {0,0,0,0};   // 0..1 wrapping
 static float lfo_rate_hz[4]   = {1,1,1,1};   // Hz
-static float lfo_amp[4]       = {1,1,1,1};   // 0..5V peak (amplitude knob scales)
-static uint8_t lfo_shape[4]   = {LFO_SINE,LFO_TRI,LFO_SQUARE,LFO_RAMP_UP};
+static float lfo_amp[4]       = {1,1,1,1};   // 0..5V peak: ±amp bipolar, 0..amp unipolar
+static uint8_t lfo_mode[4]    = {LFO_SINE,LFO_TRI,LFO_SQUARE,LFO_RAMP_UP}; // shape+polarity
 static int lfo_edit_idx       = 0;           // which LFO pots are editing
 static uint32_t lfo_last_ms   = 0;           // last tick time
 static PotPickup lfo_pickup;                 // soft-takeover across LFO switches
@@ -968,11 +984,19 @@ static float quadlfo_shape_eval(uint8_t shape, float ph) {
   }
 }
 
+// Shape evaluated through its mode's polarity: -1..1 bipolar, 0..1 unipolar.
+// The unipolar twin is the same wave scaled into the top half rather than a
+// rectified or DC-shifted one, so the shape reads identically on a scope.
+static float quadlfo_mode_eval(uint8_t mode, float ph) {
+  float v = quadlfo_shape_eval(lfoModeShape(mode), ph); // -1..1
+  return lfoModeUni(mode) ? (v + 1.0f) * 0.5f : v;
+}
+
 void quadlfo_enter() {
   resetPotSmooth();
   lfo_edit_idx = 0;
   for (int i=0;i<4;i++) { lfo_phase[i]=0.0f; lfo_rate_hz[i]=1.0f; lfo_amp[i]=2.5f; }
-  lfo_shape[0]=LFO_SINE; lfo_shape[1]=LFO_TRI; lfo_shape[2]=LFO_SQUARE; lfo_shape[3]=LFO_RAMP_UP;
+  lfo_mode[0]=LFO_SINE; lfo_mode[1]=LFO_TRI; lfo_mode[2]=LFO_SQUARE; lfo_mode[3]=LFO_RAMP_UP;
   lfo_last_ms = millis();
   pickup_setLive(lfo_pickup); // pots live for the initial LFO
 }
@@ -1004,20 +1028,20 @@ void quadlfo_tick() {
   float ampN   = lfo_amp[lfo_edit_idx] / 5.0f;
   float rateN  = sqrtf((lfo_rate_hz[lfo_edit_idx] - 0.05f) / (20.0f - 0.05f));
   if (rateN < 0.0f) rateN = 0.0f; else if (rateN > 1.0f) rateN = 1.0f;
-  float shapeN = ((float)lfo_shape[lfo_edit_idx] + 0.5f) / (float)LFO_COUNT;
+  float shapeN = ((float)lfo_mode[lfo_edit_idx] + 0.5f) / (float)LFO_MODE_COUNT;
 
   // Update selected LFO params only once each pot has taken over.
-  // Amplitude: 0..5V peak (bipolar), direct scaling.
+  // Amplitude: 0..5V peak (the mode decides whether that is a swing or a ceiling).
   if (pickup_update(lfo_pickup, 0, p_amp, ampN))
     lfo_amp[lfo_edit_idx] = p_amp * 5.0f;
   // Rate: square for resolution at low end -> 0.05 .. 20 Hz
   if (pickup_update(lfo_pickup, 1, p_rate, rateN))
     lfo_rate_hz[lfo_edit_idx] = 0.05f + (p_rate * p_rate) * (20.0f - 0.05f);
-  // Shape index
+  // Shape + polarity: one index across both halves of the mode table.
   if (pickup_update(lfo_pickup, 2, p_shape, shapeN)) {
-    int sh = (int)(p_shape * (float)LFO_COUNT);
-    if (sh < 0) sh = 0; else if (sh >= LFO_COUNT) sh = LFO_COUNT - 1;
-    lfo_shape[lfo_edit_idx] = (uint8_t)sh;
+    int md = (int)(p_shape * (float)LFO_MODE_COUNT);
+    if (md < 0) md = 0; else if (md >= LFO_MODE_COUNT) md = LFO_MODE_COUNT - 1;
+    lfo_mode[lfo_edit_idx] = (uint8_t)md;
   }
 
   // Advance all LFO phases
@@ -1032,8 +1056,8 @@ void quadlfo_tick() {
   // Generate outputs and write DACs (CV0..CV3)
   if (haveMCP) {
     for (int i=0;i<4;i++) {
-      float val = quadlfo_shape_eval(lfo_shape[i], lfo_phase[i]); // -1..1
-      float volts = val * lfo_amp[i]; // -amp .. +amp (bipolar)
+      float val = quadlfo_mode_eval(lfo_mode[i], lfo_phase[i]); // -1..1 or 0..1
+      float volts = val * lfo_amp[i]; // -amp..+amp bipolar, 0..+amp unipolar
       // Clamp to ±5V domain
       if (volts < -5.0f) volts = -5.0f; else if (volts > 5.0f) volts = 5.0f;
       uint16_t code = voltsToDac(i, volts); // i assumes CVx_DA_CH logical match order 0..3
@@ -1051,7 +1075,7 @@ void quadlfo_render() {
   // Top line: numeric readout of the LFO being edited (pots = Amp/Rate/Shape).
   oled.setCursor(0, 0);
   oled.print("L"); oled.print(lfo_edit_idx); oled.print(":");
-  oled.print(kLfoShapeNames[lfo_shape[lfo_edit_idx]]); oled.print(" ");
+  oled.print(kLfoModeNames[lfo_mode[lfo_edit_idx]]); oled.print(" ");
   oled.print(lfo_amp[lfo_edit_idx], 1); oled.print("V ");
   oled.print(lfo_rate_hz[lfo_edit_idx], 2); oled.print("Hz");
 
@@ -1070,14 +1094,16 @@ void quadlfo_render() {
     int prevY = midY;
     for (int px = 0; px < pxw; px++) {
       float ph = (float)px / (float)pxw;
-      float val = quadlfo_shape_eval(lfo_shape[i], ph);             // -1..1
+      // Unipolar modes return 0..1, so they draw as a wave riding on the zero
+      // line rather than straddling it — the polarity is visible in the cell.
+      float val = quadlfo_mode_eval(lfo_mode[i], ph);               // -1..1 or 0..1
       int yy = midY - (int)(val * ascale * ampPx);
       if (px > 0) oled.drawLine(px0 + px - 1, prevY, px0 + px, yy, SSD1306_WHITE);
       prevY = yy;
     }
     float cph = lfo_phase[i];
     int dpx = px0 + (int)(cph * (pxw - 1));
-    int dpy = midY - (int)(quadlfo_shape_eval(lfo_shape[i], cph) * ascale * ampPx);
+    int dpy = midY - (int)(quadlfo_mode_eval(lfo_mode[i], cph) * ascale * ampPx);
     oled.fillCircle(dpx, dpy, 1, SSD1306_WHITE);
     oled.setCursor(cx + 2, cy0 + 1); oled.print("L"); oled.print(i);
   }

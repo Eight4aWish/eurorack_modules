@@ -149,12 +149,13 @@ Outputs follow the panel's column convention (voice A = left column under Pot2/I
 
 ### LFO
 - Purpose: 4 independent LFOs with per-LFO amplitude, rate, and shape.
-- Outputs: OUT1..OUT4 emit LFOs (L0..L3 in order); bipolar ±amp mapped via calibration to DAC codes.
+- Outputs: OUT1..OUT4 emit LFOs (L0..L3 in order); ±amp (bipolar) or 0..+amp (unipolar) per LFO, mapped via calibration to DAC codes.
+- Why unipolar: many CV inputs clamp at 0 V rather than accepting a swing below it, and a bipolar LFO into one of those spends half its cycle parked against the clamp. The unipolar modes are the same wave scaled into 0..+amp — not rectified, and not DC-shifted — so the shape is unchanged and only the swing halves.
 - Controls (smoothed, inverted):
-  - Pot1: Amplitude (0..~5 V peak per LFO).
+  - Pot1: Amplitude (0..~5 V peak per LFO). "Peak" either way: a bipolar LFO at 5 V swings ±5 V, its unipolar twin 0..+5 V.
   - Pot2: Rate (≈0.05–20 Hz with squared mapping for fine low-end control).
-  - Pot3: Shape (Sin/Tri/Sq/Up/Down).
-  - Display: First row and the per-LFO rows list fields in pot order — Amp, Rate, Shape — so they read left-to-right to match the knobs.
+  - Pot3: Shape **and polarity** — ten steps, each shape twice: `Sin Tri Sq Up Dn` (bipolar) then `+Sin +Tri +Sq +Up +Dn` (unipolar). Polarity is per-LFO; there is no spare control for it, so it rides the shape knob, the same way Clock puts 15 divisions on Pot3.
+  - Display: First row and the per-LFO rows list fields in pot order — Amp, Rate, Shape — so they read left-to-right to match the knobs. A unipolar LFO draws sitting on the cell's zero line instead of straddling it, so polarity is readable from the waveform without checking the name.
   - Short press: Cycle edited LFO target (L0→L1→L2→L3). Title right shows `L<idx>`.
   - Pot pickup: After switching LFOs, each pot stays inactive until it crosses (or already matches) the selected LFO's stored value, so the other LFOs' settings aren't clobbered.
   - Long press: Return to menu.
