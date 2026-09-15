@@ -14,7 +14,8 @@
 // - 4x MIDI-to-CV (gate / pitch / mod) on ch1-4, 4 drum triggers on ch10
 //   (mod source per channel: velocity, CC#42, or STATUS-page pot — last actuator wins)
 // - Stereo line passthrough with a Filter->Delay->Reverb FX send (four pots)
-// - Partial OLED updates (only changed rows) to limit loop() blocking
+// - Partial OLED updates (only changed rows, one row per loop pass) to limit
+//   loop() blocking; gates retrigger with a 1 ms gap on back-to-back notes
 
 #include <Arduino.h>
 #include <SPI.h>
@@ -169,6 +170,25 @@ static volatile bool gate1=false, gate2=false, clk=false, rst=false;
 static volatile bool gate3=false, gate4=false;
 static volatile uint32_t clkUntil=0, rstUntil=0; const uint32_t PULSE_MS=5;
 
+// Gate retrigger. A sequencer sending full-length notes puts the NoteOff of
+// one note and the NoteOn of the next in the same USB packet, so both land in
+// one drain pass and the gate pin (written once per pass) never drops: the
+// envelope does not retrigger. When a NoteOn arrives while the jack is still
+// high, hold it low for RETRIG_US before raising it for the new note.
+// gateOut[] is the level actually on the jack after the last write.
+static const uint32_t RETRIG_US = 1000;
+static bool gateOut[4] = {false,false,false,false};
+static volatile uint32_t retrigUntilUs[4] = {0,0,0,0};
+static inline void armRetrig(uint8_t i){
+  if (gateOut[i]) { uint32_t t = micros() + RETRIG_US; retrigUntilUs[i] = t ? t : 1; }
+}
+// Level to drive now: the wanted gate, forced low while a retrigger gap runs.
+static inline bool gateLevel(uint8_t i, bool want, uint32_t nowUs){
+  uint32_t until = retrigUntilUs[i];
+  if (until) { if ((int32_t)(nowUs - until) < 0) return false; retrigUntilUs[i] = 0; }
+  return want;
+}
+
 // Drums
 static volatile bool drumTrig[DRUM_COUNT] = {false,false,false,false};
 static volatile uint32_t drumUntilUs[DRUM_COUNT] = {0,0,0,0};
@@ -209,6 +229,23 @@ static uint8_t gOledPage = 0; // 0 = STATUS (all channels; pots -> Mod1-4), 1 = 
 // OLED row cache for partial updates
 static char oledRowCache[4][22] = {"","","",""};  // 21 chars max per row + null
 static bool oledRowDirty[4] = {true, true, true, true};
+
+// Push one 8-pixel row (SSD1306 page) of the GFX buffer over I2C: page/column
+// window, then the row's 128 bytes in a single transaction (~3 ms at 400 kHz).
+// Adafruit's display() pushes the whole 512-byte frame (~12 ms) and loop() is
+// blocked for all of it, so MIDI waits and gate/clock timing slips. Pushing
+// one row per loop pass keeps any single stall to about 3 ms.
+static void oledPushRow(uint8_t page) {
+  Wire.beginTransmission(0x3C);
+  Wire.write((uint8_t)0x00);                 // command stream
+  Wire.write(SSD1306_PAGEADDR);   Wire.write(page); Wire.write(page);
+  Wire.write(SSD1306_COLUMNADDR); Wire.write((uint8_t)0); Wire.write((uint8_t)(OLED_W-1));
+  Wire.endTransmission();
+  Wire.beginTransmission(0x3C);
+  Wire.write((uint8_t)0x40);                 // data stream
+  Wire.write(oled.getBuffer() + page*OLED_W, OLED_W);
+  Wire.endTransmission();
+}
 
 // ============================================================================
 // MOD POT STATE (STATUS page) — manual pot control of the four Mod outputs
@@ -395,22 +432,22 @@ void onNoteOn(byte ch, byte note, byte vel){
   if(ch==1){
     v1.note=note; updatePitch(v1);
     if(modSource[0]==MODSRC_VEL){ v1.modV=modV; dirtyMod1=true; }
-    gate1=true; dirtyPitch1=true;
+    armRetrig(0); gate1=true; dirtyPitch1=true;
   }
   else if(ch==2){
     v2.note=note; updatePitch(v2);
     if(modSource[1]==MODSRC_VEL){ v2.modV=modV; dirtyMod2=true; }
-    gate2=true; dirtyPitch2=true;
+    armRetrig(1); gate2=true; dirtyPitch2=true;
   }
   else if(ch==3){
     v3.note=note; updatePitch(v3);
     if(modSource[2]==MODSRC_VEL){ v3.modV=modV; dirtyMod3=true; }
-    gate3=true; dirtyPitch3=true;
+    armRetrig(2); gate3=true; dirtyPitch3=true;
   }
   else if(ch==4){
     v4.note=note; updatePitch(v4);
     if(modSource[3]==MODSRC_VEL){ v4.modV=modV; dirtyMod4=true; }
-    gate4=true; dirtyPitch4=true;
+    armRetrig(3); gate4=true; dirtyPitch4=true;
   }
 }
 void onNoteOff(byte ch, byte note, byte){
@@ -482,9 +519,17 @@ void setup(){
   // Force Full Speed USB (12 Mbps) for reliable operation through USB hubs.
   // The Teensy 4.1 defaults to High Speed (480 Mbps) which causes intermittent
   // enumeration failures via bus-powered hubs. MIDI needs negligible bandwidth.
-  USB1_PORTSC1 |= USB_PORTSC1_PFSC;
+  // The core starts USB ~280 ms before setup() and the host has normally
+  // negotiated 480 Mbit by now, so setting PFSC on its own does nothing until
+  // the next bus reset (measured: the Mac enumerated this module at 480 Mbit).
+  // Detach, set PFSC, re-attach: the host sees a fresh connect and negotiates
+  // 12 Mbit. Costs about a second of enumeration at boot.
+  USB1_USBCMD &= ~USB_USBCMD_RS;      // detach from the bus
+  delay(50);                          // long enough for the host to notice
+  USB1_PORTSC1 |= USB_PORTSC1_PFSC;   // 12 Mbit on the next connect
+  USB1_USBCMD |= USB_USBCMD_RS;       // re-attach; host re-enumerates
 
-  if (CrashReport) { while (!Serial && millis() < 1500) {} Serial.print(CrashReport); }
+  if (CrashReport) { while (!Serial && millis() < 4000) {} Serial.print(CrashReport); }
   pinMode(LED_BUILTIN, OUTPUT); digitalWrite(LED_BUILTIN, LOW);
   pinMode(PIN_BTN,INPUT_PULLUP);
   pinMode(PIN_CS_DAC1,OUTPUT); digitalWrite(PIN_CS_DAC1,HIGH);
@@ -607,9 +652,8 @@ void loop(){
     }
   }
   
-  // Gate outputs (directly on Teensy pins) — bridge active on every page
+  // Clock / reset (directly on Teensy pins) — bridge active on every page
   GATE_WRITE(PIN_CLOCK, clk); GATE_WRITE(PIN_RESET, rst);
-  GATE_WRITE(PIN_GATE1, gate1); GATE_WRITE(PIN_GATE2, gate2);
 
   // CV outputs: pitch and mod for channels 1-4
   if(dirtyPitch1){ mcp4822_write(PIN_CS_DAC1, CH_B, pitchVolt_to_code_ch(0, v1.pitchHeldV)); dirtyPitch1=false; }
@@ -620,15 +664,22 @@ void loop(){
   if(dirtyMod2){ mcp4822_write(PIN_CS_DAC2, CH_A, modVolt_to_code_ch(1, v2.modV)); dirtyMod2=false; }
   if(dirtyMod3){ mcp4822_write_expander(0, EXP_MOD3_CH_IDX, modVolt_to_code_ch(2, v3.modV)); dirtyMod3=false; }
   if(dirtyMod4){ mcp4822_write_expander(0, EXP_MOD4_CH_IDX, modVolt_to_code_ch(3, v4.modV)); dirtyMod4=false; }
-  
+
+  // Gates 1-2 after the DACs so the new pitch is on the jack before the gate
+  // rises (anything sampling pitch on the gate edge sees the new note).
+  gateOut[0] = gateLevel(0, gate1, nowUs); GATE_WRITE(PIN_GATE1, gateOut[0]);
+  gateOut[1] = gateLevel(1, gate2, nowUs); GATE_WRITE(PIN_GATE2, gateOut[1]);
+
   if (now - lastBeat >= 1000) { lastBeat = now; digitalToggle(LED_BUILTIN); }
   // Combined expander image update: gates + drums (drums work in both modes)
   {
     uint8_t img = expanderImage(); uint8_t newImg = img;
     
-    // Gates 3-4 from expander
-    if (gate3) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
-    if (gate4) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
+    // Gates 3-4 from expander (same retrigger gap as gates 1-2)
+    gateOut[2] = gateLevel(2, gate3, nowUs);
+    gateOut[3] = gateLevel(3, gate4, nowUs);
+    if (gateOut[2]) newImg &= ~(1u<<ExpanderBits::V1_GATE); else newImg |= (1u<<ExpanderBits::V1_GATE);
+    if (gateOut[3]) newImg &= ~(1u<<ExpanderBits::V2_GATE); else newImg |= (1u<<ExpanderBits::V2_GATE);
     
     // Drum outputs (Q2-Q5) - work in BOTH modes
     uint8_t drumsMask=(1u<<ExpanderBits::DRUM1)|(1u<<ExpanderBits::DRUM2)|(1u<<ExpanderBits::DRUM3)|(1u<<ExpanderBits::DRUM4);
@@ -724,17 +775,23 @@ void loop(){
       updateOledRow(3, lineBuf);
     }
     
-    // Only do full refresh if any row changed
+    // Re-render the frame buffer if any row changed. The dirty flags stay set:
+    // the rows are pushed to the panel one per loop pass, below.
     bool anyDirty = oledRowDirty[0] || oledRowDirty[1] || oledRowDirty[2] || oledRowDirty[3];
     if (anyDirty) {
       oled.clearDisplay();
       for (uint8_t r = 0; r < 4; r++) {
         oled.setCursor(0, r * 8);
         oled.print(oledRowCache[r]);
-        oledRowDirty[r] = false;
       }
-      oled.display();
     }
     lastOledPaintMs = now;
+  }
+
+  // Push at most one pending row per pass (~3 ms), draining MIDI in between.
+  if (!screenAsleep) {
+    for (uint8_t r = 0; r < 4; r++) {
+      if (oledRowDirty[r]) { oledPushRow(r); oledRowDirty[r] = false; break; }
+    }
   }
 }
