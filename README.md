@@ -11,7 +11,7 @@ the third lives here:
 
 | Name | Firmware | Version | Based on | Licence |
 | --- | --- | --- | --- | --- |
-| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | v1.2.2 | Mutable Instruments Elements | MIT |
+| **Girl** | [`ksoloti_elements`](src/ksoloti_elements/) | v1.2.3 | Mutable Instruments Elements | MIT |
 
 These are independent community works. Product names of other makers are used only to
 describe each firmware's origin — **not affiliated with, or endorsed by, Mutable
@@ -122,15 +122,15 @@ pio device monitor -b 115200
 
 See `docs/ESP32_CLKLINK.md` for the full channel map, LED status patterns, and tuning.
 
-## ESP32 Clk/Link/Rec — `esp32_clklinkrec` (in development)
+## ESP32 Clk/Link/Rec — `esp32_clklinkrec`
 
 A successor to `esp32_clklink`. Combines the Link-synced clock generator with a **Recorder trigger**: pressing the Capture button on the front panel sends an HTTP POST to a Mac-side menu-bar app that saves the last N seconds of audio it was playing. Same Link sync behaviour, smaller BOM (no DAC, no op-amps), sharper Eurorack triggers via a 74HCT14 Schmitt trigger.
 
 - **Hardware**: Seeed Studio XIAO ESP32-C5 (dual-band Wi-Fi 6, USB-C) + 74HCT14 hex inverting Schmitt trigger. 4 HP n8synth control board panel — two cells with LED + momentary button, four cells for jacks.
 - **Outputs**: Clock, Reset, Running (all 0/+5 V triggers via the Schmitt trigger).
 - **Inputs**: Reset In (external trigger to realign Link phase), Capture button, Link toggle.
-- **Mac counterpart**: lives in a sibling repo at [`~/GitHub/seeed-recorder`](https://github.com/Eight4aWish/seeed-recorder).
-- **Status**: hardware design and protocol locked. Firmware skeleton in place; implementation pending.
+- **Mac counterpart**: the **Retrospective** menu-bar app in the sibling [`seeed-recorder`](https://github.com/Eight4aWish/seeed-recorder) repo. This module is the **HTTP/WiFi** trigger path into it; that repo also holds an RP2040 module triggering the same capture engine over USB-MIDI, and the menu bar itself is a third path. All three produce identical output.
+- **Status**: built. Hardware, protocol (v2.0) and firmware all in place — Link sync, mDNS recorder discovery with a `RECORDER_HOST` fallback, the capture task, dual-band WiFi management and the LED state machines.
 
 See [docs/ESP32_CLKLINKREC.md](docs/ESP32_CLKLINKREC.md) for the hardware design, pin allocation, and netlist. The wire protocol between the firmware and the Mac app lives in [docs/RECORDER_PROTOCOL.md](docs/RECORDER_PROTOCOL.md).
 
