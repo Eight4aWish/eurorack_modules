@@ -12,6 +12,6 @@ which repo a module lives in, read the canonical inventory:
 
 If that repo is checked out alongside this one, read it from disk; otherwise fetch the URL.
 
-It covers all nine repos: the released modules, the built-but-undrafted ones, the
+It covers all ten repos: the released modules, the built-but-undrafted ones, the
 purchased rack with HP and function, companion software, and what is deliberately *not*
 a module. No single repo sees all of it, so do not infer the full picture from this one.
