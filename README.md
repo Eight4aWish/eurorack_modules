@@ -55,6 +55,13 @@ See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layou
 
 ## Teensy 4.1 — `teensy_chaos`
 
+> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
+> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
+> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
+> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
+> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
+> `teensy_chaos` still builds; don't develop it here.
+
 A 10 HP chaotic / fractal synthesis voice that exploits the Teensy 4.1's 600 MHz Cortex-M7 (hardware FPU, RK4 per audio sample) for stereo output via the Teensy Audio Shield (SGTL5000, I2S). Two attractor state variables drive the stereo audio out and a pair of MCP4822 CV outputs (X/Y); four CV inputs arrive through an ADS1115.
 
 - **Algorithms**: the shipping firmware cycles **6 continuous-ODE attractors** — Rössler, Van der Pol, Lorenz, Chua, Duffing, Coupled Rössler — by short-pressing BTN. (A larger 14-algorithm suite across Melodic / Percussive / Texture groups is the design roadmap, not yet wired up.)

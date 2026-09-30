@@ -1,5 +1,12 @@
 # Teensy 4.1 — `teensy_chaos`
 
+> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
+> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
+> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
+> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
+> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
+> `teensy_chaos` still builds; don't develop it here.
+
 Chaotic / fractal synthesis module exploiting the Teensy 4.1's 600 MHz
 Cortex-M7 with hardware FPU. Stereo audio output via Teensy Audio Shield
 (SGTL5000 codec, I2S).

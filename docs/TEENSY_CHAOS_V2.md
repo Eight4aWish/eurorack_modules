@@ -1,5 +1,12 @@
 # teensy_chaos v2 — settled decisions
 
+> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
+> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
+> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
+> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
+> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
+> `teensy_chaos` still builds; don't develop it here.
+
 > **Status: design record, not implemented.** This captures what was settled in
 > design discussion, what is deliberately parked until the hardware is in hand,
 > and the hardware facts behind both. The shipping firmware remains the
@@ -350,7 +357,7 @@ since 44.1 and 96 kHz start with different amounts of foldover to remove.
   cyclically symmetric attractor (Duffing-priced, three `sinf`), and the forced Van der
   Pol. **16 is the practical ceiling** — that is what `DrawSlotIndicator` encodes and
   what a person can read at a glance. *Superseded by the tagged catalogue and
-  first-16 banks in [ALCHEMY_CHAOS.md](ALCHEMY_CHAOS.md).*
+  first-16 banks in [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md) in `eurorack_daisy_patch_init`.*
 
 ## Still to measure
 

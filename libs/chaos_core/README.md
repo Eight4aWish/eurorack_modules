@@ -1,5 +1,12 @@
 # chaos_core
 
+> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
+> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
+> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
+> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
+> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
+> `teensy_chaos` still builds; don't develop it here.
+
 Platform-independent chaotic-attractor DSP: the `ChaosBase` interface, six
 continuous-ODE attractors integrated with RK4, and the panel-order registry.
 
