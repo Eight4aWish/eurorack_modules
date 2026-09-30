@@ -349,7 +349,8 @@ since 44.1 and 96 kHz start with different amounts of foldover to remove.
   attractors (Chen, Lü, Halvorsen, Aizawa, Dadras, Rikitake, Nosé–Hoover), Thomas'
   cyclically symmetric attractor (Duffing-priced, three `sinf`), and the forced Van der
   Pol. **16 is the practical ceiling** — that is what `DrawSlotIndicator` encodes and
-  what a person can read at a glance.
+  what a person can read at a glance. *Superseded by the tagged catalogue and
+  first-16 banks in [ALCHEMY_CHAOS.md](ALCHEMY_CHAOS.md).*
 
 ## Still to measure
 
