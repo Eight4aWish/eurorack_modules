@@ -228,6 +228,13 @@ third_party/eurorack/  — Git submodule: pichenettes/eurorack (MIT license)
   stmlib/              — Mutable Instruments DSP/utility library
 ```
 
+### Ksoloti patches
+
+[`ksoloti_patches/big_genes/`](ksoloti_patches/big_genes/) holds two patches for the Big
+Genes that are not Girl: an Ableton Move MIDI performance patch (drums on channel 10,
+CV and gate from channels 1 and 2) and an I/O template. Its README has their status and
+debugging notes.
+
 ## Libraries
 
 - **expander I/O**: `libs/expander_io` — 74HC595 expander driver (`Expander595`) and MCP4822 helper (`Mcp4822Expander`). See [libs/expander_io/README.md](libs/expander_io/README.md) for API and wiring.

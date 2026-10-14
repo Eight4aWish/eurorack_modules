@@ -1,0 +1,347 @@
+<patch-1.0 appVersion="1.0.12">
+   <comment type="patch/comment" x="154" y="14" text="&lt;html&gt;&lt;h2&gt;Ableton Move → Ksoloti Big Genes&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;MIDI ch10 drums: 36=Kick, 38=Snare, 42=Hat&lt;/li&gt;&lt;li&gt;MIDI ch1 → CV1+Gate1 (pitch+gate)&lt;/li&gt;&lt;li&gt;MIDI ch2 → CV2+Gate2 (pitch+gate)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Tip: Use Big Genes &lt;i&gt;cv out big genes&lt;/i&gt; patch to calibrate 1V/oct.&lt;/p&gt;&lt;/html&gt;"/>
+   <obj type="ksoloti/big genes/cv out b" uuid="28629cd3-e124-4434-8179-a9b0c40cfcd1" name="cv_1" x="840" y="28">
+      <params/>
+      <attribs>
+         <combo attributeName="output" selection="CV1 (PA4)"/>
+         <combo attributeName="offset" selection="C4 (-4) = 0V (Eurorack)"/>
+         <combo attributeName="when_stopped" selection="center"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="c2f2a4f4-d17e-456a-94d1-80ac126a51e6" name="dbg_ch1" x="546" y="42">
+      <params/>
+      <attribs>
+         <spinner attributeName="ch" value="1"/>
+      </attribs>
+      <object id="patch/object" uuid="c2f2a4f4-d17e-456a-94d1-80ac126a51e6">
+         <sDescription>Formats a simple channel status line (note+gate) for OLED.</sDescription>
+         <author>generated</author>
+         <license>BSD</license>
+         <inlets>
+            <frac32.bipolar name="note" description="MIDI note from keyb ch"/>
+            <bool32 name="gate" description="gate"/>
+         </inlets>
+         <outlets>
+            <charptr32 name="str" description="string output"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="ch" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         </attribs>
+         <includes>
+            <include>os/various/chprintf.h</include>
+         </includes>
+         <code.declaration><![CDATA[char c[22];]]></code.declaration>
+         <code.krate><![CDATA[int32_t note_q = inlet_note >> 21;
+int32_t midi = note_q + 64;
+int32_t g = inlet_gate ? 1 : 0;
+if (midi < 0) midi = 0;
+if (midi > 127) midi = 127;
+chsnprintf(c, 22, "CH%d N=%03d G=%d", attr_ch, (int)midi, (int)g);
+outlet_str = &c[0];]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="audio/outconfig" uuid="eace67e3304afaa1bb695b444e9345f2d8adaf00" name="outconfig_1" x="14" y="98">
+      <params/>
+      <attribs>
+         <combo attributeName="headphones" selection="-12dB"/>
+         <combo attributeName="mode" selection="Stereo"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="6e6d5c7b-0f0f-4b64-8d76-8a2c39f11d4f" name="dbg_header" x="784" y="126">
+      <params/>
+      <attribs/>
+      <object id="patch/object" uuid="6e6d5c7b-0f0f-4b64-8d76-8a2c39f11d4f">
+         <sDescription>Constant header string for OLED diagnostics.</sDescription>
+         <author>generated</author>
+         <license>BSD</license>
+         <inlets/>
+         <outlets>
+            <charptr32 name="str" description="string output"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs/>
+         <includes/>
+         <code.declaration><![CDATA[char c[22] = "MOVE MIDI DBG";]]></code.declaration>
+         <code.krate><![CDATA[outlet_str = &c[0];]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="ksoloti/big genes/cv out b" uuid="28629cd3-e124-4434-8179-a9b0c40cfcd1" name="cv_2" x="910" y="140">
+      <params/>
+      <attribs>
+         <combo attributeName="output" selection="CV2 (PA5)"/>
+         <combo attributeName="offset" selection="C4 (-4) = 0V (Eurorack)"/>
+         <combo attributeName="when_stopped" selection="center"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="c2f2a4f4-d17e-456a-94d1-80ac126a51e6" name="dbg_ch2" x="546" y="154">
+      <params/>
+      <attribs>
+         <spinner attributeName="ch" value="2"/>
+      </attribs>
+      <object id="patch/object" uuid="c2f2a4f4-d17e-456a-94d1-80ac126a51e6">
+         <sDescription>Formats a simple channel status line (note+gate) for OLED.</sDescription>
+         <author>generated</author>
+         <license>BSD</license>
+         <inlets>
+            <frac32.bipolar name="note" description="MIDI note from keyb ch"/>
+            <bool32 name="gate" description="gate"/>
+         </inlets>
+         <outlets>
+            <charptr32 name="str" description="string output"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="ch" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         </attribs>
+         <includes>
+            <include>os/various/chprintf.h</include>
+         </includes>
+         <code.declaration><![CDATA[char c[22];]]></code.declaration>
+         <code.krate><![CDATA[int32_t note_q = inlet_note >> 21;
+int32_t midi = note_q + 64;
+int32_t g = inlet_gate ? 1 : 0;
+if (midi < 0) midi = 0;
+if (midi > 127) midi = 127;
+chsnprintf(c, 22, "CH%d N=%03d G=%d", attr_ch, (int)midi, (int)g);
+outlet_str = &c[0];]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="ksoloti/midi/in/keyb ch" uuid="53b4874696933f38aceaa168bd5d9efb743716da" name="keyb_ch1" x="14" y="210">
+      <params/>
+      <attribs>
+         <combo attributeName="channel" selection="1"/>
+      </attribs>
+   </obj>
+   <obj type="ksoloti/midi/in/monitor ext" uuid="b3967eef-65e1-4597-9ebb-56114f7a1a25" name="monitor_1" x="266" y="224">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="ksoloti/big genes/display" uuid="d21f1023-b829-4934-b142-5eedb601a570" name="bg_display" x="980" y="266">
+      <params/>
+      <attribs>
+         <combo attributeName="useScope" selection="off"/>
+         <objref attributeName="scope" obj=""/>
+         <combo attributeName="narrowFont" selection="on"/>
+      </attribs>
+   </obj>
+   <obj type="ksoloti/big genes/gate out" uuid="a9f603ff-485b-4417-98e5-73de698b8a6e" name="gate_1" x="546" y="294">
+      <params/>
+      <attribs>
+         <combo attributeName="gate" selection="1"/>
+      </attribs>
+   </obj>
+   <obj type="ksoloti/midi/in/keyb ch" uuid="53b4874696933f38aceaa168bd5d9efb743716da" name="keyb_ch2" x="14" y="308">
+      <params/>
+      <attribs>
+         <combo attributeName="channel" selection="2"/>
+      </attribs>
+   </obj>
+   <obj type="ksoloti/big genes/gate out" uuid="a9f603ff-485b-4417-98e5-73de698b8a6e" name="gate_2" x="546" y="406">
+      <params/>
+      <attribs>
+         <combo attributeName="gate" selection="2"/>
+      </attribs>
+   </obj>
+   <obj type="gao/edrum/bd" uuid="ced48876-e2cd-4e92-aa52-6ebf563012c8" name="obj_1" x="434" y="504">
+      <params>
+         <frac32.s.map name="freq 1" value="-22.0"/>
+         <frac32.s.map name="noise decay" value="-25.0"/>
+         <frac32.u.map name="noise level" value="20.0"/>
+         <frac32.s.map name="decay" value="-42.0"/>
+         <frac32.u.map name="curve" value="41.0"/>
+         <frac32.s.map name="freq 2" value="-41.0"/>
+         <frac32.s.map name="lp:pitch" value="42.0"/>
+         <frac32.u.map name="gain" value="3.5"/>
+      </params>
+      <attribs/>
+   </obj>
+   <obj type="gao/edrum/snare" uuid="508110bf-7366-4ac8-b3d3-6ab98b2589ba" name="obj_2" x="574" y="504">
+      <params>
+         <frac32.s.map name="body decay" value="-31.540000915527344"/>
+         <frac32.s.map name="noise decay" value="-14.0"/>
+         <frac32.s.map name="lp:pitch" value="38.0"/>
+         <frac32.u.map name="lp:reso" value="49.0"/>
+         <frac32.s.map name="notch:pitch" value="-1.0"/>
+         <frac32.u.map name="notch:reso" value="6.0"/>
+         <frac32.u.map name="gain" value="10.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <obj type="sss/edrum/HH3" uuid="c5b40d59-9694-48b3-9495-817d4028b4ae" name="HH3_1" x="770" y="504">
+      <params>
+         <frac32.s.map name="pitch" value="0.0"/>
+         <frac32.s.map name="tune" value="0.0"/>
+         <frac32.s.map name="tfm" value="0.0"/>
+         <frac32.u.map name="chance" value="0.0"/>
+         <frac32.u.map name="decCl" value="3.5"/>
+         <frac32.u.map name="decOp" value="26.5"/>
+      </params>
+      <attribs/>
+   </obj>
+   <patchobj type="patch/object" uuid="62ad1a4d-4c13-4430-9564-8bfb47e5b2d3" name="dbg_drums" x="280" y="518">
+      <params/>
+      <attribs/>
+      <object id="patch/object" uuid="62ad1a4d-4c13-4430-9564-8bfb47e5b2d3">
+         <sDescription>Formats drum activity for OLED (kick/snare/hat gates).</sDescription>
+         <author>generated</author>
+         <license>BSD</license>
+         <inlets>
+            <bool32 name="kick" description="kick gate"/>
+            <bool32 name="snare" description="snare gate"/>
+            <bool32 name="hat"/>
+            <bool32 name="open" description="open gate"/>
+         </inlets>
+         <outlets>
+            <charptr32 name="str" description="string output"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs/>
+         <includes>
+            <include>os/various/chprintf.h</include>
+         </includes>
+         <code.declaration><![CDATA[char c[22];]]></code.declaration>
+         <code.krate><![CDATA[int32_t k = inlet_kick ? 1 : 0;
+int32_t s = inlet_snare ? 1 : 0;
+int32_t h = inlet_hat ? 1 : 0;
+int32_t o = inlet_open ? 1 : 0;
+chsnprintf(c, 22, "DRM KSH=%d%d%d%d", (int)k, (int)s, (int)h, (int)o);
+outlet_str = &c[0];]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="ksoloti/midi/in/keyb note ch" uuid="ac0cd99e6c0373b7be73d25900342a62ebcf5f" name="kick_note" x="14" y="574">
+      <params/>
+      <attribs>
+         <spinner attributeName="note" value="36"/>
+         <combo attributeName="channel" selection="10"/>
+      </attribs>
+   </obj>
+   <obj type="mix/mix 3 g" uuid="efc0bdb8ca0ec2184330951eff5203ff487e35a9" name="mix_1" x="994" y="602">
+      <params>
+         <frac32.u.map name="gain1" value="32.0"/>
+         <frac32.u.map name="gain2" value="32.0"/>
+         <frac32.u.map name="gain3" value="32.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <obj type="ksoloti/midi/in/keyb note ch" uuid="ac0cd99e6c0373b7be73d25900342a62ebcf5f" name="snare_note" x="14" y="700">
+      <params/>
+      <attribs>
+         <spinner attributeName="note" value="38"/>
+         <combo attributeName="channel" selection="10"/>
+      </attribs>
+   </obj>
+   <obj type="drj/audio/out_stereo_vol" uuid="awca1a567f535acc21055669829101d3ee7f0189" name="out_stereo_vol_1" x="1246" y="700">
+      <params>
+         <frac32.u.map name="volume" value="48.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <obj type="ksoloti/midi/in/keyb note ch" uuid="ac0cd99e6c0373b7be73d25900342a62ebcf5f" name="hat_note" x="14" y="826">
+      <params/>
+      <attribs>
+         <spinner attributeName="note" value="40"/>
+         <combo attributeName="channel" selection="10"/>
+      </attribs>
+   </obj>
+   <obj type="ksoloti/midi/in/keyb note ch" uuid="ac0cd99e6c0373b7be73d25900342a62ebcf5f" name="hat_note_" x="196" y="826">
+      <params/>
+      <attribs>
+         <spinner attributeName="note" value="41"/>
+         <combo attributeName="channel" selection="10"/>
+      </attribs>
+   </obj>
+   <nets>
+      <net>
+         <source obj="dbg_header" outlet="str"/>
+         <dest obj="bg_display" inlet="line1"/>
+      </net>
+      <net>
+         <source obj="keyb_ch1" outlet="note"/>
+         <dest obj="dbg_ch1" inlet="note"/>
+         <dest obj="cv_1" inlet="cv"/>
+      </net>
+      <net>
+         <source obj="keyb_ch1" outlet="gate"/>
+         <dest obj="dbg_ch1" inlet="gate"/>
+         <dest obj="gate_1" inlet="in"/>
+      </net>
+      <net>
+         <source obj="dbg_ch1" outlet="str"/>
+         <dest obj="bg_display" inlet="line2"/>
+      </net>
+      <net>
+         <source obj="keyb_ch2" outlet="note"/>
+         <dest obj="dbg_ch2" inlet="note"/>
+         <dest obj="cv_2" inlet="cv"/>
+      </net>
+      <net>
+         <source obj="keyb_ch2" outlet="gate"/>
+         <dest obj="dbg_ch2" inlet="gate"/>
+         <dest obj="gate_2" inlet="in"/>
+      </net>
+      <net>
+         <source obj="dbg_ch2" outlet="str"/>
+         <dest obj="bg_display" inlet="line3"/>
+      </net>
+      <net>
+         <source obj="kick_note" outlet="gate"/>
+         <dest obj="obj_1" inlet="trig"/>
+         <dest obj="dbg_drums" inlet="kick"/>
+      </net>
+      <net>
+         <source obj="snare_note" outlet="gate"/>
+         <dest obj="obj_2" inlet="trig"/>
+         <dest obj="dbg_drums" inlet="snare"/>
+      </net>
+      <net>
+         <source obj="hat_note" outlet="gate"/>
+         <dest obj="dbg_drums" inlet="hat"/>
+         <dest obj="HH3_1" inlet="trgCl"/>
+      </net>
+      <net>
+         <source obj="dbg_drums" outlet="str"/>
+         <dest obj="bg_display" inlet="line4"/>
+      </net>
+      <net>
+         <source obj="mix_1" outlet="out"/>
+         <dest obj="out_stereo_vol_1" inlet="left"/>
+         <dest obj="out_stereo_vol_1" inlet="right"/>
+      </net>
+      <net>
+         <source obj="hat_note_" outlet="gate"/>
+         <dest obj="dbg_drums" inlet="open"/>
+         <dest obj="HH3_1" inlet="trgOp"/>
+      </net>
+      <net>
+         <source obj="obj_1" outlet="out"/>
+         <dest obj="mix_1" inlet="in1"/>
+      </net>
+      <net>
+         <source obj="obj_2" outlet="outlet_1"/>
+         <dest obj="mix_1" inlet="in2"/>
+      </net>
+      <net>
+         <source obj="snare_note" outlet="velocity"/>
+         <dest obj="obj_2" inlet="velocity"/>
+      </net>
+      <net>
+         <source obj="HH3_1" outlet="digital"/>
+         <dest obj="mix_1" inlet="in3"/>
+      </net>
+   </nets>
+   <settings>
+      <subpatchmode>no</subpatchmode>
+   </settings>
+   <notes><![CDATA[]]></notes>
+   <windowPos>
+      <x>370</x>
+      <y>52</y>
+      <width>1416</width>
+      <height>1136</height>
+   </windowPos>
+</patch-1.0>

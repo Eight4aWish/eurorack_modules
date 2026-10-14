@@ -1,0 +1,81 @@
+<patch-1.0 appVersion="1.0.12">
+  <comment type="patch/comment" x="14" y="14" text="&lt;html&gt;&lt;h1 style=&quot;font-size:28;&quot;&gt;Big Genes - Template&lt;/h1&gt;&lt;p&gt;Hardware I/O laid out for fast patching.&lt;/p&gt;"/>
+
+  <obj type="audio/outconfig" name="outconfig_1" x="14" y="70">
+    <params/>
+    <attribs>
+      <combo attributeName="headphones" selection="-12dB"/>
+      <combo attributeName="mode" selection="Stereo"/>
+    </attribs>
+  </obj>
+
+  <obj type="drj/audio/out_stereo_vol" name="out_stereo_vol_1" x="14" y="154">
+    <params>
+      <frac32.u.map name="volume" value="45.0"/>
+    </params>
+    <attribs/>
+  </obj>
+
+  <obj type="audio/out stereo" name="out_1" x="14" y="238">
+    <params/>
+    <attribs/>
+  </obj>
+
+  <comment type="patch/comment" x="266" y="70" text="&lt;html&gt;&lt;h2&gt;Pots (unipolar)&lt;/h2&gt;"/>
+
+  <obj type="ksoloti/big genes/pot p" name="pot_1" x="266" y="126"><params/><attribs><combo attributeName="pot" selection="1"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_2" x="364" y="126"><params/><attribs><combo attributeName="pot" selection="2"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_3" x="462" y="126"><params/><attribs><combo attributeName="pot" selection="3"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_4" x="560" y="126"><params/><attribs><combo attributeName="pot" selection="4"/></attribs></obj>
+
+  <obj type="ksoloti/big genes/pot p" name="pot_5" x="266" y="210"><params/><attribs><combo attributeName="pot" selection="5"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_6" x="364" y="210"><params/><attribs><combo attributeName="pot" selection="6"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_7" x="462" y="210"><params/><attribs><combo attributeName="pot" selection="7"/></attribs></obj>
+  <obj type="ksoloti/big genes/pot p" name="pot_8" x="560" y="210"><params/><attribs><combo attributeName="pot" selection="8"/></attribs></obj>
+
+  <comment type="patch/comment" x="266" y="294" text="&lt;html&gt;&lt;h2&gt;Encoders&lt;/h2&gt;"/>
+
+  <obj type="ksoloti/big genes/encoder" name="enc_1" x="266" y="350">
+    <params/>
+    <attribs>
+      <combo attributeName="encoder" selection="1"/>
+      <spinner attributeName="min" value="0"/>
+      <spinner attributeName="max" value="127"/>
+    </attribs>
+  </obj>
+
+  <obj type="ksoloti/big genes/encoder" name="enc_2" x="420" y="350">
+    <params/>
+    <attribs>
+      <combo attributeName="encoder" selection="2"/>
+      <spinner attributeName="min" value="0"/>
+      <spinner attributeName="max" value="127"/>
+    </attribs>
+  </obj>
+
+  <comment type="patch/comment" x="686" y="70" text="&lt;html&gt;&lt;h2&gt;Display&lt;/h2&gt;"/>
+
+  <obj type="ksoloti/big genes/display" name="display_1" x="686" y="126">
+    <params/>
+    <attribs>
+      <combo attributeName="useScope" selection="off"/>
+      <objref attributeName="scope" obj=""/>
+      <combo attributeName="narrowFont" selection="on"/>
+    </attribs>
+  </obj>
+
+  <nets/>
+
+  <settings>
+    <subpatchmode>no</subpatchmode>
+  </settings>
+
+  <notes><![CDATA[]]></notes>
+
+  <windowPos>
+    <x>120</x>
+    <y>80</y>
+    <width>1100</width>
+    <height>760</height>
+  </windowPos>
+</patch-1.0>
