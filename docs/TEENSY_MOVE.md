@@ -11,7 +11,8 @@ The board, its pin map, the chips and the start-up rules are in
 [`eurorack_electronics/docs/analogue_board_reva_firmware.md`](https://github.com/Eight4aWish/eurorack_electronics/blob/main/docs/analogue_board_reva_firmware.md).
 Read it before changing `board.cpp`.
 
-**Status, 2026-11-01:** mode 1 builds. It hasn't run on the board yet: see
+**Status, 2026-11-01:** mode 1 is on Boy and works on the bench (David): voices, drums, clock
+and reset, the encoder and the chooser. TRS MIDI in is the one thing not yet tried: see
 [First flash](#first-flash).
 
 ## Modes
@@ -28,7 +29,7 @@ inputs or outputs, and that shouldn't change under a patch.
 
 | Mode | What | Status |
 |---|---|---|
-| 1 | **Move companion** | built, not yet on the bench |
+| 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
 | 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | to come |
 | 3 | **Weirder two-input processing**: spectral morphing and sidechain ducking first | to come |
 
@@ -94,6 +95,8 @@ The Teensy has VIN–VUSB cut, so the rack has to be on. Uploads often report `E
 program the board: check before retrying.
 
 ## First flash
+
+**Run 2026-11-01:** everything works except step 5, TRS, which hasn't been tried yet.
 
 With nothing patched, then patching one thing at a time:
 
