@@ -69,10 +69,10 @@ The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 | [FortySevenEffects MIDI Library](https://github.com/FortySevenEffects/arduino_midi_library) | MIT | MIDI parsing |
 | [Arduino-AppleMIDI-Library](https://github.com/lathoub/Arduino-AppleMIDI-Library) (lathoub) | MIT | RTP-MIDI / AppleMIDI transport for the `Net` patch |
 
-## teensy_chaos, teensy_move
+## teensy_chaos, teensy_move, teensy_move_old
 
-Teensy 4.1 modules — chaotic/fractal synthesis (`teensy_chaos`) and
-CV/Chord/Drone utility (`teensy_move`).
+Teensy 4.1 modules — chaotic/fractal synthesis (`teensy_chaos`), Boy on the analogue board
+Rev A (`teensy_move`), and the old Boy (`teensy_move_old`).
 
 | Component | License | Role |
 |---|---|---|

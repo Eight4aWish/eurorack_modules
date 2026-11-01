@@ -1,4 +1,9 @@
-# Teensy 4.1 — `teensy_move`
+# Teensy 4.1 — `teensy_move_old`: the old Boy
+
+> **Superseded, 2026-11-01.** This is the old Boy, on its hand-built hardware with the Teensy
+> Expander. Boy now runs on the analogue board Rev A, and its firmware took over `teensy_move`:
+> see [TEENSY_MOVE.md](TEENSY_MOVE.md). This code is kept until the new Boy has taken over, then
+> archived or deleted. Build it with `pio run -e teensy_move_old`.
 
 An Ableton Move ↔ Eurorack bridge and audio processor. Two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, manual mod-pot sweeps on the STATUS page, and an SGTL5000 stereo line passthrough with a Filter → Delay → Reverb FX send.
 
@@ -54,7 +59,7 @@ Notes:
 
 ## DAC Channel Mapping (Expander)
 
-Configured in [include/teensy_move/pins.h](../include/teensy_move/pins.h):
+Configured in [include/teensy_move_old/pins.h](../include/teensy_move_old/pins.h):
 
 - Mod DAC (CS via Q6):
   - Channel B → Mod3
@@ -156,7 +161,7 @@ All STATUS rows are exactly 21 characters — the display's limit at text size 1
 
 ## Calibration
 
-Per-channel linear fits stored in [include/teensy_move/calib_static.h](../include/teensy_move/calib_static.h):
+Per-channel linear fits stored in [include/teensy_move_old/calib_static.h](../include/teensy_move_old/calib_static.h):
 
 ```
 volts = m * DAC_code + c    →    code = (volts − c) / m
@@ -167,7 +172,7 @@ Constants for the four Mod (M1..M4) and four Pitch (P1..P4) channels were measur
 - Mod: −5 V to +5 V
 - Pitch: −3 V to +7 V
 
-`USE_STATIC_CALIB` is asserted by the build env, so [src/teensy_move/main.cpp](../src/teensy_move/main.cpp) calls `pitchVoltsToCode_ch()` / `modVoltsToCode_ch()` from this header for all DAC writes.
+`USE_STATIC_CALIB` is asserted by the build env, so [src/teensy_move_old/main.cpp](../src/teensy_move_old/main.cpp) calls `pitchVoltsToCode_ch()` / `modVoltsToCode_ch()` from this header for all DAC writes.
 
 ## Build & Upload
 

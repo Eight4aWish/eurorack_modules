@@ -89,7 +89,7 @@ in kit mode).
   the current single stereo `AudioChaosEngine` into N reusable **mono** voices.
 - **Stereo pan-mix:** each voice → an L `AudioMixer4` and an R `AudioMixer4` with
   pan-dependent gains → `AudioOutputI2S` (the same mixer/I2S pattern used in
-  teensy_move's FX send).
+  teensy_move_old's FX send).
   - MIDI kit: 4 voices → 2× `AudioMixer4` (all four inputs).
   - Trigger kit: 2 voices → same mixers, two inputs.
   - Oscillator mode: 1 voice (stereo X/Y as today, or mono → centre).

@@ -32,7 +32,25 @@ pio run -e pico2w_oc -t upload
 pio device monitor -b 115200
 ```
 
-## Teensy 4.1 — `teensy_move`
+## Teensy 4.1 — `teensy_move`: Boy
+
+Boy on the analogue board Rev A (Teensy 4.1): the Ableton Move's companion in the rack, in a
+firmware whose mode is chosen at power-on. Mode 1, the Move companion: MIDI ch 1–3 to three gate
+and pitch CVs, ch 10 notes 36 and 37 to two drum triggers, MIDI clock and reset, from USB and TRS
+MIDI. Modes 2 (Warps) and 3 (other two-input processing) are to come. Hold the encoder's push for
+2 s to get back to the mode chooser.
+
+```sh
+pio run -e teensy41
+pio run -e teensy41 -t upload    # in the foreground
+```
+
+See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for the modes, the MIDI map and the first-flash
+checklist.
+
+## Teensy 4.1 — `teensy_move_old`: the old Boy
+
+> **Superseded, 2026-11-01:** kept until the new Boy has taken over, then archived or deleted.
 
 A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board CV/Gate channels, two expander channels via a 74HCT595 + two MCP4822 DACs, four drum triggers, manual mod-pot sweeps on the STATUS page, and an SGTL5000 stereo passthrough with a Filter → Delay → Reverb FX send. USB is composite MIDI + Serial (`USB_MIDI_SERIAL`).
 
@@ -42,16 +60,16 @@ A Teensy 4.1 Ableton Move ↔ Eurorack bridge and audio processor: two on-board 
 - **Long-press**: emits a Reset pulse (on every page).
 - **OLED sleeps** after 10 s (button or pot move wakes it; MIDI alone never does) to keep the panel's switching noise off the audio.
 - **MIDI clock**: 24 PPQN → quarter-note pulses on `PIN_CLOCK`; Start emits a Reset pulse.
-- **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy_move/calib_static.h](include/teensy_move/calib_static.h)).
+- **Per-channel calibration** (DMM-fitted slope/offset arrays in [include/teensy_move_old/calib_static.h](include/teensy_move_old/calib_static.h)).
 
 Build & upload:
 
 ```sh
-pio run -e teensy41
-pio run -e teensy41 -t upload
+pio run -e teensy_move_old
+pio run -e teensy_move_old -t upload
 ```
 
-See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for full pin map, OLED page layouts, mod-source rules, and troubleshooting.
+See [docs/TEENSY_MOVE_OLD.md](docs/TEENSY_MOVE_OLD.md) for full pin map, OLED page layouts, mod-source rules, and troubleshooting.
 
 ## Teensy 4.1 — `teensy_chaos`
 
@@ -253,5 +271,5 @@ is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 - **Ableton Link** (GPL-2.0-or-later) + **docwilco/esp_abl_link** (GPL-2.0-or-later) — the beat-sync engine that makes `esp32_clklink` work. This is what triggers the GPL on that module.
 - **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port rewrites one line — the resonator mode count, set by `RESOLUTION` in `scripts/elements_build.py` — into `elements/dsp/voice.cc` at build time; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
-- **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
+- **Teensyduino** (MIT, PJRC) — for `teensy_chaos`, `teensy_move` and `teensy_move_old`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

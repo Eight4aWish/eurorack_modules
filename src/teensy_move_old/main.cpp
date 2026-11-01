@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 David Baghurst
 //
-// Teensy Move v3 — Ableton Move <-> Eurorack bridge
+// Teensy Move v3 — Ableton Move <-> Eurorack bridge. The old Boy, on its hand-built hardware;
+// the current Boy (analogue board Rev A) is src/teensy_move.
 // v3: removed the drone synth, added a stereo Filter->Delay->Reverb FX send on
 //     the passthrough, fixed the audio-out DC (LINE OUT AC-coupling + ADC HPF
 //     freeze), and added OLED screen-sleep. Chord/progressions mode was later
@@ -26,8 +27,8 @@
 #include <Adafruit_SSD1306.h>
 #include <Audio.h>
 #include "spi_bus.h"
-#include "teensy_move/pins.h"
-#include "teensy_move/calib_static.h"
+#include "teensy_move_old/pins.h"
+#include "teensy_move_old/calib_static.h"
 
 #define OLED_W 128
 #define OLED_H 32
