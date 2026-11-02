@@ -209,7 +209,7 @@ With nothing patched, then patching one thing at a time:
 **Run 2026-11-02, so far:** steps 2 and 3 pass. LEV1 at 0 % gave C2 on a tuner, so the codec
 is at 96 kHz. The sine is clean on the Tiliqua's scope, and so are the other carrier shapes. The
 first gestures, a press to step through the items, were awkward against the chooser's turn to
-scroll, so mode 2 now uses the chooser's.
+scroll, so mode 2 now uses the chooser's. David: "perfect".
 
 `pio device monitor` prints the CPU and the CV ins every 2 s.
 
