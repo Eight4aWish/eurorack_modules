@@ -15,6 +15,9 @@ Read it before changing `board.cpp`.
 and reset, the encoder and the chooser. TRS MIDI in is the one thing not yet tried: see
 [First flash](#first-flash).
 
+**2026-11-02:** mode 2, Warps, is written and builds; it hasn't been flashed or heard yet. See
+[Mode 2 on the bench](#mode-2-on-the-bench).
+
 ## Modes
 
 The mode is chosen at power-on and holds for the session, because modes set the six CV jacks as
@@ -30,7 +33,7 @@ inputs or outputs, and that shouldn't change under a patch.
 | Mode | What | Status |
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
-| 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | to come |
+| 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | builds, 2026-11-02; not yet on the bench |
 | 3 | **Weirder two-input processing**: spectral morphing and sidechain ducking first | to come |
 
 ## Mode 1, the Move companion
@@ -73,12 +76,90 @@ Fixed in passing:
 design formula with a meter. Per-channel calibration in the EEPROM (spec requirement 10), and the
 board's load servo (requirement 9), aren't written yet.
 
+## Mode 2, Warps
+
+Mutable Instruments' meta-modulator. Its DSP is built unchanged from
+`third_party/eurorack/warps` by `scripts/warps_build.py`; `warps_mode.cpp` takes the place of
+Warps' own codec, CV, knob and button code.
+
+| Boy | Warps |
+|---|---|
+| audio in L | IN 1, the carrier (with the internal oscillator on, it phase-modulates it) |
+| audio in R | IN 2, the modulator |
+| audio out L | OUT |
+| audio out R | AUX |
+| PITCH1 | Level 1 CV, and V/oct with the internal oscillator on |
+| PITCH2 | Level 2 CV |
+| GATE1 | Algorithm CV |
+| GATE2 | Timbre CV |
+| GATE3, PITCH3, the gate outs, MIDI | unused |
+
+All six CV jacks are inputs: every jack switch stays off for the session.
+
+**The encoder** stands in for Warps' four knobs and its button. The screen lists six items, four
+at a time:
+
+| Item | Warps | Shows |
+|---|---|---|
+| LEV1, LEV2 | the Level knobs | 0–100 %, and the jack, `*` when a cable is found |
+| ALGO | the Algorithm knob | the algorithm at the knob plus CV: XFADE, FOLD, DIODE RM, DIGI RM, XOR, COMPARE, VOCODER |
+| TIMB | the Timbre knob | 0–100 % |
+| CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW |
+| SHIFT | the easter egg, the frequency shifter | off, on. The four knobs become FDBK, WET, FREQ and MIX |
+
+- **Press** to move to the next item.
+- **Long press** (0.6 s) to move back one.
+- **Turn** to set the marked item; turning fast takes bigger steps.
+- **Hold 2 s** for the chooser.
+
+The settings are kept in the EEPROM, written 3 s after the last change, so the mode comes back as
+it was left.
+
+**As Warps:**
+- **96 kHz,** Warps' own rate. The Teensy Audio library isn't tied to the audio shield, and its
+  rate is one constant (`AUDIO_SAMPLE_RATE_EXACT`), from which it derives MCLK as 256 fS. At
+  96 kHz that's 24.576 MHz, which the PCM3060 accepts for both its ADC and DAC (SLAS533B, p.15,
+  Table 2), with BCK at 64 fS. Blocks are 96 samples (`AUDIO_BLOCK_SAMPLES`): Warps' largest,
+  and its own host test's size. Mode 1 runs at 96 kHz too, sending silence.
+- **Levels:**
+  - Inputs gain 22/16. Warps' codec reaches full scale at 16 Vpp (`warps.cc`) and Boy's at
+    22 Vpp. They're negated too, since Boy's inputs invert.
+  - Outputs are 1:1: Warps' full scale is about 19.5 Vpp (its WM8731 times 6.9, `warps_v30.pdf`
+    sheet 2), and Boy's measured 19.4.
+  - Warps' outputs are AC-coupled (2.7 Hz) and Boy's aren't. A one-pole high-pass at 2.7 Hz
+    does the capacitor's job, so the comparator and XOR don't put DC on Boy's outputs.
+- **CV:** Warps' scaling, per volt. Level 1 and 2 read 0.109 of its ADC's range a volt, and
+  Algorithm and Timbre 0.100; its CV scaler code is followed line for line. Its filters run once
+  a 96-sample block here (1 kHz), against once a 60-sample block on Warps (1.6 kHz), so each
+  one-pole coefficient is rescaled to keep its time constant.
+- **Unpatched jacks.** Warps sends noise through each Level jack's switched contact to find out
+  whether anything is patched. When nothing is, the Level knob sets the level outright, and
+  Level 1's V/oct reads as if 2 V were patched. Boy has no switched contacts. Instead, an open
+  input sits still at the ADC's bias, +0.207 V. So a jack that reads within 20 mV of that, steady
+  to 4 mV, for 100 ms counts as open until it leaves that window.
+  - A patched source held still in that window reads as open (spec requirement 8). On a Level
+    jack, that sets the level to the knob's.
+  - An envelope's slow tail passing through the window keeps moving, so it stays patched.
+
+**The serial monitor** (`pio device monitor`) prints every 2 s:
+- the audio CPU, now and at most;
+- audio blocks in use;
+- the four CV voltages, and which jacks read open.
+
 ## Files
 
-- `src/teensy_move/board.{h,cpp}`: the board. EEPROM probe, the expander, the DAC start-up, the
-  gate word, the encoder and its push, settings in the EEPROM (page 0x1FC0), the screen.
+- `src/teensy_move/board.{h,cpp}`: the board.
+  - the EEPROM probe and the expander;
+  - the DAC start-up, and the CV ins (ADS8688);
+  - the gate word;
+  - the encoder and its push;
+  - settings in the EEPROM: page 0x1FC0, with each mode's page below it;
+  - the screen.
 - `src/teensy_move/main.cpp`: the mode table and the chooser.
 - `src/teensy_move/move_mode.{h,cpp}`: mode 1.
+- `src/teensy_move/warps_mode.{h,cpp}`: mode 2. `src/teensy_move/warps/drivers/debug_pin.h`
+  stands in for Warps' STM32 debug pin.
+- `scripts/warps_build.py`: compiles Warps' DSP and the stmlib it needs.
 
 ## Building and flashing
 
@@ -90,6 +171,9 @@ pio run -e teensy41 -t upload    # flash: in the foreground, never in the backgr
 This Mac is arm64 with no Rosetta:
 - `scripts/arm64_toolchain.py` swaps in PlatformIO's arm64 GCC;
 - `teensy-gui` (the Teensy Loader app) replaces `teensy-cli`.
+
+`scripts/warps_build.py` compiles Warps from the `third_party/eurorack` submodule; run
+`git submodule update --init` first on a fresh clone.
 
 The Teensy has VIN–VUSB cut, so the rack has to be on. Uploads often report `Error -1` and still
 program the board: check before retrying.
@@ -116,3 +200,32 @@ With nothing patched, then patching one thing at a time:
    - A long press pulses RST.
    - Hold 2 s: the chooser comes back and waits for a press, without restarting the rack.
 7. **Audio outs** at 0 V DC.
+
+## Mode 2 on the bench
+
+Not yet run. Keep `pio device monitor` open: it prints the CPU and the CV ins every 2 s.
+
+1. **Mode 1 again, at 96 kHz.** The whole firmware now runs the codec at 96 kHz. In mode 1 that
+   only matters for step 7 above: the audio outs should still sit at 0 V.
+2. **Choose 2.** Hold 2 s, turn to `2 WARPS`, press.
+   - The screen lists LEV1, LEV2, ALGO and TIMB.
+   - With nothing patched, the monitor shows `open 1111`, and no jack on screen has a `*`.
+3. **The rate, by ear.** Set CARR to SINE, ALGO to XFADE, TIMB to 0 % and LEV1 to 0 %.
+   - Out L plays Warps' internal sine. Warps' pitch table is built for 96 kHz, so at 0 % it
+     should be C2, 65.4 Hz, on a tuner. LEV1 at 100 % gives C7.
+   - A note about 13 semitones flat means the codec isn't at 96 kHz.
+   - No sound at all: the PCM3060 may not have locked at 256 fS. Check Out R, then step 1.
+4. **Audio in.** CARR to EXT. Patch an oscillator into audio in L (the carrier) and another into
+   in R (the modulator), at about 10 Vpp. Turn ALGO through all seven algorithms. Out R (AUX)
+   carries the two inputs mixed.
+5. **CV ins.** One at a time:
+   - an LFO into GATE1: the ALGO name moves, and the jack shows `G1*`;
+   - an envelope into PITCH2: the modulator's level follows it, over 0 to about 6 V;
+   - a V/oct into PITCH1 with CARR on SINE: 1 V an octave.
+   - Take each cable out: its `*` should go within about a tenth of a second.
+6. **Output DC.** ALGO on COMPARE, both inputs patched: the outs average 0 V on a meter.
+7. **SHIFT on:** the frequency shifter. ALGO becomes FREQ and shifts the carrier (in L) up or down
+   either side of 50 %.
+8. **Back to the chooser:** hold 2 s.
+
+Note the CPU figures: Warps ran on a 168 MHz Cortex-M4.

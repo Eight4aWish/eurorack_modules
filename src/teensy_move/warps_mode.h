@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 David Baghurst
+//
+// Mode 2, Warps: Mutable Instruments' meta-modulator, its DSP unchanged, on Boy's jacks.
+
+#pragma once
+
+namespace warps_mode {
+void begin();
+void loop();
+}  // namespace warps_mode

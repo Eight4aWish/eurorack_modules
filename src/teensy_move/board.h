@@ -29,6 +29,15 @@ bool begin();
 void cv_write(uint8_t ch, float volts);
 void cv_outputs(uint8_t mask);  // bit n = DAC channel n's jack switch on
 
+// CV in. With its switch off a jack is an input: the ADS8688 reads it on ±10.24 V. cv_in_begin()
+// sets the ranges, false if the ADC doesn't echo them. cv_read() takes one conversion of each
+// channel listed (Cv numbering), as volts at the jack.
+bool cv_in_begin();
+void cv_read(const uint8_t *chs, uint8_t n, float *volts);
+// What an open input reads: the ADS8688's bias, 1 MOhm to its 2.25 V against 100 kOhm to ground
+// (spec requirement 8). Measured on Boy (2026-11-01): +0.206 to +0.209 V on all six.
+constexpr float CV_OPEN = 0.207f;
+
 // Gate out: a whole word, shifted and latched (requirements 4 and 14)
 void gates_write(uint8_t word);
 void gate_outputs(bool on);  // GATE_OE_N: latch a word before turning them on
@@ -47,6 +56,9 @@ Push poll_push();
 uint8_t saved_mode();
 void save_mode(uint8_t mode);
 bool take_menu_request();  // true once after back_to_menu()
+// A mode's own settings: up to 16 bytes in an EEPROM page of its own
+bool mode_load(uint8_t mode, void *d, uint8_t n);
+bool mode_store(uint8_t mode, const void *d, uint8_t n);
 
 // Every jack switch off, gate outs low and disabled, DAC at 0 V: the board as at power-on
 void safe();

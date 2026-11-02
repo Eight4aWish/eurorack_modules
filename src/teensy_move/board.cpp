@@ -26,9 +26,15 @@ constexpr uint8_t OE_N = 0x40;
 constexpr uint8_t PUSH_BIT = 0x20;  // port 1: SW6, the encoder's push, 0 while pressed
 
 // ---- converters
-SPISettings SPI_CONV(4000000, MSBFIRST, SPI_MODE1);   // the DAC8568 latches on falling edges; tested at 4 MHz
+SPISettings SPI_CONV(4000000, MSBFIRST, SPI_MODE1);   // the ADS8688 and DAC8568 latch on falling edges; tested at 4 MHz
 SPISettings SPI_PANEL(1000000, MSBFIRST, SPI_MODE0);  // the panel bus: 1 MHz at most (requirement 14)
 constexpr uint16_t DAC_ZERO = 32544;                  // the code for 0 V at the jack
+
+// CV in: each ADC pin sees its jack through 1 kOhm, with 100 kOhm to ground and the ADS8688's 1 MOhm
+// to its 2.25 V bias behind it. As the bring-up test program reads it, the drop across the 1 kOhm
+// is added back.
+constexpr float ADC_VBIAS = 2.25f * 100 / 1100, ADC_RLOAD = 100.0f * 1000 / 1100;  // V, kOhm
+static float jack_from_adc(float v) { return v + (v - ADC_VBIAS) / ADC_RLOAD; }
 
 // CV out stage (spec §15): Vout = 4.3 x 2.5 x code / 65536 - 3.3 x 2.5 x 22/34. Measured on Boy
 // (2026-11-01) with a meter at each jack: all six sit about 1.8 % under that, the 0 V code within
@@ -36,8 +42,9 @@ constexpr uint16_t DAC_ZERO = 32544;                  // the code for 0 V at the
 // Per-channel calibration in the EEPROM (requirement 10) replaces this when it's written.
 constexpr float CV_GAIN = 0.982f;
 
-// ---- settings: one EEPROM page, clear of the last page the bring-up test uses
-constexpr uint16_t EE_SETTINGS = 0x1FC0;
+// ---- settings: one EEPROM page, clear of the last page the bring-up test uses; each mode's own
+// page sits below it
+constexpr uint16_t EE_SETTINGS = 0x1FC0, EE_PAGE = 32;
 constexpr uint8_t SETTINGS_MAGIC = 0xB2;
 struct Settings {
   uint8_t magic, mode, menu;
@@ -113,7 +120,7 @@ bool begin() {
   tca_write(TCA_OUT0, port0);
   tca_write(TCA_CFG0, 0x80);
   tca_write(TCA_CFG1, 0xFF);
-  digitalWrite(PIN_CS_ADC, HIGH);  // the ADS8688 shares SPI-A; Boy doesn't read it yet
+  digitalWrite(PIN_CS_ADC, HIGH);  // the ADS8688 shares SPI-A: cv_in_begin() starts it
   pinMode(PIN_CS_ADC, OUTPUT);
   digitalWrite(PIN_CS_DAC, HIGH);
   pinMode(PIN_CS_DAC, OUTPUT);
@@ -144,6 +151,42 @@ void cv_write(uint8_t ch, float volts) {
 }
 
 void cv_outputs(uint8_t mask) { set_port0((port0 & ~CV_ALL) | (mask & CV_ALL)); }
+
+static uint16_t adc_frame(uint16_t cmd) {  // 32 clocks: a command in, the previous frame's conversion out
+  SPI.beginTransaction(SPI_CONV);
+  digitalWriteFast(PIN_CS_ADC, LOW);
+  SPI.transfer16(cmd);
+  uint16_t r = SPI.transfer16(0);
+  digitalWriteFast(PIN_CS_ADC, HIGH);
+  SPI.endTransaction();
+  return r;
+}
+
+static uint8_t adc_reg(uint8_t reg, int val = -1) {  // read if val < 0; a write echoes the byte written
+  SPI.beginTransaction(SPI_CONV);
+  digitalWriteFast(PIN_CS_ADC, LOW);
+  SPI.transfer16((reg << 9) | (val >= 0 ? 0x100 | val : 0));
+  uint8_t r = SPI.transfer(0);
+  digitalWriteFast(PIN_CS_ADC, HIGH);
+  SPI.endTransaction();
+  return r;
+}
+
+bool cv_in_begin() {  // range 0x00, ±10.24 V, on every channel (requirement 8), each read back
+  bool ok = true;
+  for (uint8_t ch = 0; ch < 8; ch++) ok = adc_reg(0x05 + ch, 0x00) == 0x00 && adc_reg(0x05 + ch) == 0x00 && ok;
+  return ok;
+}
+
+// MAN_Ch_n selects a channel and it converts in the next frame, so each frame returns the channel
+// the one before selected: n + 1 frames read n channels
+void cv_read(const uint8_t *chs, uint8_t n, float *volts) {
+  adc_frame(0xC000 | (chs[0] << 10));
+  for (uint8_t i = 0; i < n; i++) {
+    uint16_t code = adc_frame(i + 1 < n ? 0xC000 | (chs[i + 1] << 10) : 0x0000);  // the last: NO_OP
+    volts[i] = jack_from_adc((code - 32768.0f) * 20.48f / 65536);
+  }
+}
 
 void gates_write(uint8_t word) {
   SPI1.beginTransaction(SPI_PANEL);
@@ -217,6 +260,12 @@ bool take_menu_request() {
   s.menu = 0;
   store_settings(s);
   return true;
+}
+
+bool mode_load(uint8_t mode, void *d, uint8_t n) { return ee_read(EE_SETTINGS - EE_PAGE * (mode + 1), (uint8_t *)d, n); }
+
+bool mode_store(uint8_t mode, const void *d, uint8_t n) {
+  return ee_write(EE_SETTINGS - EE_PAGE * (mode + 1), (const uint8_t *)d, n);
 }
 
 void safe() {
