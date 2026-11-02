@@ -10,8 +10,9 @@
 // - CV in: PITCH1 Level 1 (V/oct too, with the internal oscillator on), PITCH2 Level 2, GATE1
 //   Algorithm, GATE2 Timbre. Every jack switch stays off, so all six are inputs; GATE3 and PITCH3
 //   are unused, and so are the gate outs and MIDI.
-// - the encoder stands in for the four knobs and the button: a press steps through them, a long
-//   press steps back, a turn sets the one marked. Held for 2 s it goes back to the mode chooser.
+// - the encoder stands in for the four knobs and the button. As in the chooser, a turn moves the
+//   marker; a press takes the marked item to edit (its row lit), a turn sets it, and a press lets
+//   it go. Held for 2 s it goes back to the mode chooser.
 // - 96 kHz, as Warps: AUDIO_SAMPLE_RATE_EXACT in platformio.ini
 //
 // Levels, from Warps' hardware (warps_v30.pdf, sheets 1 and 2) and Boy's:
@@ -199,11 +200,14 @@ static void read_cvs() {
 // ---- the encoder and the screen
 enum Item : uint8_t { CARRIER = KNOBS, SHIFT, ITEMS };
 static uint8_t sel;
+static bool editing;  // a turn sets the marked item; otherwise it moves the marker
 static uint32_t lastTurnMs, lastPaintMs, lastReportMs;
 
 static void ui() {
   int32_t turns = board::encoder_turns();
-  if (turns) {
+  if (turns && !editing) {
+    sel = constrain((int32_t)sel + turns, 0, ITEMS - 1);
+  } else if (turns) {
     uint32_t now = millis();
     int32_t step = now - lastTurnMs < 40 ? 4 : 1;  // turned fast: bigger steps
     lastTurnMs = now;
@@ -217,10 +221,8 @@ static void ui() {
   }
   switch (board::poll_push()) {
     case board::Push::SHORT:
-      sel = (sel + 1) % ITEMS;
-      break;
-    case board::Push::LONG:
-      sel = (sel + ITEMS - 1) % ITEMS;
+    case board::Push::LONG:  // any press short of the 2 s hold, as in the chooser
+      editing = !editing;
       break;
     case board::Push::MENU:
       board::back_to_menu();
@@ -262,7 +264,7 @@ static void paint() {
       snprintf(value, sizeof(value), "%s", set.shift ? "on" : "off");
     }
     snprintf(line, sizeof(line), "%c%-5s %-10s%s", it == sel ? '>' : ' ', name, value, jack);
-    screen::row(r, line);
+    screen::row(r, line, it == sel && editing);
   }
 }
 

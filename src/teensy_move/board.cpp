@@ -295,6 +295,7 @@ constexpr uint8_t ADDR_OLED = 0x3C, ROWS = 4, PIECE = 32;
 // 400 kHz during and after each of the library's transfers: its default drops the bus to 100 kHz
 static Adafruit_SSD1306 oled(128, 32, &Wire, -1, 400000, 400000);
 static char text[ROWS][22];
+static bool inv[ROWS];
 static uint8_t dirty[ROWS];  // bit k: piece k of the row (columns 32k to 32k+31) still to send
 
 void begin() {
@@ -305,10 +306,12 @@ void begin() {
   oled.display();  // once, at start-up: the whole frame
 }
 
-void row(uint8_t r, const char *s) {
-  if (r >= ROWS || strncmp(text[r], s, sizeof(text[r]) - 1) == 0) return;
+void row(uint8_t r, const char *s, bool inverted) {
+  if (r >= ROWS || (inverted == inv[r] && strncmp(text[r], s, sizeof(text[r]) - 1) == 0)) return;
   strlcpy(text[r], s, sizeof(text[r]));
-  oled.fillRect(0, r * 8, 128, 8, SSD1306_BLACK);
+  inv[r] = inverted;
+  oled.fillRect(0, r * 8, 128, 8, inverted ? SSD1306_WHITE : SSD1306_BLACK);
+  oled.setTextColor(inverted ? SSD1306_BLACK : SSD1306_WHITE);
   oled.setCursor(0, r * 8);
   oled.print(text[r]);
   dirty[r] = 0x0F;

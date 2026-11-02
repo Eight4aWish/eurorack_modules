@@ -72,6 +72,6 @@ void safe();
 // with the expander.
 namespace screen {
 void begin();
-void row(uint8_t r, const char *text);
+void row(uint8_t r, const char *text, bool inverted = false);  // inverted: black on a lit row
 void service();
 }  // namespace screen

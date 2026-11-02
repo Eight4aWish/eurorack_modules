@@ -15,8 +15,9 @@ Read it before changing `board.cpp`.
 and reset, the encoder and the chooser. TRS MIDI in is the one thing not yet tried: see
 [First flash](#first-flash).
 
-**2026-11-02:** mode 2, Warps, is written and builds; it hasn't been flashed or heard yet. See
-[Mode 2 on the bench](#mode-2-on-the-bench).
+**2026-11-02:** mode 2, Warps, is on Boy. The codec runs at 96 kHz, and the internal carrier
+is in tune and clean in all its shapes (David). Audio in, the CV ins and the frequency shifter
+are still to try: see [Mode 2 on the bench](#mode-2-on-the-bench).
 
 ## Modes
 
@@ -33,7 +34,7 @@ inputs or outputs, and that shouldn't change under a patch.
 | Mode | What | Status |
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
-| 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | builds, 2026-11-02; not yet on the bench |
+| 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | on the bench, 2026-11-02: 96 kHz and the internal carrier pass |
 | 3 | **Weirder two-input processing**: spectral morphing and sidechain ducking first | to come |
 
 ## Mode 1, the Move companion
@@ -107,9 +108,11 @@ at a time:
 | CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW |
 | SHIFT | the easter egg, the frequency shifter | off, on. The four knobs become FDBK, WET, FREQ and MIX |
 
-- **Press** to move to the next item.
-- **Long press** (0.6 s) to move back one.
-- **Turn** to set the marked item; turning fast takes bigger steps.
+The gestures are the chooser's (David, 2026-11-02: one gesture to scroll on both pages):
+- **Turn** to move the marker `>`.
+- **Press** to edit the marked item: its row lights. Turn to set it; turning fast takes bigger
+  steps.
+- **Press again** to let it go and scroll on.
 - **Hold 2 s** for the chooser.
 
 The settings are kept in the EEPROM, written 3 s after the last change, so the mode comes back as
@@ -203,7 +206,12 @@ With nothing patched, then patching one thing at a time:
 
 ## Mode 2 on the bench
 
-Not yet run. Keep `pio device monitor` open: it prints the CPU and the CV ins every 2 s.
+**Run 2026-11-02, so far:** steps 2 and 3 pass. LEV1 at 0 % gave C2 on a tuner, so the codec
+is at 96 kHz. The sine is clean on the Tiliqua's scope, and so are the other carrier shapes. The
+first gestures, a press to step through the items, were awkward against the chooser's turn to
+scroll, so mode 2 now uses the chooser's.
+
+`pio device monitor` prints the CPU and the CV ins every 2 s.
 
 1. **Mode 1 again, at 96 kHz.** The whole firmware now runs the codec at 96 kHz. In mode 1 that
    only matters for step 7 above: the audio outs should still sit at 0 V.
