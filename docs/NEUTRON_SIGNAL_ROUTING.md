@@ -1,5 +1,9 @@
 # Behringer Neutron — Signal Routing Reference
 
+> **Reference only: David does not own a Neutron** (2026-11-03). He has the Proton.
+> This doc exists because the Proton docs were corrected against it. Its existence once
+> led `MODULES.md` to list a Neutron as owned gear, so do not read it that way.
+
 > **Source of truth:** *Behringer NEUTRON User Manual* (English, 32 pp.,
 > matches firmware V1.2.2). Page references in this document are to that PDF.
 >
