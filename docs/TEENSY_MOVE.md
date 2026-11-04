@@ -100,6 +100,9 @@ Warps' own codec, CV, knob and button code.
 
 All six CV jacks are inputs: every jack switch stays off for the session.
 
+**The overlay.** The panel's labels are mode 1's, so mode 2 has a 3D-printed card that slips over rows
+2-6: `build123d/panels/teensy_move_reva_warps_overlay.py` (not printed or fitted yet).
+
 **The encoder** stands in for Warps' four knobs and its button. The screen lists six items, four
 at a time:
 
