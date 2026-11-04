@@ -16,8 +16,11 @@ and reset, the encoder and the chooser. TRS MIDI in is the one thing not yet tri
 [First flash](#first-flash).
 
 **2026-11-02:** mode 2, Warps, is on Boy. The codec runs at 96 kHz, and the internal carrier
-is in tune and clean in all its shapes (David). Audio in, the CV ins and the frequency shifter
-are still to try: see [Mode 2 on the bench](#mode-2-on-the-bench).
+is in tune and clean in all its shapes (David).
+
+**2026-11-04:** CV in works, by ear, from V/oct into Warps' internal oscillator (David), the first
+time a Rev A CV input has read another module. Tracking and calibration are for later, on purpose.
+Audio in and the frequency shifter are still to try: see [Mode 2 on the bench](#mode-2-on-the-bench).
 
 ## Modes
 
