@@ -147,7 +147,7 @@ it was left.
 **The serial monitor** (`pio device monitor`) prints every 2 s:
 - the audio CPU, now and at most;
 - audio blocks in use;
-- the four CV voltages, and which jacks read open.
+- all six CV voltages, and which of the four in use read open.
 
 ## Files
 
@@ -226,10 +226,17 @@ scroll, so mode 2 now uses the chooser's. David: "perfect".
 4. **Audio in.** CARR to EXT. Patch an oscillator into audio in L (the carrier) and another into
    in R (the modulator), at about 10 Vpp. Turn ALGO through all seven algorithms. Out R (AUX)
    carries the two inputs mixed.
-5. **CV ins.** One at a time:
-   - an LFO into GATE1: the ALGO name moves, and the jack shows `G1*`;
-   - an envelope into PITCH2: the modulator's level follows it, over 0 to about 6 V;
-   - a V/oct into PITCH1 with CARR on SINE: 1 V an octave.
+5. **CV ins.** The first time any of Rev A's CV inputs reads another module. One at a time:
+   - **V/oct into PITCH1,** with CARR on SINE, ALGO on XFADE, TIMB at 0 % and LEV1 at 40 %. Out L:
+     nothing patched, C4. Patched at 0 V, C2; 1 V, C3; 2 V, C4; 3 V, C5. From a 1 kΩ output expect
+     about 13 cents flat an octave, the same loading as any 100 kΩ input; don't chase it.
+   - **The reading:** the monitor's voltage against a meter at the source, steady and in both polarities.
+     It should agree to within a few tens of millivolts. A source at 0 V should read about 0 V and show
+     a `*`; an open jack reads +0.207 V.
+   - **An LFO into GATE1:** the ALGO name moves, and the jack shows `G1*`.
+   - **An envelope into PITCH2:** the modulator's level follows it, over 0 to about 6 V.
+   - **Into GATE2:** Timbre moves.
+   - **GATE3 and PITCH3:** mode 2 doesn't use them, so check them on the monitor's reading alone.
    - Take each cable out: its `*` should go within about a tenth of a second.
 6. **Output DC.** ALGO on COMPARE, both inputs patched: the outs average 0 V on a meter.
 7. **SHIFT on:** the frequency shifter. ALGO becomes FREQ and shifts the carrier (in L) up or down

@@ -47,6 +47,7 @@ constexpr uint8_t MODE = 1;  // this mode's place in main.cpp's MODES: its EEPRO
 // ---- jacks
 enum Knob : uint8_t { LEVEL1, LEVEL2, ALGO, TIMBRE, KNOBS };
 constexpr uint8_t CV_JACK[KNOBS] = {board::PITCH1, board::PITCH2, board::GATE1, board::GATE2};
+constexpr uint8_t SPARE_JACK[2] = {board::GATE3, board::PITCH3};  // unused here: read for the bench report
 constexpr float CV_SCALE[KNOBS] = {36 / 100.0f / 3.3f, 36 / 100.0f / 3.3f, 33 / 100.0f / 3.3f, 33 / 100.0f / 3.3f};
 constexpr float OPEN_WINDOW = 0.020f, OPEN_STEADY = 0.004f;  // V
 constexpr uint32_t OPEN_MS = 100;
@@ -74,6 +75,7 @@ static uint32_t changedMs;  // a change waits 3 s to be written, so a turn isn't
 // ---- shared with the audio interrupt
 static volatile float cv_volts[KNOBS];
 static volatile bool cv_open[KNOBS] = {true, true, true, true};
+static float spare_volts[2];
 
 static warps::Modulator modulator;
 static float lp_pot[KNOBS], lp_cv[KNOBS], note_cv, note_pot;
@@ -181,6 +183,7 @@ static void read_cvs() {
   if (!cv_ok) return;  // every jack stays open
   float v[KNOBS];
   board::cv_read(CV_JACK, KNOBS, v);
+  board::cv_read(SPARE_JACK, 2, spare_volts);
   uint32_t now = millis();
   for (uint8_t k = 0; k < KNOBS; k++) {
     Detect &d = detect[k];
@@ -304,10 +307,10 @@ void loop() {
   screen::service();
 
   if (now - lastReportMs >= 2000) {  // for the bench: pio device monitor
-    Serial.printf("Warps: cpu %.1f%% (max %.1f%%), blocks %u (max %u); CV %+.3f %+.3f %+.3f %+.3f V, open %d%d%d%d\n",
+    Serial.printf("Warps: cpu %.1f%% (max %.1f%%), blocks %u (max %u); P1 %+.3f P2 %+.3f G1 %+.3f G2 %+.3f G3 %+.3f P3 %+.3f V, open %d%d%d%d\n",
                   AudioProcessorUsage(), AudioProcessorUsageMax(), AudioMemoryUsage(), AudioMemoryUsageMax(),
-                  cv_volts[0], cv_volts[1], cv_volts[2], cv_volts[3], cv_open[0], cv_open[1], cv_open[2],
-                  cv_open[3]);
+                  cv_volts[0], cv_volts[1], cv_volts[2], cv_volts[3], spare_volts[0], spare_volts[1], cv_open[0], cv_open[1],
+                  cv_open[2], cv_open[3]);
     lastReportMs = now;
   }
 }
