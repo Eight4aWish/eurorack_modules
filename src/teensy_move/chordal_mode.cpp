@@ -8,7 +8,7 @@
 //   until MIDI stop, which ends it whatever HOLD says.
 // - audio out L and R are the chord in stereo. Audio in L and R, summed, ring the strings: patch
 //   drums in, turn SOUND up, and they sound in the chord.
-// - CV out: PITCH1-3 and GATE1 are the four notes, V/oct, gliding as they lead (note 36 at 0 V, as
+// - CV out: PITCH1-3 and GATE1 are the four notes, V/oct, gliding if GLIDE is up (note 36 at 0 V, as
 //   mode 1). GATE2 is 5 V while a chord is on. GATE3 is the motion, slowly, +-5 V.
 // - gate outs: a 5 ms trigger as each note enters, in order, on CLK, DRUM2, DRUM1 and RST.
 // - the encoder, as everywhere: a turn moves the marker, a press takes the marked item to edit, a

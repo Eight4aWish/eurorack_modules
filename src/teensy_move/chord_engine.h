@@ -39,7 +39,7 @@ struct Params {
   uint8_t decay = 0;     // 0: a held note stays. Above it, the note falls to SUST, in 60 ms to 6 s
   uint8_t sustain = 0;   // where DECAY falls to. At 100, DECAY only moves the filter
   uint8_t strum = 8;     // the gap between one note entering and the next
-  uint8_t glide = 20;    // how long a note takes to reach the next chord
+  uint8_t glide = 0;     // how long a note takes to reach the next chord: 0, by default, is at once
   uint8_t chorus = 0;
   uint8_t hold = 1;      // 1: a chord stays until the next one
   uint8_t level = 60;

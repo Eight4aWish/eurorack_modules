@@ -104,7 +104,7 @@ try: see [the bench list](#mode-2-on-the-bench).
 | MIDI, USB and TRS, any channel but 10 | a note plays a chord; bend is ±2 semitones. Transport stop, All Sound Off and All Notes Off end it within a second, whatever HOLD says (Stop on the Move confirmed, David, 2026-11-05) |
 | audio out L, R | the chord, in stereo |
 | audio in L, R | summed, they ring the strings |
-| PITCH1, PITCH2, PITCH3, GATE1 | the four notes, V/oct, gliding as they lead (note 36 at 0 V, as mode 1) |
+| PITCH1, PITCH2, PITCH3, GATE1 | the four notes, V/oct, gliding if GLIDE is up (note 36 at 0 V, as mode 1) |
 | GATE2 | 5 V while a chord is on |
 | GATE3 | the motion, slowly, ±5 V |
 | CLK, DRUM2, DRUM1, RST | a 5 ms trigger as each note enters, in that order |
@@ -149,7 +149,7 @@ are the items:
 | SPREAD, MOTION | detune and stereo width; how much it drifts and breathes |
 | SWELL | attack, release and how long the strings ring |
 | DECAY, SUST | 0: a held note stays. Above it, the note falls to SUST, in 60 ms to 6 s, and the filter closes at twice the speed. With SUST at 100 %, only the filter moves |
-| STRUM, GLIDE | the gap between notes entering; how long a note takes to reach the next chord |
+| STRUM, GLIDE | the gap between notes entering; how long a note takes to reach the next chord. GLIDE is off in every patch (David, 2026-11-05) |
 | CHORUS | a string machine's ensemble. Off in Warps, whose vocoder wants the dry carrier |
 | HOLD | on: a chord stays until the next one |
 | LEVEL | the output |
