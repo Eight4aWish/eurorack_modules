@@ -99,7 +99,7 @@ only: all six CV jacks are outputs here.
 
 | Boy | Chordal |
 |---|---|
-| MIDI, USB and TRS, any channel but 10 | a note plays a chord; bend is ±2 semitones. Transport stop, All Sound Off and All Notes Off end it within a second, whatever HOLD says |
+| MIDI, USB and TRS, any channel but 10 | a note plays a chord; bend is ±2 semitones. Transport stop, All Sound Off and All Notes Off end it within a second, whatever HOLD says (Stop on the Move confirmed, David, 2026-11-05) |
 | audio out L, R | the chord, in stereo |
 | audio in L, R | summed, they ring the strings |
 | PITCH1, PITCH2, PITCH3, GATE1 | the four notes, V/oct, gliding as they lead (note 36 at 0 V, as mode 1) |
