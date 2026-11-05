@@ -24,8 +24,9 @@ Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#
 
 **2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
 so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its META mode. Flashing this
-resets Warps' settings once, because its EEPROM page moved. Chordal and Parasites are written and
-build, not yet flashed.
+resets Warps' settings once, because its EEPROM page moved. Flashed the same day: Chordal starts and
+runs at 26 % CPU on PAD (the serial monitor). Nothing has been played or heard through it on the module
+yet, and Parasites hasn't been tried.
 
 ## Modes
 
@@ -42,8 +43,8 @@ inputs or outputs, and that shouldn't change under a patch.
 | Mode | What | Status |
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
-| 2 | **Chordal**: one finger plays four notes that lead into the next chord, as stereo oscillators or strings the audio inputs can ring | written and builds, 2026-11-05; not yet flashed |
-| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. Parasites written and builds, 2026-11-05; not yet flashed |
+| 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | flashed 2026-11-05; runs at 26 % CPU on PAD, not yet played |
+| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. Parasites flashed 2026-11-05, not yet tried |
 
 ## Mode 1, the Move companion
 
@@ -92,8 +93,9 @@ the old Boy's chord mode and drone, which saw little use because that Boy's audi
 and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
 `scripts/host/chord_render.cpp` runs the same code on a Mac.
 
-**Status, 2026-11-05:** written and builds, not yet flashed. What's been checked so far is the
-Mac render, by measurement. Its CPU on the Teensy isn't known: see [the bench list](#mode-2-on-the-bench).
+**Status, 2026-11-05:** flashed, and it starts and runs at 26 % CPU on PAD. The sound has only been
+checked in the Mac render, by measurement: see [the bench list](#mode-2-on-the-bench). It plays from MIDI
+only: all six CV jacks are outputs here.
 
 | Boy | Chordal |
 |---|---|
