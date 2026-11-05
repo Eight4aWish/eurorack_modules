@@ -24,10 +24,9 @@ Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#
 **2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
 so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its META mode. Flashing this
 resets Warps' settings once, because its EEPROM page moved. Flashed the same day. Chordal sounds good from MIDI, and Stop on the
-Move ends the chord (David). Peak CPU on the serial monitor: Chordal 27 % on PAD and 38 % on GLASS, its
-heaviest patch; Warps with the chords running, 65 % in VOCODER and 64 % in META, which leaves room. The other
-Parasites modes haven't been tried. Audio blocks peak at 8, and each mode now has 16. The bank was then rebuilt
-around synth patches, with a SET row for the progressions: committed, not flashed yet.
+Move ends the chord (David). The bank was then rebuilt around synth patches, with a SET row for the
+progressions, and flashed the same day. CPU on the serial monitor: Chordal 41 % on HALO, its heaviest patch; Warps
+in META with chords on HALO, 61 %, which leaves room. Audio blocks peak at 8, and each mode now has 16.
 
 ## Modes
 
@@ -45,7 +44,7 @@ inputs or outputs, and that shouldn't change under a patch.
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
 | 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | works from MIDI, 2026-11-05; CV out and the audio inputs not yet tried |
-| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. META and VOCODER with the chords run at about 65 % CPU, 2026-11-05; the other Parasites modes not yet tried |
+| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. META with chords on HALO, the heaviest patch, runs at 61 % CPU, 2026-11-05; the other Parasites modes not yet tried by ear |
 
 ## Mode 1, the Move companion
 
@@ -94,9 +93,13 @@ the old Boy's chord mode and drone, which saw little use because that Boy's audi
 and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
 `scripts/host/chord_render.cpp` runs the same code on a Mac.
 
-**Status, 2026-11-05:** flashed, and it sounds good from MIDI (David). Peak CPU was 27 % on PAD and 38 % on
-GLASS, since dropped from the bank. The rebuilt bank isn't flashed yet: timing it on the Mac, its heaviest
-patch, HALO, should be about 47 %. It plays from MIDI only: all six CV jacks are outputs here. CV out and the audio inputs are still to
+**Status, 2026-11-05:** flashed, and the first bank sounded good from MIDI (David); the rebuilt bank is still to be
+judged on the module. CPU on the serial monitor, stepping PATCH in order: HALO 41 %, SAW PLUCK 38 %, STAB 36 %,
+BRASS 31 %, ANALOG 30 %, PAD, SUPERSAW, DRONE and DARK 29 %, SOFT KEYS 25 %, ENSEMBLE 23 %, PWM PAD 21 %, SWEEP 18 %,
+and HARP, BOWED and RING 11 %. Every note renders all the time, so playing doesn't change these (from the code and
+timing on the Mac). With every costly row turned up on one patch (SHAPE 60, PULSE 100, FILTER 24 dB, DRIVE 100,
+SOUND 50, CHORUS 100), scaling Mac timing from HALO gives about 68 %, or about 90 % in Warps; that isn't measured on
+the module. It plays from MIDI only: all six CV jacks are outputs here. CV out and the audio inputs are still to
 try: see [the bench list](#mode-2-on-the-bench).
 
 | Boy | Chordal |
@@ -334,7 +337,7 @@ CPU first:** it decides how much of this can run alongside Warps.
 2. **Play the Move into USB.** Out L and R play the chord, and its name is on the top row. Turn HOLD
    off: the chord stops when the pad lifts.
    - **Turn PATCH through all sixteen,** against `chord_render bank`. 6 HALO, five oscillators and the chorus,
-     should show the highest CPU: about 47 % by timing on the Mac.
+     shows the highest CPU: 41 % (2026-11-05).
    - Change a patch, wait 3 s, restart: it comes back as it was left, with the `*`.
 3. **Move between chords** with STACK on 7TH: the notes on the monitor should barely move.
 4. **Stereo.** Take L and R one at a time, with SPREAD and MOTION up: they should clearly differ.
@@ -343,7 +346,9 @@ CPU first:** it decides how much of this can run alongside Warps.
    tuning. GATE2 follows the chord, GATE3 moves slowly, and the gate outs trigger as the notes enter.
 7. **TRS MIDI in.** The first time on this board: Move or another source into the TRS jack.
 8. **In Warps** (mode 3): CHORD on, CARR on EXT, MODE on VOCODER, a voice or drums into audio in R,
-   and play the Move. Read the CPU line: Warps and the chords together are what has to fit. RELS
+   and play the Move. Read the CPU line: Warps and the chords together are what has to fit, and the chords are Chordal's
+   last patch, without its chorus. META reads 61 % on HALO, the heaviest (peak 61.7 %), and 37 % on the
+   strings; VOCODER reads 37 % on the strings. RELS
    from about 93 % freezes the vocoder's bands, so a held vowel keeps singing the chords.
 
 ## Mode 3 on the bench
