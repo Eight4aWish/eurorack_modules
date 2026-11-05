@@ -357,7 +357,7 @@ void begin() {
   midi_notes::begin(chord_on, chord_off, chord_bend, chord_stop);
 
   modulator.Init(AUDIO_SAMPLE_RATE_EXACT);
-  AudioMemory(8);
+  AudioMemory(16);  // 8 was reached on the bench, with Warps and the chords running
   // made in signal order, so the library updates them in that order within a block
   AudioInputI2S *in = new AudioInputI2S();
   WarpsStream *warps = new WarpsStream();

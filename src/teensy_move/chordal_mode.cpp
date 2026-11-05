@@ -256,7 +256,7 @@ void begin() {
 
   midi_notes::begin(on, off, bend, stop);
 
-  AudioMemory(8);
+  AudioMemory(16);
   // made in signal order, so the library updates them in that order within a block
   AudioInputI2S *in = new AudioInputI2S();
   ChordalStream *chordal = new ChordalStream();

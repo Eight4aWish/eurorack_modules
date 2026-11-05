@@ -24,9 +24,10 @@ Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#
 
 **2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
 so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its META mode. Flashing this
-resets Warps' settings once, because its EEPROM page moved. Flashed the same day: Chordal starts and
-runs at 26 % CPU on PAD (the serial monitor). Nothing has been played or heard through it on the module
-yet, and Parasites hasn't been tried.
+resets Warps' settings once, because its EEPROM page moved. Flashed the same day. Chordal sounds good from MIDI, and Stop on the
+Move ends the chord (David). Peak CPU on the serial monitor: Chordal 27 % on PAD and 38 % on GLASS, its
+heaviest patch; Warps with the chords running, 65 % in VOCODER and 64 % in META, which leaves room. The other
+Parasites modes haven't been tried. Audio blocks peak at 8, and each mode now has 16.
 
 ## Modes
 
@@ -43,8 +44,8 @@ inputs or outputs, and that shouldn't change under a patch.
 | Mode | What | Status |
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
-| 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | flashed 2026-11-05; runs at 26 % CPU on PAD, not yet played |
-| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. Parasites flashed 2026-11-05, not yet tried |
+| 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | works from MIDI, 2026-11-05; CV out and the audio inputs not yet tried |
+| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. META and VOCODER with the chords run at about 65 % CPU, 2026-11-05; the other Parasites modes not yet tried |
 
 ## Mode 1, the Move companion
 
@@ -93,9 +94,9 @@ the old Boy's chord mode and drone, which saw little use because that Boy's audi
 and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
 `scripts/host/chord_render.cpp` runs the same code on a Mac.
 
-**Status, 2026-11-05:** flashed, and it starts and runs at 26 % CPU on PAD. The sound has only been
-checked in the Mac render, by measurement: see [the bench list](#mode-2-on-the-bench). It plays from MIDI
-only: all six CV jacks are outputs here.
+**Status, 2026-11-05:** flashed, and it sounds good from MIDI (David). Peak CPU is 27 % on PAD and 38 % on
+GLASS. It plays from MIDI only: all six CV jacks are outputs here. CV out and the audio inputs are still to
+try: see [the bench list](#mode-2-on-the-bench).
 
 | Boy | Chordal |
 |---|---|
