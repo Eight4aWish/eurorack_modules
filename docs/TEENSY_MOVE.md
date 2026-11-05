@@ -93,8 +93,8 @@ the old Boy's chord mode and drone, which saw little use because that Boy's audi
 and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
 `scripts/host/chord_render.cpp` runs the same code on a Mac.
 
-**Status, 2026-11-05:** flashed, and the first bank sounded good from MIDI (David); the rebuilt bank is still to be
-judged on the module. CPU on the serial monitor, stepping PATCH in order: HALO 41 %, SAW PLUCK 38 %, STAB 36 %,
+**Status, 2026-11-05:** flashed, and it sounds good from MIDI. On the rebuilt bank's SET row: "chords sets and
+progressions are accessible. all is good" (David). CPU on the serial monitor, stepping PATCH in order: HALO 41 %, SAW PLUCK 38 %, STAB 36 %,
 BRASS 31 %, ANALOG 30 %, PAD, SUPERSAW, DRONE and DARK 29 %, SOFT KEYS 25 %, ENSEMBLE 23 %, PWM PAD 21 %, SWEEP 18 %,
 and HARP, BOWED and RING 11 %. Every note renders all the time, so playing doesn't change these (from the code and
 timing on the Mac). With every costly row turned up on one patch (SHAPE 60, PULSE 100, FILTER 24 dB, DRIVE 100,
