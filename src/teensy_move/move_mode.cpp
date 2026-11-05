@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 David Baghurst
 //
-// Mode 1, the Move companion. Ported from the old Boy (src/teensy_move_old/main.cpp):
+// Mode 1, the Move companion. Ported from the old Boy (tag teensy-move-old-final):
 // - three voices, MIDI ch 1-3: GATE1-3 and PITCH1-3 (the old Boy's ch 4 and mod outs have no jacks)
 // - drums on ch 10: note 36 fires DRM1, note 37 DRM2, 500 us pulses
 // - MIDI clock: a pulse on CLK every 16th; Start sends a pulse on RST

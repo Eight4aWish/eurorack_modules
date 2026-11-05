@@ -2,7 +2,7 @@
 // Copyright (c) 2026 David Baghurst
 //
 // Boy: the Move companion and more, on the analogue board Rev A (Teensy 4.1). It took over
-// src/teensy_move from the old Boy, whose firmware is now src/teensy_move_old.
+// src/teensy_move from the old Boy, whose firmware is at the tag teensy-move-old-final.
 //
 // The mode is chosen at power-on and holds for the session, because modes set the six CV jacks as
 // inputs or outputs and that shouldn't change under a patch. The chooser starts on the last mode:
