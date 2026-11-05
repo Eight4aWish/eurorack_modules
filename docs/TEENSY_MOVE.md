@@ -348,7 +348,8 @@ CPU first:** it decides how much of this can run alongside Warps.
 8. **In Warps** (mode 3): CHORD on, CARR on EXT, MODE on VOCODER, a voice or drums into audio in R,
    and play the Move. Read the CPU line: Warps and the chords together are what has to fit, and the chords are Chordal's
    last patch, without its chorus. META reads 61 % on HALO, the heaviest (peak 61.7 %), and 37 % on the
-   strings; VOCODER reads 37 % on the strings. RELS
+   strings; VOCODER reads 37 % on the strings; DOPPLER reads 43 % on HALO. The highest peak seen on HALO, while
+   changing modes, is 64.9 %. RELS
    from about 93 % freezes the vocoder's bands, so a held vowel keeps singing the chords.
 
 ## Mode 3 on the bench
