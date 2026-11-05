@@ -110,20 +110,36 @@ across the stereo field, through a low-pass that tracks the note, blooms as it e
 with MOTION. Each also has a tuned string, a comb resonator that the audio inputs, a little air
 noise and a pluck can all ring. So with SOUND up, drums patched in come out in the chord.
 
+**The bank.** PATCH, at the top of the list, picks from sixteen starting points and changes the sound
+as it turns. A patch sets the sound, STACK and OCT, and leaves KEY, HARM, VOICE and HOLD alone. Change
+anything after that and a `*` follows the patch's name; the settings saved are what you hear. They're
+levelled against each other on the Mac: the ones that sustain sit within about 2 dB.
+
+| | | | |
+|---|---|---|---|
+| 1 PAD | 2 DRONE, on open fifths | 3 CHOIR | 4 SUPERSAW |
+| 5 SWEEP, a resonant filter moving | 6 BRASS | 7 ORGAN | 8 PIPES, in octaves |
+| 9 REEDS, odd partials | 10 MALLET, a marimba's | 11 BELLS, a church bell's | 12 GLASS, a bar's partials and a string |
+| 13 PLUCK | 14 HARP, strummed | 15 BOWED | 16 RING: patch audio in, and it sounds in the chord |
+
 **The gestures** are the same as every other page. The chord's name is on the top row, and these
 are the items:
 
 | Item | Sets |
 |---|---|
+| PATCH | the bank |
 | KEY | C to B |
 | HARM | MAJOR, MINOR, DORIAN, MIXOLYD, LYDIAN, PHRYGIAN, HARM MIN: any note plays the chord built on it. Then the old chord mode's 40 progressions: white keys are chords 1-7, a black key plays the white key below it, and A# is the eighth |
 | STACK | how a scale builds its chords: 7TH, 9TH, SUS, QUARTAL, OPEN, FIFTHS |
 | VOICE | LEAD picks whichever inversion moves least from the last chord; Root, Inv1, Inv2, Drop2 and Spread are fixed |
 | OCT | −2 to +2 |
 | SOUND | oscillators to strings |
+| OSCS | how each note's five oscillators are tuned: DETUNE, ORGAN, HOLLOW, OCTAVES, BAR, BELL. All cost the same |
 | SHAPE | sine, triangle, saw |
-| BRIGHT, SPREAD, MOTION | the filter; detune and stereo width; how much it drifts and breathes |
+| BRIGHT, RESO | the filter, and its resonance |
+| SPREAD, MOTION | detune and stereo width; how much it drifts and breathes |
 | SWELL | attack, release and how long the strings ring |
+| DECAY | 0: a held note stays. Above it, the note falls away, in 60 ms to 6 s |
 | STRUM, GLIDE | the gap between notes entering; how long a note takes to reach the next chord |
 | HOLD | on: a chord stays until the next one |
 | LEVEL | the output |
@@ -304,6 +320,9 @@ CPU first:** it decides how much of this can run alongside Warps.
 1. **Choose 2.** Hold 2 s, turn to `2 CHORDAL`, press.
 2. **Play the Move into USB.** Out L and R play the chord, and its name is on the top row. Turn HOLD
    off: the chord stops when the pad lifts.
+   - **Turn PATCH through all sixteen,** against `chord_render bank`. 12 GLASS runs the oscillators and
+     the strings together, so it should show the highest CPU.
+   - Change a patch, wait 3 s, restart: it comes back as it was left, with the `*`.
 3. **Move between chords** with STACK on 7TH: the notes on the monitor should barely move.
 4. **Stereo.** Take L and R one at a time, with SPREAD and MOTION up: they should clearly differ.
 5. **Strings.** SOUND at 100 %. Patch drums into audio in L. They should ring in the chord.

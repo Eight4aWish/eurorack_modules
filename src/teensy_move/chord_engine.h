@@ -16,24 +16,27 @@ namespace chord {
 constexpr int kNotes = 4;  // notes in a chord: a bass and three above it
 constexpr int kStack = 5;  // oscillators on each note
 
-// What the panel sets, kept as it is in the EEPROM: 15 bytes, inside a mode's 16 with a magic byte
+// What the panel sets, kept as it is in the EEPROM
 struct Params {
   uint8_t key = 0;       // 0 = C
   uint8_t harmony = 0;   // a scale, then the progressions: HarmonyName()
   uint8_t stack = 0;     // how a scale builds its chords: StackName()
   uint8_t voicing = 0;   // 0 leads each chord into the next, then fixed voicings: VoicingName()
   int8_t octave = 0;
+  uint8_t oscs = 0;      // how each note's oscillators are tuned: OscsName()
   // 0-100 from here
   uint8_t sound = 0;     // 0 the oscillators, 100 the strings
   uint8_t shape = 100;   // 0 sine, 50 triangle, 100 saw
   uint8_t bright = 45;
+  uint8_t reso = 0;      // the low-pass's resonance
   uint8_t spread = 35;   // detune and stereo width
   uint8_t motion = 35;   // how much it drifts and breathes
   uint8_t swell = 25;    // attack, release and how long the strings ring
+  uint8_t decay = 0;     // 0: a held note stays. Above it, the note falls away, in 60 ms to 6 s
   uint8_t strum = 8;     // the gap between one note entering and the next
   uint8_t glide = 20;    // how long a note takes to reach the next chord
   uint8_t hold = 1;      // 1: a chord stays until the next one
-  uint8_t level = 70;
+  uint8_t level = 60;
 };
 
 int HarmonyCount();
@@ -43,6 +46,15 @@ const char *StackName(int i);
 int VoicingCount();
 const char *VoicingName(int i);
 const char *KeyName(int key);
+int OscsCount();
+const char *OscsName(int i);
+
+// The bank: sixteen starting points. A patch sets the sound, the chord stack and the octave, and leaves
+// KEY, HARM, VOICE and HOLD as they are.
+constexpr int kPatches = 16;
+const char *PatchName(int i);
+void ApplyPatch(Params *p, int i);
+bool PatchEdited(const Params &p, int i);  // the sound has been moved away from patch i
 
 class Engine {
  public:
@@ -79,7 +91,7 @@ class Engine {
     Osc osc[kStack];
     float note, target, pending_note;
     int32_t pending;  // samples until pending_note takes over; negative when there's none
-    float env, gate, bloom;
+    float env, gate, bloom, fall;
     float s1_l, s2_l, s1_r, s2_r;  // the low-pass, each side
     float g, a1, a2, a3;
     float lfo_amp, lfo_amp_inc, lfo_tone, lfo_tone_inc;
@@ -87,6 +99,7 @@ class Engine {
     float *line;
     uint32_t write;
     float delay, delay_step, fb, damp, damp_state;
+    float air_1, air_2, air_k;
     int32_t burst, burst_len;
     float burst_amp;
     float amp_now, amp_step;

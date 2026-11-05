@@ -334,6 +334,20 @@ int main(int argc, char **argv) {
       t += 1.5f;
     }
     vocoder(e, score, len + 6.2f, 0.78f, 0.5f, freeze);
+  } else if (scene == "bank") {  // every patch on one phrase; in = drums, which only RING hears
+    for (int i = 0; i < chord::kPatches; i++) {
+      bool ring = !strcmp(chord::PatchName(i), "RING");
+      printf("\n%6.1f s  %2d %s\n", out_buf.size() / 2 / SR, i + 1, chord::PatchName(i));
+      e.Init(SR);
+      e.p = d;
+      chord::ApplyPatch(&e.p, i);
+      in_pos = 0;
+      play(e, line({48, 45, 41, 43}, 1.5f), 6.0f, ring);  // I vi IV V in C
+      e.p.hold = 0;
+      e.HoldChanged();
+      play(e, {}, 1.5f, ring);
+      gap(0.3f);
+    }
   } else if (scene == "parasites") {  // in = drums, second in = a voice
     static warps::Modulator mod;
     mod.Init(SR);

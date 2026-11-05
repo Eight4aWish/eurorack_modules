@@ -78,7 +78,7 @@ static void set_port0(uint8_t v) {
   tca_write(TCA_OUT0, v);
 }
 
-static bool ee_write(uint16_t a, const uint8_t *d, uint8_t n) {  // n <= 16, inside one page
+static bool ee_write(uint16_t a, const uint8_t *d, uint8_t n) {  // n <= 32, inside one M24C64 page
   Wire.beginTransmission(ADDR_EE);
   Wire.write(a >> 8);
   Wire.write(a & 0xFF);

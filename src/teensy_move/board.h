@@ -56,7 +56,7 @@ Push poll_push();
 uint8_t saved_mode();
 void save_mode(uint8_t mode);
 bool take_menu_request();  // true once after back_to_menu()
-// A mode's own settings: up to 16 bytes in an EEPROM page of its own
+// A mode's own settings: up to 32 bytes in an EEPROM page of its own
 bool mode_load(uint8_t mode, void *d, uint8_t n);
 bool mode_store(uint8_t mode, const void *d, uint8_t n);
 

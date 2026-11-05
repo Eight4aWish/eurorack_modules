@@ -12,6 +12,8 @@
 // - gate outs: a 5 ms trigger as each note enters, in order, on CLK, DRUM2, DRUM1 and RST.
 // - the encoder, as everywhere: a turn moves the marker, a press takes the marked item to edit, a
 //   turn sets it, a press lets it go. Held for 2 s it goes back to the mode chooser.
+// - PATCH, at the top, picks from a bank of sixteen and changes the sound as it turns. The items below
+//   it then start from there; a * shows the sound has moved away from the patch.
 
 #include "chordal_mode.h"
 
@@ -23,13 +25,14 @@
 namespace chordal_mode {
 
 constexpr uint8_t MODE = 1;  // this mode's place in main.cpp's MODES: its EEPROM page
-constexpr uint8_t SETTINGS_MAGIC = 0x43;
+constexpr uint8_t SETTINGS_MAGIC = 0x44;
 
 struct Settings {
   uint8_t magic;
+  uint8_t patch;
   chord::Params p;
 };
-static_assert(sizeof(Settings) <= 16, "a mode's EEPROM page holds 16 bytes");
+static_assert(sizeof(Settings) <= 32, "a mode's EEPROM page holds 32 bytes");
 
 constexpr uint8_t PITCH_JACK[chord::kNotes] = {board::PITCH1, board::PITCH2, board::PITCH3, board::GATE1};
 constexpr uint8_t GATE_JACK = board::GATE2, MOTION_JACK = board::GATE3;
@@ -37,11 +40,13 @@ constexpr float GATE_VOLTS = 5.0f, MOTION_VOLTS = 5.0f;
 constexpr uint32_t TRIG_MS = 5;
 
 static chord::Engine &engine = chord::shared();
+static uint8_t patch;  // its place in the bank
 
 bool load_params(chord::Params *p) {
   Settings s;
-  if (!board::mode_load(MODE, &s, sizeof(s)) || s.magic != SETTINGS_MAGIC) return false;
+  if (!board::mode_load(MODE, &s, sizeof(s)) || s.magic != SETTINGS_MAGIC || s.patch >= chord::kPatches) return false;
   *p = s.p;
+  patch = s.patch;
   return true;
 }
 
@@ -88,10 +93,10 @@ class ChordalStream : public AudioStream {
 };
 
 // ---- the encoder and the screen
-enum Item : uint8_t { KEY, HARMONY, STACK, VOICE, OCTAVE, SOUND, SHAPE, BRIGHT, SPREAD, MOTION, SWELL, STRUM, GLIDE, HOLD, LEVEL, ITEMS };
-static const char *const NAME[ITEMS] = {"KEY", "HARM", "STACK", "VOICE", "OCT", "SOUND", "SHAPE", "BRIGHT", "SPREAD", "MOTION", "SWELL", "STRUM", "GLIDE", "HOLD", "LEVEL"};
+enum Item : uint8_t { PATCH, KEY, HARMONY, STACK, VOICE, OCTAVE, SOUND, OSCS, SHAPE, BRIGHT, RESO, SPREAD, MOTION, SWELL, DECAY, STRUM, GLIDE, HOLD, LEVEL, ITEMS };
+static const char *const NAME[ITEMS] = {"PATCH", "KEY", "HARM", "STACK", "VOICE", "OCT", "SOUND", "OSCS", "SHAPE", "BRIGHT", "RESO", "SPREAD", "MOTION", "SWELL", "DECAY", "STRUM", "GLIDE", "HOLD", "LEVEL"};
 
-static uint8_t sel = HARMONY;
+static uint8_t sel = PATCH;
 static bool editing;
 static uint32_t changedMs, lastTurnMs, lastPaintMs, lastReportMs;
 
@@ -101,6 +106,8 @@ static uint8_t *percent(uint8_t item) {  // the items set from 0 to 100
     case SOUND: return &p.sound;
     case SHAPE: return &p.shape;
     case BRIGHT: return &p.bright;
+    case RESO: return &p.reso;
+    case DECAY: return &p.decay;
     case SPREAD: return &p.spread;
     case MOTION: return &p.motion;
     case SWELL: return &p.swell;
@@ -118,6 +125,11 @@ static void adjust(int32_t turns, int32_t step) {
     return;
   }
   switch (sel) {
+    case PATCH:
+      patch = constrain((int32_t)patch + turns, 0, chord::kPatches - 1);
+      chord::ApplyPatch(&p, patch);
+      break;
+    case OSCS: p.oscs = constrain((int32_t)p.oscs + turns, 0, chord::OscsCount() - 1); break;
     case KEY: p.key = (p.key + 12 + (turns % 12)) % 12; break;
     case HARMONY: p.harmony = constrain((int32_t)p.harmony + turns, 0, chord::HarmonyCount() - 1); break;
     case STACK: p.stack = constrain((int32_t)p.stack + turns, 0, chord::StackCount() - 1); break;
@@ -154,7 +166,7 @@ static void ui() {
       break;
   }
   if (changedMs && millis() - changedMs >= 3000) {
-    Settings s = {SETTINGS_MAGIC, engine.p};
+    Settings s = {SETTINGS_MAGIC, patch, engine.p};
     board::mode_store(MODE, &s, sizeof(s));
     changedMs = 0;
   }
@@ -167,6 +179,8 @@ static void value_of(uint8_t item, char *out, size_t n) {
     return;
   }
   switch (item) {
+    case PATCH: snprintf(out, n, "%u %s%s", patch + 1, chord::PatchName(patch), chord::PatchEdited(p, patch) ? "*" : ""); break;
+    case OSCS: snprintf(out, n, "%s", chord::OscsName(p.oscs)); break;
     case KEY: snprintf(out, n, "%s", chord::KeyName(p.key)); break;
     case HARMONY: snprintf(out, n, "%s", chord::HarmonyName(p.harmony)); break;
     case STACK: snprintf(out, n, "%s", chord::StackName(p.stack)); break;
@@ -222,6 +236,7 @@ static void jacks(uint32_t now) {
 
 void begin() {
   engine.Init(AUDIO_SAMPLE_RATE_EXACT);
+  chord::ApplyPatch(&engine.p, 0);
   load_params(&engine.p);
 
   // 0 V everywhere before the switches close (requirement 3.6)
