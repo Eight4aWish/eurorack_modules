@@ -26,7 +26,7 @@
 namespace chordal_mode {
 
 constexpr uint8_t MODE = 1;  // this mode's place in main.cpp's MODES: its EEPROM page
-constexpr uint8_t SETTINGS_MAGIC = 0x44;
+constexpr uint8_t SETTINGS_MAGIC = 0x45;
 
 struct Settings {
   uint8_t magic;
@@ -100,8 +100,8 @@ class ChordalStream : public AudioStream {
 };
 
 // ---- the encoder and the screen
-enum Item : uint8_t { PATCH, KEY, SET, HARMONY, STACK, VOICE, OCTAVE, SOUND, OSCS, SHAPE, BRIGHT, RESO, SPREAD, MOTION, SWELL, DECAY, STRUM, GLIDE, HOLD, LEVEL, ITEMS };
-static const char *const NAME[ITEMS] = {"PATCH", "KEY", "SET", "HARM", "STACK", "VOICE", "OCT", "SOUND", "OSCS", "SHAPE", "BRIGHT", "RESO", "SPREAD", "MOTION", "SWELL", "DECAY", "STRUM", "GLIDE", "HOLD", "LEVEL"};
+enum Item : uint8_t { PATCH, KEY, SET, HARMONY, STACK, VOICE, OCTAVE, SOUND, OSCS, SHAPE, PULSE, BRIGHT, RESO, SLOPE, FENV, DRIVE, SPREAD, MOTION, SWELL, DECAY, SUST, STRUM, GLIDE, CHORUS, HOLD, LEVEL, ITEMS };
+static const char *const NAME[ITEMS] = {"PATCH", "KEY", "SET", "HARM", "STACK", "VOICE", "OCT", "SOUND", "OSCS", "SHAPE", "PULSE", "BRIGHT", "RESO", "FILTER", "FENV", "DRIVE", "SPREAD", "MOTION", "SWELL", "DECAY", "SUST", "STRUM", "GLIDE", "CHORUS", "HOLD", "LEVEL"};
 
 static uint8_t sel = PATCH;
 static bool editing;
@@ -115,6 +115,11 @@ static uint8_t *percent(uint8_t item) {  // the items set from 0 to 100
     case BRIGHT: return &p.bright;
     case RESO: return &p.reso;
     case DECAY: return &p.decay;
+    case PULSE: return &p.pulse;
+    case FENV: return &p.fenv;
+    case DRIVE: return &p.drive;
+    case SUST: return &p.sustain;
+    case CHORUS: return &p.chorus;
     case SPREAD: return &p.spread;
     case MOTION: return &p.motion;
     case SWELL: return &p.swell;
@@ -137,6 +142,7 @@ static void adjust(int32_t turns, int32_t step) {
       chord::ApplyPatch(&p, patch);
       break;
     case OSCS: p.oscs = constrain((int32_t)p.oscs + turns, 0, chord::OscsCount() - 1); break;
+    case SLOPE: p.slope = turns > 0; break;
     case KEY: p.key = (p.key + 12 + (turns % 12)) % 12; break;
     case SET:
       p.harmony = chord::HarmonySetStart(constrain(chord::HarmonySetOf(p.harmony) + turns, 0, chord::HarmonySetCount() - 1));
@@ -195,6 +201,7 @@ static void value_of(uint8_t item, char *out, size_t n) {
   switch (item) {
     case PATCH: snprintf(out, n, "%u %s%s", patch + 1, chord::PatchName(patch), chord::PatchEdited(p, patch) ? "*" : ""); break;
     case OSCS: snprintf(out, n, "%s", chord::OscsName(p.oscs)); break;
+    case SLOPE: snprintf(out, n, "%s", p.slope ? "24 dB" : "12 dB"); break;
     case KEY: snprintf(out, n, "%s", chord::KeyName(p.key)); break;
     case SET: {
       const char *name = chord::HarmonySetName(chord::HarmonySetOf(p.harmony));

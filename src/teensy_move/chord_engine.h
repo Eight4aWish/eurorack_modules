@@ -27,14 +27,20 @@ struct Params {
   // 0-100 from here
   uint8_t sound = 0;     // 0 the oscillators, 100 the strings
   uint8_t shape = 100;   // 0 sine, 50 triangle, 100 saw
+  uint8_t pulse = 0;     // turns the saw into a pulse whose width moves: 100 is all pulse
   uint8_t bright = 45;
   uint8_t reso = 0;      // the low-pass's resonance
+  uint8_t slope = 0;     // the low-pass: 0 is 12 dB, 1 is 24 dB
+  uint8_t fenv = 50;     // how far the low-pass opens as a note enters: 50 is 2.5 octaves, 100 is 5
+  uint8_t drive = 0;     // into the low-pass
   uint8_t spread = 35;   // detune and stereo width
   uint8_t motion = 35;   // how much it drifts and breathes
   uint8_t swell = 25;    // attack, release and how long the strings ring
-  uint8_t decay = 0;     // 0: a held note stays. Above it, the note falls away, in 60 ms to 6 s
+  uint8_t decay = 0;     // 0: a held note stays. Above it, the note falls to SUST, in 60 ms to 6 s
+  uint8_t sustain = 0;   // where DECAY falls to. At 100, DECAY only moves the filter
   uint8_t strum = 8;     // the gap between one note entering and the next
   uint8_t glide = 20;    // how long a note takes to reach the next chord
+  uint8_t chorus = 0;
   uint8_t hold = 1;      // 1: a chord stays until the next one
   uint8_t level = 60;
 };
@@ -66,6 +72,7 @@ class Engine {
   void Init(float sample_rate);
 
   Params p;  // read once a block
+  bool use_chorus = true;  // Warps turns it off: its vocoder wants the dry carrier, and the CPU
 
   // Call these with the audio interrupt off
   void NoteOn(uint8_t note);
@@ -91,7 +98,7 @@ class Engine {
 
  private:
   struct Osc {
-    float phase, inc, drift, gain_l, gain_r;
+    float phase, inc, drift, gain_l, gain_r, width;
   };
   struct Voice {
     Osc osc[kStack];
@@ -99,7 +106,9 @@ class Engine {
     int32_t pending;  // samples until pending_note takes over; negative when there's none
     float env, gate, bloom, fall;
     float s1_l, s2_l, s1_r, s2_r;  // the low-pass, each side
-    float g, a1, a2, a3;
+    float s3_l, s4_l, s3_r, s4_r;  // its second stage, at 24 dB
+    float g, a1, a2, a3, b1, b2, b3;
+    float pw_phase;
     float lfo_amp, lfo_amp_inc, lfo_tone, lfo_tone_inc;
     float gain_str_l, gain_str_r;
     float *line;
@@ -117,13 +126,19 @@ class Engine {
   void Start(Voice &v, float note);
   void RenderOscillators(Voice &v, float *l, float *r, int n, float mix);
   void RenderString(Voice &v, const float *in, float *l, float *r, int n, float mix);
+  void Chorus(float *l, float *r, int n);
 
   static constexpr int kLine = 3400;  // samples: down to about 28 Hz at 96 kHz
   static constexpr int kHeld = 8;
+  static constexpr int kChorusLen = 1536;  // 16 ms at 96 kHz
 
   float sr_ = 96000.0f;
   Voice voice_[kNotes];
   float lines_[kNotes][kLine];
+  float chorus_line_[kChorusLen];
+  uint32_t chorus_write_ = 0;
+  float chorus_slow_ = 0, chorus_fast_ = 0;
+  int n_osc_ = kStack;
   float bend_ = 0, motion_out_ = 0;
   float w_sin_ = 0, w_tri_ = 0, w_saw_ = 1;
   uint8_t held_[kHeld];

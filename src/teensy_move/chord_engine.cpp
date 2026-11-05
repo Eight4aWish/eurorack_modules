@@ -42,49 +42,59 @@ const Stack kStacks[] = {
 };
 constexpr int kStackCount = sizeof(kStacks) / sizeof(kStacks[0]);
 
-// How a note's five oscillators are tuned, as a ratio to the note, and how loud each one is. They stay
-// five oscillators whichever it is, so none of these costs more than another.
+// How a note's oscillators are set out: how many, where each sits across the detune and the stereo
+// field, its ratio to the note, and how loud it is. The first four are for a synth patch, the rest
+// tune all five to a set of partials.
 struct Oscs {
   const char *name;
-  float ratio[kStack], gain[kStack];
+  int count;
+  float pos[kStack], ratio[kStack], gain[kStack];
 };
+#define FIVE {-1.0f, -0.5f, 0.0f, 0.5f, 1.0f}
 const Oscs kOscs[] = {
-    {"DETUNE", {1, 1, 1, 1, 1}, {1, 1, 1, 1, 1}},
-    {"ORGAN", {1, 2, 3, 4, 6}, {1, 0.7f, 0.5f, 0.35f, 0.25f}},
-    {"HOLLOW", {1, 3, 5, 7, 9}, {1.4f, 0.63f, 0.39f, 0.22f, 0.14f}},  // odd partials, as a clarinet
-    {"OCTAVES", {0.5f, 1, 2, 4, 8}, {0.5f, 1, 0.6f, 0.35f, 0.2f}},
-    {"BAR", {1, 2.756f, 5.404f, 8.933f, 13.345f}, {1, 0.5f, 0.3f, 0.18f, 0.1f}},  // a free bar, as a marimba
-    {"BELL", {0.5f, 1, 1.2f, 1.5f, 2}, {0.6f, 1, 0.5f, 0.5f, 0.7f}},  // a church bell's hum, prime, tierce, quint, nominal
+    {"DETUNE", 5, FIVE, {1, 1, 1, 1, 1}, {1, 1, 1, 1, 1}},
+    {"DUO", 2, {-1, 1, 0, 0, 0}, {1, 1, 1, 1, 1}, {1.4f, 1.4f, 0, 0, 0}},
+    {"SOLO", 1, {0, 0, 0, 0, 0}, {1, 1, 1, 1, 1}, {2.0f, 0, 0, 0, 0}},
+    {"SUB", 3, {-1, 1, 0, 0, 0}, {1, 1, 0.5f, 1, 1}, {1.2f, 1.2f, 1.0f, 0, 0}},  // two and an octave below
+    {"ORGAN", 5, FIVE, {1, 2, 3, 4, 6}, {1, 0.7f, 0.5f, 0.35f, 0.25f}},
+    {"HOLLOW", 5, FIVE, {1, 3, 5, 7, 9}, {1.4f, 0.63f, 0.39f, 0.22f, 0.14f}},  // odd partials, as a clarinet
+    {"OCTAVES", 5, FIVE, {0.5f, 1, 2, 4, 8}, {0.5f, 1, 0.6f, 0.35f, 0.2f}},
+    {"BAR", 5, FIVE, {1, 2.756f, 5.404f, 8.933f, 13.345f}, {1, 0.5f, 0.3f, 0.18f, 0.1f}},  // a free bar, as a marimba
+    {"BELL", 5, FIVE, {0.5f, 1, 1.2f, 1.5f, 2}, {0.6f, 1, 0.5f, 0.5f, 0.7f}},  // a church bell's hum, prime, tierce, quint, nominal
 };
+#undef FIVE
 constexpr int kOscsCount = sizeof(kOscs) / sizeof(kOscs[0]);
 
 // The bank. OSCS and STACK by their place in kOscs and kStacks.
-enum { DETUNE, ORGAN, HOLLOW, OCTAVES, BAR, BELL };
-enum { S7TH, S9TH, SUS, QUARTAL, OPEN, FIFTHS };
+enum { DETUNE, DUO, SOLO, SUB };
+enum { S7TH, S9TH, SUSP, QUARTAL, OPEN, FIFTHS };
 struct Patch {
   const char *name;
   uint8_t oscs, stack;
   int8_t octave;
-  uint8_t sound, shape, bright, reso, spread, motion, swell, decay, strum, glide, level;
+  uint8_t sound, shape, pulse, bright, reso, slope, fenv, drive, spread, motion, swell, decay, sustain, strum, glide, chorus, level;
 };
 const Patch kBank[kPatches] = {
-    //                               oct snd shp brt res spr mot swl dec str gld lvl
-    {"PAD", DETUNE, S7TH,             0,  0, 100, 45,  0, 35, 35, 25,  0,  8, 20, 60},
-    {"DRONE", DETUNE, FIFTHS,         0,  0, 100, 40,  0, 50, 80, 55,  0,  8, 20, 67},
-    {"CHOIR", DETUNE, S7TH,           0,  0,  50, 30, 40, 25, 45, 38,  0,  5, 25, 55},
-    {"SUPERSAW", DETUNE, S7TH,        0,  0, 100, 85,  0, 70, 10,  3,  0,  0,  0, 55},
-    {"SWEEP", DETUNE, S9TH,           0,  0, 100, 12, 80, 30, 75, 15,  0,  0, 30, 48},
-    {"BRASS", DETUNE, S7TH,           0,  0, 100, 14, 15, 12,  5, 18,  0,  0,  5, 50},
-    {"ORGAN", ORGAN, S7TH,            0,  0,   0, 100, 0,  8,  0,  3,  0,  0,  0, 68},
-    {"PIPES", OCTAVES, OPEN,          0,  0,  40, 60,  0, 15, 10, 22,  0,  0,  0, 100},
-    {"REEDS", HOLLOW, S7TH,           0,  0,  30, 70,  0,  6, 15, 15,  0,  0, 10, 90},
-    {"MALLET", BAR, S7TH,             0,  0,   0, 100, 0, 15,  0,  0, 30,  2,  0, 100},
-    {"BELLS", BELL, OPEN,             1,  0,   0, 100, 0, 30,  5,  0, 72, 10,  0, 78},
-    {"GLASS", BAR, QUARTAL,           1, 45,   0, 100, 0, 35,  5,  5, 60, 15,  0, 83},
-    {"PLUCK", DETUNE, S7TH,           0, 100, 100, 45, 0, 40,  0, 10, 40,  0,  0, 78},
-    {"HARP", DETUNE, S9TH,            0, 100, 100, 90, 0, 60,  0, 30, 50, 35,  0, 85},
-    {"BOWED", DETUNE, S7TH,           0, 100, 100, 55, 0, 35, 35, 70,  0, 10, 40, 85},
-    {"RING", DETUNE, S7TH,            0, 100, 100, 60, 0, 55, 35, 38,  0,  0, 20, 60},
+    //                         oct snd shp pls brt res slp fnv drv spr mot swl dec sus str gld cho lvl
+    // pads
+    {"PAD", DETUNE, S7TH,        0,  0, 100,  0, 45,  0, 0, 50,  0, 35, 35, 25,  0,  0,  8, 20,  0, 60},
+    {"SUPERSAW", DETUNE, S7TH,   0,  0, 100,  0, 85,  0, 0, 50,  0, 70, 10,  3,  0,  0,  0,  0,  0, 55},
+    {"PWM PAD", SOLO, S7TH,      0,  0, 100, 100, 40, 10, 0, 30,  0, 20, 30, 42,  0,  0,  6, 15, 60, 50},
+    {"ENSEMBLE", DUO, S7TH,      0,  0, 100,  0, 52,  0, 0, 20,  0, 25, 15, 48,  0,  0,  0, 10, 90, 80},
+    {"ANALOG", DUO, S7TH,        0,  0, 100, 35, 35, 12, 1, 45, 15, 18, 20, 16,  0,  0,  3,  8,  0, 56},
+    {"HALO", DETUNE, S9TH,       1,  0,  60,  0, 70,  0, 0, 30,  0, 60, 40, 72,  0,  0, 12, 30, 40, 84},
+    {"DRONE", DETUNE, FIFTHS,    0,  0, 100,  0, 40,  0, 0, 50,  0, 50, 80, 55,  0,  0,  8, 20,  0, 67},
+    {"DARK", SUB, OPEN,         -1,  0, 100,  0, 22, 20, 1, 30, 40, 25, 55, 40,  0,  0,  0, 20,  0, 52},
+    // with a shape to them
+    {"SWEEP", DUO, S9TH,         0,  0, 100,  0, 18, 72, 1, 60,  0, 30, 85, 20,  0,  0,  0, 30,  0, 75},
+    {"BRASS", DUO, S7TH,         0,  0, 100,  0, 38,  8, 1, 62, 20, 14,  8, 24, 38, 100, 0,  5, 15, 50},
+    {"STAB", DUO, S9TH,          0,  0, 100, 20, 30, 25, 1, 70, 25, 20,  0,  0, 30,  0,  0,  0, 30, 80},
+    {"SAW PLUCK", DETUNE, S9TH,  0,  0, 100,  0, 20, 18, 1, 90,  0, 40,  5,  0, 38,  0,  4,  0, 25, 80},
+    {"SOFT KEYS", DUO, S7TH,     0,  0,  62,  0, 28,  0, 0, 55,  0, 10, 12,  3, 60, 25,  2,  0, 45, 98},
+    // strings
+    {"HARP", DETUNE, S9TH,       0, 100, 100, 0, 58,  0, 0, 50,  0, 60,  0, 30, 50,  0, 35,  0,  0, 85},
+    {"BOWED", DETUNE, S7TH,      0, 100, 100, 0, 55,  0, 0, 50,  0, 35, 35, 70,  0,  0, 10, 40,  0, 85},
+    {"RING", DETUNE, S7TH,       0, 100, 100, 0, 60,  0, 0, 50,  0, 55, 35, 38,  0,  0,  0, 20,  0, 60},
 };
 
 const ChordProgression *Progression(int i) {
@@ -154,7 +164,6 @@ inline float Noise(uint32_t &s) {  // xorshift, -1 to 1
 inline float NoteHz(float note) { return 440.0f * powf(2.0f, (note - 69.0f) / 12.0f); }
 
 // Evenly across the stack, and each note a different way across the stereo field
-constexpr float kStackPos[kStack] = {-1.0f, -0.5f, 0.0f, 0.5f, 1.0f};
 constexpr float kVoicePos[kNotes] = {0.0f, -0.7f, 0.7f, -0.25f};
 // Rates that never line up, so the movement doesn't repeat for a very long time, in Hz
 constexpr float kAmpRate[kNotes] = {0.031f, 0.047f, 0.071f, 0.113f};
@@ -206,15 +215,18 @@ const char *PatchName(int i) { return kBank[i].name; }
 void ApplyPatch(Params *p, int i) {
   const Patch &b = kBank[i];
   p->oscs = b.oscs, p->stack = b.stack, p->octave = b.octave, p->sound = b.sound, p->shape = b.shape;
-  p->bright = b.bright, p->reso = b.reso, p->spread = b.spread, p->motion = b.motion, p->swell = b.swell;
-  p->decay = b.decay, p->strum = b.strum, p->glide = b.glide, p->level = b.level;
+  p->pulse = b.pulse, p->bright = b.bright, p->reso = b.reso, p->slope = b.slope, p->fenv = b.fenv;
+  p->drive = b.drive, p->spread = b.spread, p->motion = b.motion, p->swell = b.swell, p->decay = b.decay;
+  p->sustain = b.sustain, p->strum = b.strum, p->glide = b.glide, p->chorus = b.chorus, p->level = b.level;
 }
 
 bool PatchEdited(const Params &p, int i) {
   const Patch &b = kBank[i];
   return p.oscs != b.oscs || p.stack != b.stack || p.octave != b.octave || p.sound != b.sound || p.shape != b.shape ||
-         p.bright != b.bright || p.reso != b.reso || p.spread != b.spread || p.motion != b.motion ||
-         p.swell != b.swell || p.decay != b.decay || p.strum != b.strum || p.glide != b.glide || p.level != b.level;
+         p.pulse != b.pulse || p.bright != b.bright || p.reso != b.reso || p.slope != b.slope || p.fenv != b.fenv ||
+         p.drive != b.drive || p.spread != b.spread || p.motion != b.motion || p.swell != b.swell ||
+         p.decay != b.decay || p.sustain != b.sustain || p.strum != b.strum || p.glide != b.glide ||
+         p.chorus != b.chorus || p.level != b.level;
 }
 
 Engine &shared() {
@@ -225,6 +237,9 @@ Engine &shared() {
 void Engine::Init(float sample_rate) {
   sr_ = sample_rate;
   memset(lines_, 0, sizeof(lines_));
+  memset(chorus_line_, 0, sizeof(chorus_line_));
+  chorus_write_ = 0;
+  chorus_slow_ = chorus_fast_ = 0.0f;
   for (int v = 0; v < kNotes; v++) {
     Voice &o = voice_[v];
     memset(&o, 0, sizeof(o));
@@ -237,6 +252,7 @@ void Engine::Init(float sample_rate) {
     o.lfo_tone = 0.61f * v;
     o.lfo_amp_inc = kAmpRate[v];
     o.lfo_tone_inc = kToneRate[v];
+    o.pw_phase = 0.27f * v;
     for (int s = 0; s < kStack; s++) {
       rng_ = rng_ * 1664525u + 1013904223u;  // so a stack's oscillators don't start in phase
       o.osc[s].phase = (rng_ >> 8) * 5.9604645e-8f;
@@ -341,7 +357,7 @@ void Engine::Start(Voice &o, float note) {
   o.fall = 1.0f;
   float swell = p.swell * 0.01f;
   o.burst_len = o.burst = static_cast<int32_t>(sr_ / NoteHz(note));
-  o.burst_amp = 0.8f * (1.0f - swell) * (1.0f - swell);
+  o.burst_amp = 3.0f * (1.0f - swell) * (1.0f - swell);
   triggers_ |= 1 << (&o - voice_);
 }
 
@@ -410,7 +426,14 @@ void Engine::Control(int n) {
   const float k_fall = expf(-dt / decay_s);
   const float k_bloom = expf(-dt / (p.decay ? 0.5f * decay_s : 0.12f + 3.0f * swell));
   const Oscs &tuning = kOscs[p.oscs < kOscsCount ? p.oscs : 0];
-  const float k_filter = 1.1f * (1.0f - 0.9f * p.reso * 0.01f);  // the resonance: down to a Q of about 9
+  n_osc_ = tuning.count;
+  const float sustain = p.sustain * 0.01f;
+  const float fenv = p.fenv / 20.0f;
+  // The resonance: down to a Q of about 9. At 24 dB, the two stages split as a Butterworth's would, and
+  // the second alone takes the resonance.
+  const float k_second = 1.1f * (1.0f - 0.9f * p.reso * 0.01f);
+  const float k_filter = p.slope ? 1.848f : k_second;
+  const float k_stage2 = 0.765f * (1.0f - 0.9f * p.reso * 0.01f);
   const float t60 = stopping_ ? 0.5f : 0.6f + 14.0f * swell;
   const float damp = 0.03f + 0.6f * (1.0f - bright) * (1.0f - bright);
   const float cents = 1.0f + 32.0f * spread * spread;
@@ -428,7 +451,7 @@ void Engine::Control(int n) {
     }
     o.note += k_glide * (o.target - o.note);
     o.bloom *= k_bloom;
-    o.fall = p.decay ? o.fall * k_fall : 1.0f;
+    o.fall = p.decay ? sustain + (o.fall - sustain) * k_fall : 1.0f;
     o.env += (o.gate > 0.5f ? k_att : k_rel) * (o.gate - o.env);
 
     o.lfo_amp += o.lfo_amp_inc * dt;
@@ -446,31 +469,42 @@ void Engine::Control(int n) {
     float pitch = o.note + bend_;
     float hz = NoteHz(pitch);
 
+    o.pw_phase += (0.47f + 0.11f * i) * dt;
+    if (o.pw_phase >= 1.0f) o.pw_phase -= 1.0f;
+
     // The stack: detuned about the note, a slow wander on each oscillator, spread across the field
     for (int s = 0; s < kStack; s++) {
       Osc &c = o.osc[s];
       c.drift += 0.002f * Noise(o.noise) - 0.0006f * c.drift;
       if (c.drift > 1.0f) c.drift = 1.0f;
       if (c.drift < -1.0f) c.drift = -1.0f;
-      float offset = kStackPos[s] * cents + c.drift * motion * 12.0f;
+      float offset = tuning.pos[s] * cents + c.drift * motion * 12.0f;
       c.inc = hz * tuning.ratio[s] * (1.0f + offset * 5.7762e-4f) / sr_;
       if (c.inc > 0.45f) c.inc = 0.45f;
       float wide = spread * 2.5f > 1.0f ? 1.0f : spread * 2.5f;
-      float pos = kStackPos[s] * wide + kVoicePos[i] * spread * 0.5f;
+      float pos = tuning.pos[s] * wide + kVoicePos[i] * spread * 0.5f;
       if (pos > 1.0f) pos = 1.0f;
       if (pos < -1.0f) pos = -1.0f;
       c.gain_l = tuning.gain[s] * sqrtf(0.5f * (1.0f - pos));
       c.gain_r = tuning.gain[s] * sqrtf(0.5f * (1.0f + pos));
+      if (p.pulse) {
+        float ph = o.pw_phase + s * 0.21f;
+        if (ph >= 1.0f) ph -= 1.0f;
+        c.width = 0.5f + (0.12f + 0.3f * motion) * Sine(ph);
+      }
     }
 
     // The low-pass follows the note, opens on each entry, and moves slowly with the motion
-    float octaves = 0.6f + bright * 7.5f + 2.5f * o.bloom + motion * 1.5f * tone_lfo;
+    float octaves = 0.6f + bright * 7.5f + fenv * o.bloom + motion * 1.5f * tone_lfo;
     float fc = hz * powf(2.0f, octaves);
     if (fc > sr_ * 0.45f) fc = sr_ * 0.45f;
     o.g = tanf(kPi * fc / sr_);
     o.a1 = 1.0f / (1.0f + o.g * (o.g + k_filter));
     o.a2 = o.g * o.a1;
     o.a3 = o.g * o.a2;
+    o.b1 = 1.0f / (1.0f + o.g * (o.g + k_stage2));
+    o.b2 = o.g * o.b1;
+    o.b3 = o.g * o.b2;
 
     // The string: tuned by its delay, less what its own damping adds
     float comp = damp / (1.0f - damp);
@@ -497,18 +531,36 @@ void Engine::RenderOscillators(Voice &o, float *l, float *r, int n, float mix) {
   float amp = o.amp_now;
   float s1l = o.s1_l, s2l = o.s2_l, s1r = o.s1_r, s2r = o.s2_r;
   const float a1 = o.a1, a2 = o.a2, a3 = o.a3;
+  const float b1 = o.b1, b2 = o.b2, b3 = o.b3;
+  float s3l = o.s3_l, s4l = o.s4_l, s3r = o.s3_r, s4r = o.s4_r;
+  const bool slope24 = p.slope != 0;
+  const float pulse = p.pulse * 0.01f;
+  const float drive = p.drive ? 0.5f + 2.5f * p.drive * 0.01f : 0.0f;
+  const int n_osc = n_osc_;
   for (int i = 0; i < n; i++) {
     float sum_l = 0.0f, sum_r = 0.0f;
-    for (int s = 0; s < kStack; s++) {
+    for (int s = 0; s < n_osc; s++) {
       Osc &c = o.osc[s];
       c.phase += c.inc;
       if (c.phase >= 1.0f) c.phase -= 1.0f;
       float out = 0.0f;
       if (ws > 0.0f) out += ws * Sine(c.phase);
       if (wt > 0.0f) out += wt * (4.0f * fabsf(c.phase - 0.5f) - 1.0f);
-      if (wa > 0.0f) out += wa * (2.0f * c.phase - 1.0f - Blep(c.phase, c.inc));
+      if (wa > 0.0f) {
+        float saw = 2.0f * c.phase - 1.0f - Blep(c.phase, c.inc);
+        if (pulse > 0.0f) {  // a pulse is one saw less another, a width later
+          float other = c.phase + c.width;
+          if (other >= 1.0f) other -= 1.0f;
+          saw -= pulse * (2.0f * other - 1.0f - Blep(other, c.inc));
+        }
+        out += wa * saw;
+      }
       sum_l += out * c.gain_l;
       sum_r += out * c.gain_r;
+    }
+    if (drive > 0.0f) {
+      sum_l = 1.5f * SoftClip(sum_l * drive);
+      sum_r = 1.5f * SoftClip(sum_r * drive);
     }
     // Andrew Simper's state-variable filter, the low-pass output of each side
     float v3 = sum_l - s2l;
@@ -523,11 +575,26 @@ void Engine::RenderOscillators(Voice &o, float *l, float *r, int n, float mix) {
     s1r = 2.0f * v1 - s1r;
     s2r = 2.0f * v2 - s2r;
     float out_r = v2;
+    if (slope24) {
+      v3 = out_l - s4l;
+      v1 = b1 * s3l + b2 * v3;
+      v2 = s4l + b2 * s3l + b3 * v3;
+      s3l = 2.0f * v1 - s3l;
+      s4l = 2.0f * v2 - s4l;
+      out_l = v2;
+      v3 = out_r - s4r;
+      v1 = b1 * s3r + b2 * v3;
+      v2 = s4r + b2 * s3r + b3 * v3;
+      s3r = 2.0f * v1 - s3r;
+      s4r = 2.0f * v2 - s4r;
+      out_r = v2;
+    }
     amp += o.amp_step;
     l[i] += out_l * amp * mix;
     r[i] += out_r * amp * mix;
   }
   o.s1_l = s1l, o.s2_l = s2l, o.s1_r = s1r, o.s2_r = s2r;
+  o.s3_l = s3l, o.s4_l = s4l, o.s3_r = s3r, o.s4_r = s4r;
 }
 
 void Engine::RenderString(Voice &o, const float *in, float *l, float *r, int n, float mix) {
@@ -549,14 +616,16 @@ void Engine::RenderString(Voice &o, const float *in, float *l, float *r, int n, 
     float y = line[a] + frac * (line[b] - line[a]);
     state = y * (1.0f - damp) + state * damp;
 
-    air_1 += air_k * (air * Noise(o.noise) - air_1);
+    // The pluck goes the same way as the air: left unfiltered, each one starts with a tick of white noise
+    float excite = air * Noise(o.noise);
+    if (o.burst > 0) {
+      excite += o.burst_amp * Noise(o.noise);
+      o.burst--;
+    }
+    air_1 += air_k * (excite - air_1);
     air_2 += air_k * (air_1 - air_2);
     float x = air_2;
     if (in) x += in[i] * in_gain;
-    if (o.burst > 0) {
-      x += o.burst_amp * Noise(o.noise);
-      o.burst--;
-    }
     float w = x + fb * state;
     if (w > 4.0f) w = 4.0f;
     if (w < -4.0f) w = -4.0f;
@@ -574,6 +643,39 @@ void Engine::RenderString(Voice &o, const float *in, float *l, float *r, int n, 
   o.air_2 = air_2;
 }
 
+// Three moving taps on one line, as a string machine's ensemble: a slow sweep with a fast shimmer on it.
+void Engine::Chorus(float *l, float *r, int n) {
+  const float amount = p.chorus * 0.01f;
+  const float dry = 1.0f - 0.4f * amount, wet = 0.5f * amount;
+  const float slow_inc = 0.63f / sr_, fast_inc = 5.3f / sr_;
+  const float ms = sr_ * 0.001f;
+  const float swing = (0.8f + 1.4f * amount) * ms, shimmer = 0.24f * amount * ms;
+  for (int i = 0; i < n; i++) {
+    chorus_line_[chorus_write_] = (l[i] + r[i]) * 0.5f;
+    chorus_slow_ += slow_inc;
+    if (chorus_slow_ >= 1.0f) chorus_slow_ -= 1.0f;
+    chorus_fast_ += fast_inc;
+    if (chorus_fast_ >= 1.0f) chorus_fast_ -= 1.0f;
+    float tap[3];
+    for (int t = 0; t < 3; t++) {
+      float a = chorus_slow_ + t / 3.0f;
+      if (a >= 1.0f) a -= 1.0f;
+      float b = chorus_fast_ + t / 3.0f;
+      if (b >= 1.0f) b -= 1.0f;
+      float tri = 4.0f * fabsf(a - 0.5f) - 1.0f;
+      float read = static_cast<float>(chorus_write_) - (7.0f * ms + swing * tri + shimmer * Sine(b));
+      if (read < 0.0f) read += kChorusLen;
+      int32_t x = static_cast<int32_t>(read);
+      float frac = read - x;
+      int32_t y = x + 1 == kChorusLen ? 0 : x + 1;
+      tap[t] = chorus_line_[x] + frac * (chorus_line_[y] - chorus_line_[x]);
+    }
+    if (++chorus_write_ == kChorusLen) chorus_write_ = 0;
+    l[i] = l[i] * dry + (tap[0] + 0.6f * tap[1]) * wet;
+    r[i] = r[i] * dry + (tap[2] + 0.6f * tap[1]) * wet;
+  }
+}
+
 void Engine::Process(const float *in, float *l, float *r, int n) {
   Control(n);
   for (int i = 0; i < n; i++) l[i] = r[i] = 0.0f;
@@ -585,6 +687,7 @@ void Engine::Process(const float *in, float *l, float *r, int n) {
     if (sound >= 1.0f) o.amp_now = o.env;
     if (sound <= 0.0f) o.burst = 0;
   }
+  if (use_chorus && p.chorus) Chorus(l, r, n);
   const float level = p.level * 0.01f * 1.4f;
   for (int i = 0; i < n; i++) {
     l[i] = SoftClip(l[i] * level);

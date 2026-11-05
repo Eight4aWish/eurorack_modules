@@ -26,7 +26,8 @@ so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its M
 resets Warps' settings once, because its EEPROM page moved. Flashed the same day. Chordal sounds good from MIDI, and Stop on the
 Move ends the chord (David). Peak CPU on the serial monitor: Chordal 27 % on PAD and 38 % on GLASS, its
 heaviest patch; Warps with the chords running, 65 % in VOCODER and 64 % in META, which leaves room. The other
-Parasites modes haven't been tried. Audio blocks peak at 8, and each mode now has 16.
+Parasites modes haven't been tried. Audio blocks peak at 8, and each mode now has 16. The bank was then rebuilt
+around synth patches, with a SET row for the progressions: committed, not flashed yet.
 
 ## Modes
 
@@ -93,8 +94,9 @@ the old Boy's chord mode and drone, which saw little use because that Boy's audi
 and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
 `scripts/host/chord_render.cpp` runs the same code on a Mac.
 
-**Status, 2026-11-05:** flashed, and it sounds good from MIDI (David). Peak CPU is 27 % on PAD and 38 % on
-GLASS. It plays from MIDI only: all six CV jacks are outputs here. CV out and the audio inputs are still to
+**Status, 2026-11-05:** flashed, and it sounds good from MIDI (David). Peak CPU was 27 % on PAD and 38 % on
+GLASS, since dropped from the bank. The rebuilt bank isn't flashed yet: timing it on the Mac, its heaviest
+patch, HALO, should be about 47 %. It plays from MIDI only: all six CV jacks are outputs here. CV out and the audio inputs are still to
 try: see [the bench list](#mode-2-on-the-bench).
 
 | Boy | Chordal |
@@ -107,7 +109,7 @@ try: see [the bench list](#mode-2-on-the-bench).
 | GATE3 | the motion, slowly, ±5 V |
 | CLK, DRUM2, DRUM1, RST | a 5 ms trigger as each note enters, in that order |
 
-**The sound.** Four notes, a bass and three above it. Each note is five detuned oscillators spread
+**The sound.** Four notes, a bass and three above it. Each note is up to five detuned oscillators spread
 across the stereo field, through a low-pass that tracks the note, blooms as it enters and breathes
 with MOTION. Each also has a tuned string, a comb resonator that the audio inputs, a little air
 noise and a pluck can all ring. So with SOUND up, drums patched in come out in the chord.
@@ -119,10 +121,10 @@ levelled against each other on the Mac: the ones that sustain sit within about 2
 
 | | | | |
 |---|---|---|---|
-| 1 PAD | 2 DRONE, on open fifths | 3 CHOIR | 4 SUPERSAW |
-| 5 SWEEP, a resonant filter moving | 6 BRASS | 7 ORGAN | 8 PIPES, in octaves |
-| 9 REEDS, odd partials | 10 MALLET, a marimba's | 11 BELLS, a church bell's | 12 GLASS, a bar's partials and a string |
-| 13 PLUCK | 14 HARP, strummed | 15 BOWED | 16 RING: patch audio in, and it sounds in the chord |
+| 1 PAD | 2 SUPERSAW | 3 PWM PAD, one pulse a note and a chorus | 4 ENSEMBLE, a string machine's |
+| 5 ANALOG, two oscillators and a 24 dB filter | 6 HALO, an octave up, slow | 7 DRONE, on open fifths | 8 DARK, low, with a sub octave and drive |
+| 9 SWEEP, a resonant filter moving | 10 BRASS, the filter opening on each chord | 11 STAB | 12 SAW PLUCK |
+| 13 SOFT KEYS | 14 HARP, strummed | 15 BOWED | 16 RING: patch audio in, and it sounds in the chord |
 
 **The gestures** are the same as every other page. The chord's name is on the top row, and these
 are the items:
@@ -137,13 +139,18 @@ are the items:
 | VOICE | LEAD picks whichever inversion moves least from the last chord; Root, Inv1, Inv2, Drop2 and Spread are fixed |
 | OCT | −2 to +2 |
 | SOUND | oscillators to strings |
-| OSCS | how each note's five oscillators are tuned: DETUNE, ORGAN, HOLLOW, OCTAVES, BAR, BELL. All cost the same |
+| OSCS | how a note's oscillators are set out: DETUNE (five), DUO (two), SOLO (one), SUB (two and an octave below). Then five tuned to partials: ORGAN, HOLLOW, OCTAVES, BAR, BELL |
 | SHAPE | sine, triangle, saw |
+| PULSE | turns the saw into a pulse whose width moves, faster and wider with MOTION |
 | BRIGHT, RESO | the filter, and its resonance |
+| FILTER | 12 dB or 24 dB |
+| FENV | how far the filter opens as a note enters: 50 % is 2.5 octaves |
+| DRIVE | saturation into the filter |
 | SPREAD, MOTION | detune and stereo width; how much it drifts and breathes |
 | SWELL | attack, release and how long the strings ring |
-| DECAY | 0: a held note stays. Above it, the note falls away, in 60 ms to 6 s |
+| DECAY, SUST | 0: a held note stays. Above it, the note falls to SUST, in 60 ms to 6 s, and the filter closes at twice the speed. With SUST at 100 %, only the filter moves |
 | STRUM, GLIDE | the gap between notes entering; how long a note takes to reach the next chord |
+| CHORUS | a string machine's ensemble. Off in Warps, whose vocoder wants the dry carrier |
 | HOLD | on: a chord stays until the next one |
 | LEVEL | the output |
 
@@ -326,8 +333,8 @@ CPU first:** it decides how much of this can run alongside Warps.
 1. **Choose 2.** Hold 2 s, turn to `2 CHORDAL`, press.
 2. **Play the Move into USB.** Out L and R play the chord, and its name is on the top row. Turn HOLD
    off: the chord stops when the pad lifts.
-   - **Turn PATCH through all sixteen,** against `chord_render bank`. 12 GLASS runs the oscillators and
-     the strings together, so it should show the highest CPU.
+   - **Turn PATCH through all sixteen,** against `chord_render bank`. 6 HALO, five oscillators and the chorus,
+     should show the highest CPU: about 47 % by timing on the Mac.
    - Change a patch, wait 3 s, restart: it comes back as it was left, with the `*`.
 3. **Move between chords** with STACK on 7TH: the notes on the monitor should barely move.
 4. **Stereo.** Take L and R one at a time, with SPREAD and MOTION up: they should clearly differ.

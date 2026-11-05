@@ -352,6 +352,7 @@ void begin() {
   note_pot = 60.0f * lp_pot[LEVEL1] + 12.0f;
 
   chords.Init(AUDIO_SAMPLE_RATE_EXACT);
+  chords.use_chorus = false;
   chord::ApplyPatch(&chords.p, 0);
   chordal_mode::load_params(&chords.p);
   midi_notes::begin(chord_on, chord_off, chord_bend, chord_stop);
