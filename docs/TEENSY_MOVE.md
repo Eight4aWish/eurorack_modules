@@ -180,8 +180,11 @@ things differ, all as Parasites' manual says:
 
 All six CV jacks are inputs: every jack switch stays off for the session.
 
-**The overlay.** The panel's labels are mode 1's, so Warps has a 3D-printed card that slips over rows
-2-6: `build123d/panels/teensy_move_reva_warps_overlay.py` (not printed or fitted yet).
+**The mask.** The panel's labels are mode 1's, so Warps and Chordal each have a 3D-printed face mask:
+`build123d/panels/teensy_move_reva_mask.py` (not printed or fitted yet). It says what the CV and gate jacks
+do, and leaves the screen, the encoder and the audio jacks and their labels showing. Knurled M3 thumbscrews
+in the two lower rack slots hold it on; it adds 1.6 mm, so they need that much more length than the panel's
+screws.
 
 **The encoder** stands in for Warps' four knobs and its button, and for Parasites' hold of the button
 to change mode. The screen lists seven items, four at a time:
