@@ -348,6 +348,19 @@ int main(int argc, char **argv) {
       play(e, {}, 1.5f, ring);
       gap(0.3f);
     }
+  } else if (scene == "stop") {  // every patch, held, then a MIDI stop; then with no stop, as a control
+    for (int stops = 1; stops >= 0; stops--)
+      for (int i = 0; i < chord::kPatches; i++) {
+        bool ring = !strcmp(chord::PatchName(i), "RING");
+        printf("\n%6.1f s  %2d %s %s\n", out_buf.size() / 2 / SR, i + 1, chord::PatchName(i), stops ? "stop" : "nostop");
+        e.Init(SR);
+        e.p = d;
+        chord::ApplyPatch(&e.p, i);
+        in_pos = 0;
+        play(e, {{0.0f, 48, true}, {0.3f, 48, false}}, 2.0f, ring);
+        if (stops) e.Stop();
+        play(e, {}, 2.0f, ring);
+      }
   } else if (scene == "parasites") {  // in = drums, second in = a voice
     static warps::Modulator mod;
     mod.Init(SR);

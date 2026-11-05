@@ -334,6 +334,12 @@ static void chord_off(uint8_t note) {
 
 static void chord_bend(float semitones) { chords.Bend(semitones); }
 
+static void chord_stop() {
+  AudioNoInterrupts();
+  chords.Stop();
+  AudioInterrupts();
+}
+
 void begin() {
   // board::begin() left every jack switch off and the DAC at 0 V behind them, so the six CV jacks
   // are inputs and the DAC holds steady (spec requirement 11)
@@ -348,7 +354,7 @@ void begin() {
   chords.Init(AUDIO_SAMPLE_RATE_EXACT);
   chord::ApplyPatch(&chords.p, 0);
   chordal_mode::load_params(&chords.p);
-  midi_notes::begin(chord_on, chord_off, chord_bend);
+  midi_notes::begin(chord_on, chord_off, chord_bend, chord_stop);
 
   modulator.Init(AUDIO_SAMPLE_RATE_EXACT);
   AudioMemory(8);

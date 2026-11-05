@@ -4,7 +4,8 @@
 // Mode 2, Chordal: the chord engine (chord_engine.h) on Boy's jacks. It brings back and goes well past
 // the old Boy's chord mode and drone (last in 842fc36^ and d691282^).
 // - any note, on any MIDI channel but 10, plays a chord: in a scale, the chord built on that note; in
-//   a progression, the eight chords on the keys. With HOLD on, the chord stays until the next one.
+//   a progression, the eight chords on the keys. With HOLD on, the chord stays until the next one, or
+//   until MIDI stop, which ends it whatever HOLD says.
 // - audio out L and R are the chord in stereo. Audio in L and R, summed, ring the strings: patch
 //   drums in, turn SOUND up, and they sound in the chord.
 // - CV out: PITCH1-3 and GATE1 are the four notes, V/oct, gliding as they lead (note 36 at 0 V, as
@@ -63,6 +64,12 @@ static void off(uint8_t note) {
 }
 
 static void bend(float semitones) { engine.Bend(semitones); }
+
+static void stop() {
+  AudioNoInterrupts();
+  engine.Stop();
+  AudioInterrupts();
+}
 
 class ChordalStream : public AudioStream {
  public:
@@ -247,7 +254,7 @@ void begin() {
   board::gates_write(0);
   board::gate_outputs(true);
 
-  midi_notes::begin(on, off, bend);
+  midi_notes::begin(on, off, bend, stop);
 
   AudioMemory(8);
   // made in signal order, so the library updates them in that order within a block

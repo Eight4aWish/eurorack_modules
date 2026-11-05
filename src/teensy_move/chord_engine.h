@@ -67,6 +67,7 @@ class Engine {
   void NoteOff(uint8_t note);
   void Bend(float semitones) { bend_ = semitones; }
   void HoldChanged();  // after p.hold changes: with hold off and no key down, the chord lets go
+  void Stop();         // MIDI stop: hold or no hold, whatever is sounding is gone within a second
 
   // A block of samples at ±1, once per block. `in` may be null: it is what rings the strings.
   void Process(const float *in, float *l, float *r, int n);
@@ -123,6 +124,7 @@ class Engine {
   uint8_t held_[kHeld];
   int n_held_ = 0;
   bool started_ = false;
+  bool stopping_ = false;
   uint8_t triggers_ = 0;
   uint32_t rng_ = 0x51ED270B;
   char name_[8] = "---";

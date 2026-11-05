@@ -230,6 +230,7 @@ void Engine::Init(float sample_rate) {
   }
   n_held_ = 0;
   started_ = false;
+  stopping_ = false;
   triggers_ = 0;
   snprintf(name_, sizeof(name_), "---");
 }
@@ -331,6 +332,7 @@ void Engine::Start(Voice &o, float note) {
 }
 
 void Engine::NoteOn(uint8_t note) {
+  stopping_ = false;
   for (int i = 0; i < n_held_; i++)
     if (held_[i] == note) {  // the same note again: take it out and put it on top
       memmove(&held_[i], &held_[i + 1], n_held_ - i - 1);
@@ -368,6 +370,15 @@ void Engine::HoldChanged() {
   }
 }
 
+void Engine::Stop() {
+  n_held_ = 0;
+  stopping_ = true;
+  for (Voice &o : voice_) {
+    o.gate = 0.0f;
+    o.pending = -1;
+  }
+}
+
 // Once a block: everything that changes slowly
 void Engine::Control(int n) {
   const float dt = n / sr_;
@@ -375,7 +386,8 @@ void Engine::Control(int n) {
   const float bright = p.bright * 0.01f, shape = p.shape * 0.01f, glide = p.glide * 0.01f;
 
   const float attack = 0.003f * powf(2000.0f, swell);    // 3 ms to 6 s
-  const float release = 0.08f * powf(150.0f, swell);     // 80 ms to 12 s
+  // 80 ms to 12 s. A stop doesn't wait for a long release, or for a string's long ring.
+  const float release = stopping_ ? 0.08f : 0.08f * powf(150.0f, swell);
   const float k_att = 1.0f - expf(-dt / attack), k_rel = 1.0f - expf(-dt / release);
   const float glide_s = 3.0f * glide * glide;            // up to 3 s
   const float k_glide = glide_s < dt ? 1.0f : 1.0f - expf(-dt / glide_s);
@@ -385,7 +397,7 @@ void Engine::Control(int n) {
   const float k_bloom = expf(-dt / (p.decay ? 0.5f * decay_s : 0.12f + 3.0f * swell));
   const Oscs &tuning = kOscs[p.oscs < kOscsCount ? p.oscs : 0];
   const float k_filter = 1.1f * (1.0f - 0.9f * p.reso * 0.01f);  // the resonance: down to a Q of about 9
-  const float t60 = 0.6f + 14.0f * swell;
+  const float t60 = stopping_ ? 0.5f : 0.6f + 14.0f * swell;
   const float damp = 0.03f + 0.6f * (1.0f - bright) * (1.0f - bright);
   const float cents = 1.0f + 32.0f * spread * spread;
 
@@ -512,6 +524,7 @@ void Engine::RenderString(Voice &o, const float *in, float *l, float *r, int n, 
   uint32_t write = o.write;
   float delay = o.delay, state = o.damp_state, air_1 = o.air_1, air_2 = o.air_2;
   const float air_k = o.air_k;
+  const float in_gain = 0.3f * o.env;  // no chord, nothing to ring
   for (int i = 0; i < n; i++) {
     delay += o.delay_step;
     float read = static_cast<float>(write) - delay;
@@ -525,7 +538,7 @@ void Engine::RenderString(Voice &o, const float *in, float *l, float *r, int n, 
     air_1 += air_k * (air * Noise(o.noise) - air_1);
     air_2 += air_k * (air_1 - air_2);
     float x = air_2;
-    if (in) x += in[i] * 0.3f;
+    if (in) x += in[i] * in_gain;
     if (o.burst > 0) {
       x += o.burst_amp * Noise(o.noise);
       o.burst--;
