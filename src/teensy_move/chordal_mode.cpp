@@ -100,8 +100,8 @@ class ChordalStream : public AudioStream {
 };
 
 // ---- the encoder and the screen
-enum Item : uint8_t { PATCH, KEY, HARMONY, STACK, VOICE, OCTAVE, SOUND, OSCS, SHAPE, BRIGHT, RESO, SPREAD, MOTION, SWELL, DECAY, STRUM, GLIDE, HOLD, LEVEL, ITEMS };
-static const char *const NAME[ITEMS] = {"PATCH", "KEY", "HARM", "STACK", "VOICE", "OCT", "SOUND", "OSCS", "SHAPE", "BRIGHT", "RESO", "SPREAD", "MOTION", "SWELL", "DECAY", "STRUM", "GLIDE", "HOLD", "LEVEL"};
+enum Item : uint8_t { PATCH, KEY, SET, HARMONY, STACK, VOICE, OCTAVE, SOUND, OSCS, SHAPE, BRIGHT, RESO, SPREAD, MOTION, SWELL, DECAY, STRUM, GLIDE, HOLD, LEVEL, ITEMS };
+static const char *const NAME[ITEMS] = {"PATCH", "KEY", "SET", "HARM", "STACK", "VOICE", "OCT", "SOUND", "OSCS", "SHAPE", "BRIGHT", "RESO", "SPREAD", "MOTION", "SWELL", "DECAY", "STRUM", "GLIDE", "HOLD", "LEVEL"};
 
 static uint8_t sel = PATCH;
 static bool editing;
@@ -138,7 +138,14 @@ static void adjust(int32_t turns, int32_t step) {
       break;
     case OSCS: p.oscs = constrain((int32_t)p.oscs + turns, 0, chord::OscsCount() - 1); break;
     case KEY: p.key = (p.key + 12 + (turns % 12)) % 12; break;
-    case HARMONY: p.harmony = constrain((int32_t)p.harmony + turns, 0, chord::HarmonyCount() - 1); break;
+    case SET:
+      p.harmony = chord::HarmonySetStart(constrain(chord::HarmonySetOf(p.harmony) + turns, 0, chord::HarmonySetCount() - 1));
+      break;
+    case HARMONY: {  // within the set
+      int set = chord::HarmonySetOf(p.harmony);
+      p.harmony = constrain((int32_t)p.harmony + turns, chord::HarmonySetStart(set), chord::HarmonySetStart(set + 1) - 1);
+      break;
+    }
     case STACK: p.stack = constrain((int32_t)p.stack + turns, 0, chord::StackCount() - 1); break;
     case VOICE: p.voicing = constrain((int32_t)p.voicing + turns, 0, chord::VoicingCount() - 1); break;
     case OCTAVE: p.octave = constrain((int32_t)p.octave + turns, -2, 2); break;
@@ -189,8 +196,19 @@ static void value_of(uint8_t item, char *out, size_t n) {
     case PATCH: snprintf(out, n, "%u %s%s", patch + 1, chord::PatchName(patch), chord::PatchEdited(p, patch) ? "*" : ""); break;
     case OSCS: snprintf(out, n, "%s", chord::OscsName(p.oscs)); break;
     case KEY: snprintf(out, n, "%s", chord::KeyName(p.key)); break;
-    case HARMONY: snprintf(out, n, "%s", chord::HarmonyName(p.harmony)); break;
-    case STACK: snprintf(out, n, "%s", chord::StackName(p.stack)); break;
+    case SET: {
+      const char *name = chord::HarmonySetName(chord::HarmonySetOf(p.harmony));
+      size_t i = 0;
+      for (; name[i] && i + 1 < n; i++) out[i] = toupper(name[i]);
+      out[i] = 0;
+      break;
+    }
+    case HARMONY:
+      snprintf(out, n, "%d %s", p.harmony - chord::HarmonySetStart(chord::HarmonySetOf(p.harmony)) + 1, chord::HarmonyName(p.harmony));
+      break;
+    case STACK:  // only a scale builds its chords this way
+      snprintf(out, n, "%s", chord::HarmonySetOf(p.harmony) == 0 ? chord::StackName(p.stack) : "--");
+      break;
     case VOICE: snprintf(out, n, "%s", chord::VoicingName(p.voicing)); break;
     case OCTAVE: snprintf(out, n, "%+d", p.octave); break;
     case HOLD: snprintf(out, n, "%s", p.hold ? "on" : "off"); break;

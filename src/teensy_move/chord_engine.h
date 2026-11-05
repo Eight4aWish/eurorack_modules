@@ -41,6 +41,11 @@ struct Params {
 
 int HarmonyCount();
 const char *HarmonyName(int i);
+// The same list in sets: the scales, then each category of progressions
+int HarmonySetCount();
+const char *HarmonySetName(int set);
+int HarmonySetStart(int set);  // its first place in the list; the last set + 1 gives the list's length
+int HarmonySetOf(int harmony);
 int StackCount();
 const char *StackName(int i);
 int VoicingCount();

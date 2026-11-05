@@ -131,8 +131,9 @@ are the items:
 |---|---|
 | PATCH | the bank |
 | KEY | C to B |
-| HARM | MAJOR, MINOR, DORIAN, MIXOLYD, LYDIAN, PHRYGIAN, HARM MIN: any note plays the chord built on it. Then the old chord mode's 40 progressions: white keys are chords 1-7, a black key plays the white key below it, and A# is the eighth |
-| STACK | how a scale builds its chords: 7TH, 9TH, SUS, QUARTAL, OPEN, FIFTHS |
+| SET | SCALES, then the old chord mode's five sets of eight progressions, forty in all: POP, JAZZ, EDM, CINEMATIC, LOFI |
+| HARM | the scale or progression within the set. In SCALES (MAJOR, MINOR, DORIAN, MIXOLYD, LYDIAN, PHRYGIAN, HARM MIN), any note plays the chord built on it. In a progression, white keys are chords 1-7, a black key plays the white key below it, and A# is the eighth |
+| STACK | how a scale builds its chords: 7TH, 9TH, SUS, QUARTAL, OPEN, FIFTHS. Shows `--` in a progression, whose chords are fixed |
 | VOICE | LEAD picks whichever inversion moves least from the last chord; Root, Inv1, Inv2, Drop2 and Spread are fixed |
 | OCT | −2 to +2 |
 | SOUND | oscillators to strings |

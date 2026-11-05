@@ -175,6 +175,20 @@ int Nearest(int pc, int from, int lo, int hi) {
 
 int HarmonyCount() { return kScaleCount + ProgressionCount(); }
 const char *HarmonyName(int i) { return i < kScaleCount ? kScales[i].name : Progression(i - kScaleCount)->name; }
+int HarmonySetCount() { return 1 + kNumCategories; }
+const char *HarmonySetName(int set) { return set == 0 ? "SCALES" : kChordCategories[set - 1].name; }
+int HarmonySetStart(int set) {
+  if (set <= 0) return 0;
+  int start = kScaleCount;
+  for (int c = 0; c < set - 1; c++) start += kChordCategories[c].count;
+  return start;
+}
+int HarmonySetOf(int harmony) {
+  int set = 0;
+  for (int s = 1; s < HarmonySetCount(); s++)
+    if (harmony >= HarmonySetStart(s)) set = s;
+  return set;
+}
 int StackCount() { return kStackCount; }
 const char *StackName(int i) { return kStacks[i].name; }
 int VoicingCount() { return 1 + VOICING_COUNT; }
