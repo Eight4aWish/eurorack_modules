@@ -10,12 +10,13 @@
 // so a rack powering up comes back as it was. Holding the push for 2 s in any mode ends the session
 // and returns here without a power cycle; the chooser then waits for a press.
 //
-// Modes: 1, the Move companion; 2, Warps. To come: 3, other two-input processing.
+// Modes: 1, the Move companion; 2, Chordal; 3, Warps.
 
 #include <Arduino.h>
 #include <CrashReport.h>
 
 #include "board.h"
+#include "chordal_mode.h"
 #include "move_mode.h"
 #include "warps_mode.h"
 
@@ -27,7 +28,8 @@ struct Mode {
 
 static const Mode MODES[] = {
     {"MOVE companion", move_mode::begin, move_mode::loop},
-    {"WARPS", warps_mode::begin, warps_mode::loop},  // warps_mode::MODE is this place, 1
+    {"CHORDAL", chordal_mode::begin, chordal_mode::loop},  // chordal_mode::MODE is this place, 1
+    {"WARPS", warps_mode::begin, warps_mode::loop},        // warps_mode::MODE is this place, 2
 };
 constexpr uint8_t NUM_MODES = sizeof(MODES) / sizeof(MODES[0]);
 constexpr uint32_t CHOOSER_WAIT_MS = 3000;

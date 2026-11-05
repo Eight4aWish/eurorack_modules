@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 David Baghurst
 //
-// Mode 2, Warps: Mutable Instruments' meta-modulator. Its DSP is built unchanged from
+// Mode 3, Warps: Mutable Instruments' meta-modulator. Its DSP is built unchanged from
 // third_party/eurorack/warps (Emilie Gillet, MIT) by scripts/warps_build.py; this file stands in for
 // Warps' own hardware layer (warps.cc, cv_scaler.cc, ui.cc): the codec, the CVs, the knobs and the
 // button.
@@ -9,7 +9,9 @@
 // - audio out L is Warps' OUT; audio out R is AUX
 // - CV in: PITCH1 Level 1 (V/oct too, with the internal oscillator on), PITCH2 Level 2, GATE1
 //   Algorithm, GATE2 Timbre. Every jack switch stays off, so all six are inputs; GATE3 and PITCH3
-//   are unused, and so are the gate outs and MIDI.
+//   are unused, and so are the gate outs.
+// - MIDI plays the chord engine, with CARR on CHORD: its chords replace IN 1 as the carrier, in
+//   Chordal's last settings. With ALGO in the vocoder, that's a voice on IN 2 singing the chords.
 // - the encoder stands in for the four knobs and the button. As in the chooser, a turn moves the
 //   marker; a press takes the marked item to edit (its row lit), a turn sets it, and a press lets
 //   it go. Held for 2 s it goes back to the mode chooser.
@@ -34,6 +36,9 @@
 #include <Audio.h>
 
 #include "board.h"
+#include "chord_engine.h"
+#include "chordal_mode.h"
+#include "midi_notes.h"
 #include "stmlib/dsp/dsp.h"
 #include "warps/dsp/modulator.h"
 #include "warps/resources.h"
@@ -42,7 +47,7 @@ namespace warps_mode {
 
 using warps::ShortFrame;
 
-constexpr uint8_t MODE = 1;  // this mode's place in main.cpp's MODES: its EEPROM page
+constexpr uint8_t MODE = 2;  // this mode's place in main.cpp's MODES: its EEPROM page
 
 // ---- jacks
 enum Knob : uint8_t { LEVEL1, LEVEL2, ALGO, TIMBRE, KNOBS };
@@ -66,7 +71,7 @@ constexpr uint8_t SETTINGS_MAGIC = 0x57;
 struct Settings {
   uint8_t magic;
   uint8_t knob[KNOBS];  // 0-100, the knobs' positions
-  uint8_t carrier;      // 0 external, 1 sine, 2 triangle, 3 saw: Warps' button
+  uint8_t carrier;      // 0 external, 1 sine, 2 triangle, 3 saw: Warps' button; 4 the chord engine
   uint8_t shift;        // the frequency shifter, Warps' easter egg
 };
 static Settings set;
@@ -77,6 +82,8 @@ static volatile float cv_volts[KNOBS];
 static volatile bool cv_open[KNOBS] = {true, true, true, true};
 static float spare_volts[2];
 
+constexpr uint8_t CARRIER_CHORD = 4;
+static chord::Engine &chords = chord::shared();
 static warps::Modulator modulator;
 static float lp_pot[KNOBS], lp_cv[KNOBS], note_cv, note_pot;
 
@@ -122,7 +129,7 @@ static void read_parameters(warps::Parameters *p) {
   note_pot += K_NOTE * (60.0f * set.knob[LEVEL1] * 0.01f + 12.0f - note_pot);
   p->note = cv_open[LEVEL1] ? note_pot + 24.0f : note_pot + note_cv;
 
-  p->carrier_shape = set.carrier;
+  p->carrier_shape = set.carrier == CARRIER_CHORD ? 0 : set.carrier;  // the chord comes in as IN 1
 }
 
 static inline int16_t take(const audio_block_t *b, uint32_t i) {  // an input sample, at Warps' level
@@ -151,6 +158,14 @@ class WarpsStream : public AudioStream {
       for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
         in[i].l = take(in_r, i);  // the carrier: the panel's in L, I2S right (the panel swaps them)
         in[i].r = take(in_l, i);  // the modulator: the panel's in R, I2S left
+      }
+      if (set.carrier == CARRIER_CHORD) {
+        static float l[AUDIO_BLOCK_SAMPLES], r[AUDIO_BLOCK_SAMPLES];
+        chords.Process(nullptr, l, r, AUDIO_BLOCK_SAMPLES);
+        for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+          float x = (l[i] + r[i]) * 0.7f;
+          in[i].l = (int16_t)lroundf((x > 1.0f ? 1.0f : x < -1.0f ? -1.0f : x) * 32767.0f);
+        }
       }
       read_parameters(modulator.mutable_parameters());
       modulator.set_easter_egg(set.shift);
@@ -217,7 +232,7 @@ static void ui() {
     if (sel < KNOBS)
       set.knob[sel] = constrain((int32_t)set.knob[sel] + turns * step, 0, 100);
     else if (sel == CARRIER)
-      set.carrier = constrain((int32_t)set.carrier + turns, 0, 3);
+      set.carrier = constrain((int32_t)set.carrier + turns, 0, CARRIER_CHORD);
     else
       set.shift = turns > 0;
     changedMs = now ? now : 1;
@@ -248,11 +263,11 @@ static void paint() {
   static const char *const NAME[ITEMS] = {"LEV1", "LEV2", "ALGO", "TIMB", "CARR", "SHIFT"};
   static const char *const SHIFT_NAME[KNOBS] = {"FDBK", "WET", "FREQ", "MIX"};  // the easter egg's
   static const char *const JACK[KNOBS] = {"P1", "P2", "G1", "G2"};
-  static const char *const CARRIER_NAME[4] = {"EXT", "SINE", "TRI", "SAW"};
+  static const char *const CARRIER_NAME[5] = {"EXT", "SINE", "TRI", "SAW", "CHORD"};
   uint8_t top = sel < 4 ? 0 : sel - 3;
   for (uint8_t r = 0; r < 4; r++) {
     uint8_t it = top + r;
-    char value[12], jack[4] = "", line[32];
+    char value[16], jack[4] = "", line[32];  // value: CHORD and the chord's name
     const char *name = NAME[it];
     if (it < KNOBS) {
       if (set.shift) name = SHIFT_NAME[it];
@@ -262,7 +277,10 @@ static void paint() {
         snprintf(value, sizeof(value), "%u%%", set.knob[it]);
       snprintf(jack, sizeof(jack), "%s%c", JACK[it], cv_open[it] ? ' ' : '*');  // *: a cable found
     } else if (it == CARRIER) {
-      snprintf(value, sizeof(value), "%s", CARRIER_NAME[set.carrier]);
+      if (set.carrier == CARRIER_CHORD)
+        snprintf(value, sizeof(value), "CHORD %s", chords.ChordName());
+      else
+        snprintf(value, sizeof(value), "%s", CARRIER_NAME[set.carrier]);
     } else {
       snprintf(value, sizeof(value), "%s", set.shift ? "on" : "off");
     }
@@ -271,15 +289,33 @@ static void paint() {
   }
 }
 
+static void chord_on(uint8_t note) {
+  AudioNoInterrupts();
+  chords.NoteOn(note);
+  AudioInterrupts();
+}
+
+static void chord_off(uint8_t note) {
+  AudioNoInterrupts();
+  chords.NoteOff(note);
+  AudioInterrupts();
+}
+
+static void chord_bend(float semitones) { chords.Bend(semitones); }
+
 void begin() {
   // board::begin() left every jack switch off and the DAC at 0 V behind them, so the six CV jacks
   // are inputs and the DAC holds steady (spec requirement 11)
   cv_ok = board::cv_in_begin();
   if (!cv_ok) Serial.println("Warps: the ADS8688 doesn't echo its ranges; CV ins are off.");
-  if (!board::mode_load(MODE, &set, sizeof(set)) || set.magic != SETTINGS_MAGIC || set.carrier > 3)
+  if (!board::mode_load(MODE, &set, sizeof(set)) || set.magic != SETTINGS_MAGIC || set.carrier > CARRIER_CHORD)
     set = {SETTINGS_MAGIC, {80, 80, 0, 50}, 0, 0};
   for (uint8_t k = 0; k < KNOBS; k++) lp_pot[k] = set.knob[k] * 0.01f;  // no sweep from 0 at start
   note_pot = 60.0f * lp_pot[LEVEL1] + 12.0f;
+
+  chords.Init(AUDIO_SAMPLE_RATE_EXACT);
+  chordal_mode::load_params(&chords.p);
+  midi_notes::begin(chord_on, chord_off, chord_bend);
 
   modulator.Init(AUDIO_SAMPLE_RATE_EXACT);
   AudioMemory(8);
@@ -294,8 +330,7 @@ void begin() {
 }
 
 void loop() {
-  while (usbMIDI.read()) {
-  }  // nothing listens in this mode: keep the host's queue empty
+  midi_notes::poll();
   read_cvs();
   ui();
 

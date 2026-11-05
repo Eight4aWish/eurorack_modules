@@ -15,12 +15,16 @@ Read it before changing `board.cpp`.
 and reset, the encoder and the chooser. TRS MIDI in is the one thing not yet tried: see
 [First flash](#first-flash).
 
-**2026-11-02:** mode 2, Warps, is on Boy. The codec runs at 96 kHz, and the internal carrier
+**2026-11-02:** Warps, now mode 3, is on Boy. The codec runs at 96 kHz, and the internal carrier
 is in tune and clean in all its shapes (David).
 
 **2026-11-04:** CV in works, by ear, from V/oct into Warps' internal oscillator (David), the first
 time a Rev A CV input has read another module. Tracking and calibration are for later, on purpose.
-Audio in and the frequency shifter are still to try: see [Mode 2 on the bench](#mode-2-on-the-bench).
+Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#mode-3-on-the-bench).
+
+**2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
+so Warps moves to mode 3. Flashing this resets Warps' settings once, because its EEPROM page moved.
+Chordal is written and builds, not yet flashed.
 
 ## Modes
 
@@ -37,8 +41,8 @@ inputs or outputs, and that shouldn't change under a patch.
 | Mode | What | Status |
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
-| 2 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT) | on the bench, 2026-11-02: 96 kHz and the internal carrier pass |
-| 3 | **Weirder two-input processing**: spectral morphing and sidechain ducking first | to come |
+| 2 | **Chordal**: one finger plays four notes that lead into the next chord, as stereo oscillators or strings the audio inputs can ring | written and builds, 2026-11-05; not yet flashed |
+| 3 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT), with Chordal's engine as a fifth carrier | on the bench, 2026-11-02: 96 kHz and the internal carrier pass |
 
 ## Mode 1, the Move companion
 
@@ -80,7 +84,53 @@ Fixed in passing:
 design formula with a meter. Per-channel calibration in the EEPROM (spec requirement 10), and the
 board's load servo (requirement 9), aren't written yet.
 
-## Mode 2, Warps
+## Mode 2, Chordal
+
+One finger plays a chord of four notes, and each chord leads smoothly into the next. It brings back
+the old Boy's chord mode and drone, which saw little use because that Boy's audio path was noisy,
+and goes well past them. The engine is plain C++ with no Arduino in it (`chord_engine.{h,cpp}`), so
+`scripts/host/chord_render.cpp` runs the same code on a Mac.
+
+**Status, 2026-11-05:** written and builds, not yet flashed. What's been checked so far is the
+Mac render, by measurement. Its CPU on the Teensy isn't known: see [the bench list](#mode-2-on-the-bench).
+
+| Boy | Chordal |
+|---|---|
+| MIDI, USB and TRS, any channel but 10 | a note plays a chord; bend is ±2 semitones |
+| audio out L, R | the chord, in stereo |
+| audio in L, R | summed, they ring the strings |
+| PITCH1, PITCH2, PITCH3, GATE1 | the four notes, V/oct, gliding as they lead (note 36 at 0 V, as mode 1) |
+| GATE2 | 5 V while a chord is on |
+| GATE3 | the motion, slowly, ±5 V |
+| CLK, DRUM2, DRUM1, RST | a 5 ms trigger as each note enters, in that order |
+
+**The sound.** Four notes, a bass and three above it. Each note is five detuned oscillators spread
+across the stereo field, through a low-pass that tracks the note, blooms as it enters and breathes
+with MOTION. Each also has a tuned string, a comb resonator that the audio inputs, a little air
+noise and a pluck can all ring. So with SOUND up, drums patched in come out in the chord.
+
+**The gestures** are the same as every other page. The chord's name is on the top row, and these
+are the items:
+
+| Item | Sets |
+|---|---|
+| KEY | C to B |
+| HARM | MAJOR, MINOR, DORIAN, MIXOLYD, LYDIAN, PHRYGIAN, HARM MIN: any note plays the chord built on it. Then the old chord mode's 40 progressions: white keys are chords 1-7, a black key plays the white key below it, and A# is the eighth |
+| STACK | how a scale builds its chords: 7TH, 9TH, SUS, QUARTAL, OPEN, FIFTHS |
+| VOICE | LEAD picks whichever inversion moves least from the last chord; Root, Inv1, Inv2, Drop2 and Spread are fixed |
+| OCT | −2 to +2 |
+| SOUND | oscillators to strings |
+| SHAPE | sine, triangle, saw |
+| BRIGHT, SPREAD, MOTION | the filter; detune and stereo width; how much it drifts and breathes |
+| SWELL | attack, release and how long the strings ring |
+| STRUM, GLIDE | the gap between notes entering; how long a note takes to reach the next chord |
+| HOLD | on: a chord stays until the next one |
+| LEVEL | the output |
+
+The settings are kept in the EEPROM. Warps' CHORD carrier uses the same engine with whatever Chordal
+last saved.
+
+## Mode 3, Warps
 
 Mutable Instruments' meta-modulator. Its DSP is built unchanged from
 `third_party/eurorack/warps` by `scripts/warps_build.py`; `warps_mode.cpp` takes the place of
@@ -96,11 +146,12 @@ Warps' own codec, CV, knob and button code.
 | PITCH2 | Level 2 CV |
 | GATE1 | Algorithm CV |
 | GATE2 | Timbre CV |
-| GATE3, PITCH3, the gate outs, MIDI | unused |
+| MIDI, USB and TRS, any channel but 10 | plays the chords, with CARR on CHORD |
+| GATE3, PITCH3, the gate outs | unused |
 
 All six CV jacks are inputs: every jack switch stays off for the session.
 
-**The overlay.** The panel's labels are mode 1's, so mode 2 has a 3D-printed card that slips over rows
+**The overlay.** The panel's labels are mode 1's, so Warps has a 3D-printed card that slips over rows
 2-6: `build123d/panels/teensy_move_reva_warps_overlay.py` (not printed or fitted yet).
 
 **The encoder** stands in for Warps' four knobs and its button. The screen lists six items, four
@@ -111,7 +162,7 @@ at a time:
 | LEV1, LEV2 | the Level knobs | 0–100 %, and the jack, `*` when a cable is found |
 | ALGO | the Algorithm knob | the algorithm at the knob plus CV: XFADE, FOLD, DIODE RM, DIGI RM, XOR, COMPARE, VOCODER |
 | TIMB | the Timbre knob | 0–100 % |
-| CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW |
+| CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW. CHORD is ours: Chordal's engine replaces audio in L, and the screen shows the chord. With ALGO on VOCODER, a voice on audio in R sings the chords |
 | SHIFT | the easter egg, the frequency shifter | off, on. The four knobs become FDBK, WET, FREQ and MIX |
 
 The gestures are the chooser's (David, 2026-11-02: one gesture to scroll on both pages):
@@ -166,9 +217,14 @@ it was left.
   - the screen.
 - `src/teensy_move/main.cpp`: the mode table and the chooser.
 - `src/teensy_move/move_mode.{h,cpp}`: mode 1.
-- `src/teensy_move/warps_mode.{h,cpp}`: mode 2. `src/teensy_move/warps/drivers/debug_pin.h`
+- `src/teensy_move/chordal_mode.{h,cpp}`: mode 2, on `chord_engine.{h,cpp}` and
+  `chord_library.h` (the old chord mode's 40 progressions).
+- `src/teensy_move/midi_notes.{h,cpp}`: notes from USB and TRS, for modes 2 and 3.
+- `src/teensy_move/warps_mode.{h,cpp}`: mode 3. `src/teensy_move/warps/drivers/debug_pin.h`
   stands in for Warps' STM32 debug pin.
 - `scripts/warps_build.py`: compiles Warps' DSP and the stmlib it needs.
+- `scripts/host/`: `build_chord_render.sh` builds `chord_render`, which renders the chord engine and
+  Warps' DSP to a file on a Mac, to hear changes before flashing.
 
 ## Building and flashing
 
@@ -212,16 +268,34 @@ With nothing patched, then patching one thing at a time:
 
 ## Mode 2 on the bench
 
+`pio device monitor` prints the CPU, the blocks, the chord and its four notes every 2 s. **Note the
+CPU first:** it decides how much of this can run alongside Warps.
+
+1. **Choose 2.** Hold 2 s, turn to `2 CHORDAL`, press.
+2. **Play the Move into USB.** Out L and R play the chord, and its name is on the top row. Turn HOLD
+   off: the chord stops when the pad lifts.
+3. **Move between chords** with STACK on 7TH: the notes on the monitor should barely move.
+4. **Stereo.** Take L and R one at a time, with SPREAD and MOTION up: they should clearly differ.
+5. **Strings.** SOUND at 100 %. Patch drums into audio in L. They should ring in the chord.
+6. **CV.** PITCH1-3 and GATE1 into four oscillators, or one at a time on a tuner. Don't chase the
+   tuning. GATE2 follows the chord, GATE3 moves slowly, and the gate outs trigger as the notes enter.
+7. **TRS MIDI in.** The first time on this board: Move or another source into the TRS jack.
+8. **In Warps** (mode 3): CARR to CHORD, ALGO to VOCODER, a voice or drums into audio in R, and play
+   the Move. Read the CPU line: Warps and the chords together are what has to fit. ALGO fully up
+   freezes the vocoder's bands, so a held vowel keeps singing the chords.
+
+## Mode 3 on the bench
+
 **Run 2026-11-02, so far:** steps 2 and 3 pass. LEV1 at 0 % gave C2 on a tuner, so the codec
 is at 96 kHz. The sine is clean on the Tiliqua's scope, and so are the other carrier shapes. The
 first gestures, a press to step through the items, were awkward against the chooser's turn to
-scroll, so mode 2 now uses the chooser's. David: "perfect".
+scroll, so Warps now uses the chooser's. David: "perfect".
 
 `pio device monitor` prints the CPU and the CV ins every 2 s.
 
 1. **Mode 1 again, at 96 kHz.** The whole firmware now runs the codec at 96 kHz. In mode 1 that
    only matters for step 7 above: the audio outs should still sit at 0 V.
-2. **Choose 2.** Hold 2 s, turn to `2 WARPS`, press.
+2. **Choose 3.** Hold 2 s, turn to `3 WARPS`, press.
    - The screen lists LEV1, LEV2, ALGO and TIMB.
    - With nothing patched, the monitor shows `open 1111`, and no jack on screen has a `*`.
 3. **The rate, by ear.** Set CARR to SINE, ALGO to XFADE, TIMB to 0 % and LEV1 to 0 %.
@@ -242,7 +316,7 @@ scroll, so mode 2 now uses the chooser's. David: "perfect".
    - **An LFO into GATE1:** the ALGO name moves, and the jack shows `G1*`.
    - **An envelope into PITCH2:** the modulator's level follows it, over 0 to about 6 V.
    - **Into GATE2:** Timbre moves.
-   - **GATE3 and PITCH3:** mode 2 doesn't use them, so check them on the monitor's reading alone.
+   - **GATE3 and PITCH3:** Warps doesn't use them, so check them on the monitor's reading alone.
    - Take each cable out: its `*` should go within about a tenth of a second.
 6. **Output DC.** ALGO on COMPARE, both inputs patched: the outs average 0 V on a meter.
 7. **SHIFT on:** the frequency shifter. ALGO becomes FREQ and shifts the carrier (in L) up or down

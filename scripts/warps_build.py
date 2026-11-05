@@ -1,6 +1,6 @@
 """
 PlatformIO extra script: compile Mutable Instruments Warps' DSP from third_party/eurorack/
-alongside Boy's firmware (src/teensy_move), for its mode 2.
+alongside Boy's firmware (src/teensy_move), for its mode 3.
 
 Only the DSP and its tables are built. Warps' own hardware layer (warps.cc, cv_scaler.cc, ui.cc,
 settings.cc, drivers/) is replaced by src/teensy_move/warps_mode.cpp.
