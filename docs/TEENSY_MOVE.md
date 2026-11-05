@@ -3,9 +3,8 @@
 Boy on the analogue board Rev A (Teensy 4.1, `teensy_core_midi`), in a firmware with modes. It took
 over `teensy_move` on 2026-11-01.
 
-The old Boy, on its hand-built hardware with the Teensy Expander, is now
-[`teensy_move_old`](TEENSY_MOVE_OLD.md). Once the new Boy has taken over, the old one is
-decommissioned and its code archived or deleted, when David says.
+The old Boy, on its hand-built hardware with the Teensy Expander, was retired on 2026-11-05 (David).
+Its code and docs are at the tag `teensy-move-old-final`.
 
 The board, its pin map, the chips and the start-up rules are in
 [`eurorack_electronics/docs/analogue_board_reva_firmware.md`](https://github.com/Eight4aWish/eurorack_electronics/blob/main/docs/analogue_board_reva_firmware.md).
