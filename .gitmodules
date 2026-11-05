@@ -4,3 +4,6 @@
 	# elements_build.py rewrites voice.cc set_resolution() on every build, so a dirty
 	# working tree here is expected. The pointer itself is still tracked.
 	ignore = dirty
+[submodule "third_party/parasites"]
+	path = third_party/parasites
+	url = https://github.com/mqtthiqs/parasites.git

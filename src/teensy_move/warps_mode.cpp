@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 David Baghurst
 //
-// Mode 3, Warps: Mutable Instruments' meta-modulator. Its DSP is built unchanged from
-// third_party/eurorack/warps (Emilie Gillet, MIT) by scripts/warps_build.py; this file stands in for
-// Warps' own hardware layer (warps.cc, cv_scaler.cc, ui.cc): the codec, the CVs, the knobs and the
-// button.
+// Mode 3, Warps: Mutable Instruments' meta-modulator, with the eight further modes of Matthias Puech's
+// Parasites firmware. Its DSP is built unchanged from third_party/parasites (after Emilie Gillet, MIT)
+// by scripts/warps_build.py; this file stands in for Warps' own hardware layer (warps.cc, cv_scaler.cc,
+// ui.cc): the codec, the CVs, the knobs and the button.
 // - audio in L is Warps' IN 1, the carrier; audio in R is IN 2, the modulator
 // - audio out L is Warps' OUT; audio out R is AUX
 // - CV in: PITCH1 Level 1 (V/oct too, with the internal oscillator on), PITCH2 Level 2, GATE1
 //   Algorithm, GATE2 Timbre. Every jack switch stays off, so all six are inputs; GATE3 and PITCH3
 //   are unused, and so are the gate outs.
-// - MIDI plays the chord engine, with CARR on CHORD: its chords replace IN 1 as the carrier, in
-//   Chordal's last settings. With ALGO in the vocoder, that's a voice on IN 2 singing the chords.
+// - MIDI plays the chord engine, with CHORD on: its chords replace IN 1, in Chordal's last settings.
+//   In the vocoder, with CARR on EXT, that's a voice on IN 2 singing the chords.
 // - the encoder stands in for the four knobs and the button. As in the chooser, a turn moves the
 //   marker; a press takes the marked item to edit (its row lit), a turn sets it, and a press lets
 //   it go. Held for 2 s it goes back to the mode chooser.
@@ -64,15 +64,19 @@ constexpr float DC_POLE = 1 - 2 * PI * 2.7f / AUDIO_SAMPLE_RATE_EXACT;
 // Warps runs its CV scaler once a 60-sample block, 1.6 kHz; Boy once a 96-sample block, 1 kHz. A
 // one-pole coefficient c there is 1 - (1 - c)^1.6 here, for the same time constant.
 static float per_block(float c) { return 1 - powf(1 - c, AUDIO_BLOCK_SAMPLES / 60.0f); }
-static const float K_POT = per_block(0.33f * 0.08f), K_CV = per_block(0.08f), K_NOTE = per_block(0.1f);
+// Parasites reacts faster at the Levels than stock Warps does: 0.5 where stock has 0.08
+static const float K_CV[KNOBS] = {per_block(0.5f), per_block(0.5f), per_block(0.08f), per_block(0.08f)};
+static const float K_POT[KNOBS] = {per_block(0.33f * 0.5f), per_block(0.33f * 0.5f), per_block(0.33f * 0.08f), per_block(0.33f * 0.08f)};
+static const float K_NOTE = per_block(0.1f);
 
 // ---- settings, kept in the EEPROM so the mode comes back as it was left
-constexpr uint8_t SETTINGS_MAGIC = 0x57;
+constexpr uint8_t SETTINGS_MAGIC = 0x58;
 struct Settings {
   uint8_t magic;
   uint8_t knob[KNOBS];  // 0-100, the knobs' positions
-  uint8_t carrier;      // 0 external, 1 sine, 2 triangle, 3 saw: Warps' button; 4 the chord engine
-  uint8_t shift;        // the frequency shifter, Warps' easter egg
+  uint8_t carrier;      // Warps' button: 0 external, 1 sine, 2 triangle, 3 saw; Doppler and Delay have their own
+  uint8_t feature;      // warps::FeatureMode: stock Warps is FEATURE_MODE_META
+  uint8_t chord;        // 1: the chord engine is IN 1
 };
 static Settings set;
 static uint32_t changedMs;  // a change waits 3 s to be written, so a turn isn't a dozen writes
@@ -82,7 +86,6 @@ static volatile float cv_volts[KNOBS];
 static volatile bool cv_open[KNOBS] = {true, true, true, true};
 static float spare_volts[2];
 
-constexpr uint8_t CARRIER_CHORD = 4;
 static chord::Engine &chords = chord::shared();
 static warps::Modulator modulator;
 static float lp_pot[KNOBS], lp_cv[KNOBS], note_cv, note_pot;
@@ -90,15 +93,18 @@ static float lp_pot[KNOBS], lp_cv[KNOBS], note_cv, note_pot;
 // What Warps' CvScaler::Read does with its pots and CVs, here with the encoder's knobs
 static void read_parameters(warps::Parameters *p) {
   for (uint8_t k = 0; k < KNOBS; k++) {
-    lp_pot[k] += K_POT * (set.knob[k] * 0.01f - lp_pot[k]);
+    lp_pot[k] += K_POT[k] * (set.knob[k] * 0.01f - lp_pot[k]);
     float cv = cv_open[k] ? 0.0f : cv_volts[k] * CV_SCALE[k];  // Warps' unpatched jacks are grounded
-    lp_cv[k] += K_CV * (cv - lp_cv[k]);
+    lp_cv[k] += K_CV[k] * (cv - lp_cv[k]);
   }
   for (uint8_t i = 0; i < 2; i++) {  // Level: the CV is a VCA, the knob its range
-    float pot = lp_pot[LEVEL1 + i], v = pot * pot * lp_cv[LEVEL1 + i] * 1.6f;
-    if (cv_open[LEVEL1 + i]) v = pot * pot;
+    float pot = lp_pot[LEVEL1 + i], cv = lp_cv[LEVEL1 + i] * 1.6f;
+    float v = pot * pot * cv, raw = pot * cv;  // raw: the modes that use Level as feedback, wet or the like
+    if (cv_open[LEVEL1 + i]) v = pot * pot, raw = pot;
     CONSTRAIN(v, 0.0f, 1.0f);
+    CONSTRAIN(raw, 0.0f, 1.0f);
     p->channel_drive[i] = v;
+    p->raw_level[i] = raw;
   }
   float algorithm = stmlib::Interpolate(warps::lut_pot_curve, lp_pot[ALGO], 512.0f) + lp_cv[ALGO] * 2.0f;
   CONSTRAIN(algorithm, 0.0f, 1.0f);
@@ -111,13 +117,13 @@ static void read_parameters(warps::Parameters *p) {
   CONSTRAIN(parameter, 0.0f, 1.0f);
   p->modulation_parameter = parameter;
 
-  // the easter egg's mappings
-  p->frequency_shift_pot = lp_pot[ALGO];
-  p->frequency_shift_cv = lp_cv[ALGO] * 2.0f;
-  CONSTRAIN(p->frequency_shift_cv, -1.0f, 1.0f);
-  float phase_shift = lp_pot[ALGO] + lp_cv[ALGO] * 2.0f;
-  CONSTRAIN(phase_shift, 0.0f, 1.0f);
-  p->phase_shift = phase_shift;
+  // the raw mappings, for the modes that don't go through the algorithm's curve
+  p->raw_algorithm_pot = stmlib::Interpolate(warps::lut_pot_curve, lp_pot[ALGO], 512.0f);
+  p->raw_algorithm_cv = lp_cv[ALGO] * 2.0f;
+  CONSTRAIN(p->raw_algorithm_cv, -1.0f, 1.0f);
+  float raw_algorithm = lp_pot[ALGO] + lp_cv[ALGO] * 2.0f;
+  CONSTRAIN(raw_algorithm, 0.0f, 1.0f);
+  p->raw_algorithm = raw_algorithm;
 
   // the internal oscillator: Level 1's knob sets its pitch, and its jack is V/oct
   float note = 12.0f * cv_volts[LEVEL1];
@@ -129,7 +135,7 @@ static void read_parameters(warps::Parameters *p) {
   note_pot += K_NOTE * (60.0f * set.knob[LEVEL1] * 0.01f + 12.0f - note_pot);
   p->note = cv_open[LEVEL1] ? note_pot + 24.0f : note_pot + note_cv;
 
-  p->carrier_shape = set.carrier == CARRIER_CHORD ? 0 : set.carrier;  // the chord comes in as IN 1
+  p->carrier_shape = set.carrier;
 }
 
 static inline int16_t take(const audio_block_t *b, uint32_t i) {  // an input sample, at Warps' level
@@ -159,7 +165,7 @@ class WarpsStream : public AudioStream {
         in[i].l = take(in_r, i);  // the carrier: the panel's in L, I2S right (the panel swaps them)
         in[i].r = take(in_l, i);  // the modulator: the panel's in R, I2S left
       }
-      if (set.carrier == CARRIER_CHORD) {
+      if (set.chord) {
         static float l[AUDIO_BLOCK_SAMPLES], r[AUDIO_BLOCK_SAMPLES];
         chords.Process(nullptr, l, r, AUDIO_BLOCK_SAMPLES);
         for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
@@ -168,7 +174,7 @@ class WarpsStream : public AudioStream {
         }
       }
       read_parameters(modulator.mutable_parameters());
-      modulator.set_easter_egg(set.shift);
+      modulator.set_feature_mode(static_cast<warps::FeatureMode>(set.feature));
       modulator.Process(in, out, AUDIO_BLOCK_SAMPLES);
       for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
         out_l->data[i] = dc_[0].process(out[i].l);  // OUT: the panel's out L, I2S left
@@ -216,7 +222,29 @@ static void read_cvs() {
 }
 
 // ---- the encoder and the screen
-enum Item : uint8_t { CARRIER = KNOBS, SHIFT, ITEMS };
+enum Item : uint8_t { FEATURE, KNOB_ITEM, CARRIER = KNOB_ITEM + KNOBS, CHORD, ITEMS };
+
+// What the panel means in each of the modes, from Parasites' manual
+struct Face {
+  const char *name;
+  const char *knob[KNOBS];
+  const char *button;
+  const char *const *button_value;
+};
+static const char *const CARRIERS[4] = {"EXT", "SINE", "TRI", "SAW"};
+static const char *const SPACES[4] = {"TINY", "SMALL", "LARGE", "HUGE"};
+static const char *const TOPOLOGIES[4] = {"OPEN", "DUAL", "TAPE", "PING"};
+static const Face FACE[] = {  // in warps::FeatureMode's order
+    {"DOPPLER", {"RATE", "DEPTH", "X", "Y"}, "SPACE", SPACES},
+    {"FOLD", {"LEV1", "LEV2", "FOLDS", "BIAS"}, "CARR", CARRIERS},
+    {"CHEBY", {"LEV1", "LEV2", "ORDER", "GAIN"}, "CARR", CARRIERS},
+    {"SHIFT", {"FDBK", "WET", "FREQ", "MIX"}, "CARR", CARRIERS},
+    {"CRUSH", {"LEV1", "LEV2", "BITS", "XMOD"}, "CARR", CARRIERS},
+    {"COMPARE", {"LEV1", "LEV2", "FUNC", "ORDER"}, "CARR", CARRIERS},
+    {"VOCODER", {"LEV1", "LEV2", "WARP", "RELS"}, "CARR", CARRIERS},
+    {"DELAY", {"FDBK", "WET", "SPEED", "LEN"}, "TYPE", TOPOLOGIES},
+    {"META", {"LEV1", "LEV2", "ALGO", "TIMB"}, "CARR", CARRIERS},
+};
 static uint8_t sel;
 static bool editing;  // a turn sets the marked item; otherwise it moves the marker
 static uint32_t lastTurnMs, lastPaintMs, lastReportMs;
@@ -229,12 +257,14 @@ static void ui() {
     uint32_t now = millis();
     int32_t step = now - lastTurnMs < 40 ? 4 : 1;  // turned fast: bigger steps
     lastTurnMs = now;
-    if (sel < KNOBS)
-      set.knob[sel] = constrain((int32_t)set.knob[sel] + turns * step, 0, 100);
+    if (sel == FEATURE)
+      set.feature = constrain((int32_t)set.feature + turns, 0, warps::FEATURE_MODE_META);
+    else if (sel < CARRIER)
+      set.knob[sel - KNOB_ITEM] = constrain((int32_t)set.knob[sel - KNOB_ITEM] + turns * step, 0, 100);
     else if (sel == CARRIER)
-      set.carrier = constrain((int32_t)set.carrier + turns, 0, CARRIER_CHORD);
+      set.carrier = constrain((int32_t)set.carrier + turns, 0, 3);
     else
-      set.shift = turns > 0;
+      set.chord = turns > 0;
     changedMs = now ? now : 1;
   }
   switch (board::poll_push()) {
@@ -260,29 +290,30 @@ static const char *algorithm_name(float a) {  // the nearest of Warps' positions
 }
 
 static void paint() {
-  static const char *const NAME[ITEMS] = {"LEV1", "LEV2", "ALGO", "TIMB", "CARR", "SHIFT"};
-  static const char *const SHIFT_NAME[KNOBS] = {"FDBK", "WET", "FREQ", "MIX"};  // the easter egg's
   static const char *const JACK[KNOBS] = {"P1", "P2", "G1", "G2"};
-  static const char *const CARRIER_NAME[5] = {"EXT", "SINE", "TRI", "SAW", "CHORD"};
+  const Face &face = FACE[set.feature];
   uint8_t top = sel < 4 ? 0 : sel - 3;
   for (uint8_t r = 0; r < 4; r++) {
     uint8_t it = top + r;
-    char value[16], jack[4] = "", line[32];  // value: CHORD and the chord's name
-    const char *name = NAME[it];
-    if (it < KNOBS) {
-      if (set.shift) name = SHIFT_NAME[it];
-      if (it == ALGO && !set.shift)
+    char value[16], jack[4] = "", line[32];
+    const char *name;
+    if (it == FEATURE) {
+      name = "MODE";
+      snprintf(value, sizeof(value), "%s", face.name);
+    } else if (it < CARRIER) {
+      uint8_t k = it - KNOB_ITEM;
+      name = face.knob[k];
+      if (k == ALGO && set.feature == warps::FEATURE_MODE_META)
         snprintf(value, sizeof(value), "%s", algorithm_name(modulator.parameters().modulation_algorithm));
       else
-        snprintf(value, sizeof(value), "%u%%", set.knob[it]);
-      snprintf(jack, sizeof(jack), "%s%c", JACK[it], cv_open[it] ? ' ' : '*');  // *: a cable found
+        snprintf(value, sizeof(value), "%u%%", set.knob[k]);
+      snprintf(jack, sizeof(jack), "%s%c", JACK[k], cv_open[k] ? ' ' : '*');  // *: a cable found
     } else if (it == CARRIER) {
-      if (set.carrier == CARRIER_CHORD)
-        snprintf(value, sizeof(value), "CHORD %s", chords.ChordName());
-      else
-        snprintf(value, sizeof(value), "%s", CARRIER_NAME[set.carrier]);
+      name = face.button;
+      snprintf(value, sizeof(value), "%s", face.button_value[set.carrier]);
     } else {
-      snprintf(value, sizeof(value), "%s", set.shift ? "on" : "off");
+      name = "CHORD";
+      snprintf(value, sizeof(value), "%s", set.chord ? chords.ChordName() : "off");
     }
     snprintf(line, sizeof(line), "%c%-5s %-10s%s", it == sel ? '>' : ' ', name, value, jack);
     screen::row(r, line, it == sel && editing);
@@ -308,8 +339,9 @@ void begin() {
   // are inputs and the DAC holds steady (spec requirement 11)
   cv_ok = board::cv_in_begin();
   if (!cv_ok) Serial.println("Warps: the ADS8688 doesn't echo its ranges; CV ins are off.");
-  if (!board::mode_load(MODE, &set, sizeof(set)) || set.magic != SETTINGS_MAGIC || set.carrier > CARRIER_CHORD)
-    set = {SETTINGS_MAGIC, {80, 80, 0, 50}, 0, 0};
+  if (!board::mode_load(MODE, &set, sizeof(set)) || set.magic != SETTINGS_MAGIC || set.carrier > 3 ||
+      set.feature > warps::FEATURE_MODE_META || set.chord > 1)
+    set = {SETTINGS_MAGIC, {80, 80, 0, 50}, 0, warps::FEATURE_MODE_META, 0};
   for (uint8_t k = 0; k < KNOBS; k++) lp_pot[k] = set.knob[k] * 0.01f;  // no sweep from 0 at start
   note_pot = 60.0f * lp_pot[LEVEL1] + 12.0f;
 
@@ -342,8 +374,9 @@ void loop() {
   screen::service();
 
   if (now - lastReportMs >= 2000) {  // for the bench: pio device monitor
-    Serial.printf("Warps: cpu %.1f%% (max %.1f%%), blocks %u (max %u); P1 %+.3f P2 %+.3f G1 %+.3f G2 %+.3f G3 %+.3f P3 %+.3f V, open %d%d%d%d\n",
-                  AudioProcessorUsage(), AudioProcessorUsageMax(), AudioMemoryUsage(), AudioMemoryUsageMax(),
+    Serial.printf("Warps %s%s: cpu %.1f%% (max %.1f%%), blocks %u (max %u); P1 %+.3f P2 %+.3f G1 %+.3f G2 %+.3f G3 %+.3f P3 %+.3f V, open %d%d%d%d\n",
+                  FACE[set.feature].name, set.chord ? " + chords" : "", AudioProcessorUsage(), AudioProcessorUsageMax(),
+                  AudioMemoryUsage(), AudioMemoryUsageMax(),
                   cv_volts[0], cv_volts[1], cv_volts[2], cv_volts[3], spare_volts[0], spare_volts[1], cv_open[0], cv_open[1],
                   cv_open[2], cv_open[3]);
     lastReportMs = now;

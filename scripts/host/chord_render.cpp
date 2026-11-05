@@ -4,7 +4,7 @@
 // Runs the chord engine on a Mac, and through Warps' real DSP, to hear it before it's flashed.
 //
 //   scripts/host/build_chord_render.sh
-//   chord_render <scene> <out.f32> [in.f32]
+//   chord_render <scene> <out.f32> [in.f32 [second_in.f32]]
 //
 // The output is interleaved stereo float at 96 kHz, and any input is mono float at 96 kHz.
 
@@ -17,12 +17,14 @@
 
 #include "chord_engine.h"
 #include "chord_library.h"
+#include "stmlib/dsp/dsp.h"
 #include "warps/dsp/modulator.h"
+#include "warps/resources.h"
 
 using chord::Engine;
 constexpr float SR = 96000.0f;
 constexpr int BLOCK = 96;
-static std::vector<float> out_buf, in_buf;
+static std::vector<float> out_buf, in_buf, in2_buf;
 static size_t in_pos;
 
 struct Event {
@@ -141,18 +143,88 @@ static void vocoder(Engine &e, const std::vector<Event> &score, float sec, float
   }
 }
 
+// One of Parasites' modes, with the knobs as warps_mode.cpp hands them over. ALGO and TIMB move from
+// their first value to their second across the section, as a hand on the encoder would.
+struct Section {
+  warps::FeatureMode mode;
+  const char *name;
+  float sec, lev1, lev2, algo0, algo1, timb0, timb1;
+  int button;
+  bool chord;
+  const std::vector<float> *in2;
+  float note;
+  bool pair;  // OUT and AUX are a stereo pair here; otherwise OUT goes to both sides
+};
+
+static void section(Engine &e, warps::Modulator &mod, const Section &s, const std::vector<Event> &score) {
+  printf("%6.1f s  %s\n", out_buf.size() / 2 / SR, s.name);
+  mod.set_feature_mode(s.mode);
+  warps::ShortFrame in[BLOCK], out[BLOCK];
+  float l[BLOCK], r[BLOCK], dc_x[2] = {0, 0}, dc_y[2] = {0, 0};
+  const float pole = 1.0f - 2.0f * 3.14159265f * 2.7f / SR;  // warps_mode.cpp's output capacitor
+  size_t next = 0, blocks = size_t(s.sec * SR / BLOCK), pos = 0;
+  for (size_t b = 0; b < blocks; b++) {
+    float now = b * BLOCK / SR, t = float(b) / blocks;
+    while (next < score.size() && score[next].at <= now) {
+      if (score[next].on)
+        e.NoteOn(score[next].note);
+      else
+        e.NoteOff(score[next].note);
+      next++;
+    }
+    e.Process(nullptr, l, r, BLOCK);
+    for (int i = 0; i < BLOCK; i++, pos++) {
+      float x = s.chord ? (l[i] + r[i]) * 0.7f : 0.0f;
+      float y = s.in2 ? (*s.in2)[pos % s.in2->size()] : 0.0f;
+      in[i].l = int16_t(fmaxf(-1.0f, fminf(1.0f, x)) * 32767.0f);
+      in[i].r = int16_t(fmaxf(-1.0f, fminf(1.0f, y)) * 32767.0f);
+    }
+    float algo = s.algo0 + (s.algo1 - s.algo0) * t, timb = s.timb0 + (s.timb1 - s.timb0) * t;
+    warps::Parameters *p = mod.mutable_parameters();
+    p->channel_drive[0] = s.lev1 * s.lev1;
+    p->channel_drive[1] = s.lev2 * s.lev2;
+    p->raw_level[0] = s.lev1;
+    p->raw_level[1] = s.lev2;
+    float curved = stmlib::Interpolate(warps::lut_pot_curve, algo, 512.0f);
+    p->modulation_algorithm = curved;
+    p->modulation_parameter = timb;
+    p->raw_algorithm_pot = curved;
+    p->raw_algorithm_cv = 0;
+    p->raw_algorithm = algo;
+    p->note = s.note;
+    p->carrier_shape = s.button;
+    mod.Process(in, out, BLOCK);
+    for (int i = 0; i < BLOCK; i++) {
+      float o[2] = {out[i].l / 32768.0f, out[i].r / 32768.0f};
+      for (int c = 0; c < 2; c++) {
+        float y = o[c] - dc_x[c] + pole * dc_y[c];
+        dc_x[c] = o[c], dc_y[c] = y;
+        o[c] = y;
+      }
+      // warps_mode.cpp clamps here too
+      out_buf.push_back(fmaxf(-1.0f, fminf(1.0f, o[0])));
+      out_buf.push_back(fmaxf(-1.0f, fminf(1.0f, s.pair ? o[1] : o[0])));
+    }
+  }
+}
+
+static std::vector<float> load(const char *path) {
+  std::vector<float> v;
+  FILE *f = fopen(path, "rb");
+  if (!f) exit(2);
+  fseek(f, 0, SEEK_END);
+  v.resize(ftell(f) / 4);
+  fseek(f, 0, SEEK_SET);
+  if (fread(v.data(), 4, v.size(), f) != v.size()) exit(3);
+  fclose(f);
+  return v;
+}
+
 int main(int argc, char **argv) {
   if (argc < 3) return 1;
   std::string scene = argv[1];
-  if (argc > 3) {
-    FILE *f = fopen(argv[3], "rb");
-    if (!f) return 2;
-    fseek(f, 0, SEEK_END);
-    in_buf.resize(ftell(f) / 4);
-    fseek(f, 0, SEEK_SET);
-    if (fread(in_buf.data(), 4, in_buf.size(), f) != in_buf.size()) return 3;
-    fclose(f);
-  }
+  if (argc > 3) in_buf = load(argv[3]);
+  if (argc > 4) in2_buf = load(argv[4]);
   static Engine e;
   const std::vector<int> keys = {48, 50, 52, 53, 48, 50, 52, 53};  // C D E F: I V vi IV
   chord::Params d;
@@ -262,6 +334,41 @@ int main(int argc, char **argv) {
       t += 1.5f;
     }
     vocoder(e, score, len + 6.2f, 0.78f, 0.5f, freeze);
+  } else if (scene == "parasites") {  // in = drums, second in = a voice
+    static warps::Modulator mod;
+    mod.Init(SR);
+    e.Init(SR);
+    e.p = d;
+    e.p.harmony = 7;
+    e.p.bright = 70;
+    e.p.spread = 30;
+    e.p.motion = 20;
+    e.p.swell = 8;
+    e.p.strum = 0;
+    const auto chords = line({48, 52, 53, 50}, 2.0f);
+    using namespace warps;
+    section(e, mod, {FEATURE_MODE_DOPPLER, "DOPPLER, chords circling the head", 8, 0.28f, 0.8f, 0.5f, 0.5f, 0.15f, 0.15f, 1, true, nullptr, 48, true}, chords);
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_FOLD, "FOLD, chords, folds opening", 8, 0.8f, 0, 0, 0.85f, 0.5f, 0.5f, 0, true, nullptr, 48, false}, chords);
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_CHEBYSCHEV, "CHEBY, the internal sine, order rising", 8, 0.85f, 0, 0, 1, 0.8f, 0.8f, 1, false, nullptr, 48, false}, {});
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_FREQUENCY_SHIFTER, "SHIFT, chords, up on the left, down on the right", 8, 0.25f, 1, 0.52f, 0.72f, 1, 1, 1, true, nullptr, 48, true}, chords);
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_BITCRUSHER, "CRUSH, chords and drums, bits falling, XMOD rising", 8, 0.55f, 0.45f, 0, 0.75f, 0, 0.8f, 0, true, &in_buf, 48, false}, chords);
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_COMPARATOR, "COMPARE, chords and drums, through the functions", 8, 0.8f, 0.7f, 0, 1, 0.15f, 0.15f, 0, true, &in_buf, 48, false}, chords);
+    gap(0.5f);
+    section(e, mod, {FEATURE_MODE_VOCODER, "VOCODER, a voice singing the chords, WARP moving", 9.5f, 0.9f, 0.9f, 0.5f, 0.82f, 0.3f, 0.3f, 0, true, &in2_buf, 48, false}, line({48, 52, 53, 50, 48}, 1.9f));
+    gap(0.5f);
+    e.p.hold = 0;
+    std::vector<Event> stabs;
+    int notes[] = {48, 52, 53, 50, 48, 52};
+    for (int i = 0; i < 6; i++) {
+      stabs.push_back({i * 2.0f, notes[i], true});
+      stabs.push_back({i * 2.0f + 0.2f, notes[i], false});
+    }
+    section(e, mod, {FEATURE_MODE_DELAY, "DELAY, chord stabs, ping-pong, the tape slowing", 14, 0.65f, 0.55f, 1, 0.8f, 0.6f, 0.6f, 3, true, nullptr, 48, true}, stabs);
   } else {
     return 4;
   }

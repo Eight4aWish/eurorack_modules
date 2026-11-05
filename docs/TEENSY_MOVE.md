@@ -23,8 +23,9 @@ time a Rev A CV input has read another module. Tracking and calibration are for 
 Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#mode-3-on-the-bench).
 
 **2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
-so Warps moves to mode 3. Flashing this resets Warps' settings once, because its EEPROM page moved.
-Chordal is written and builds, not yet flashed.
+so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its META mode. Flashing this
+resets Warps' settings once, because its EEPROM page moved. Chordal and Parasites are written and
+build, not yet flashed.
 
 ## Modes
 
@@ -42,7 +43,7 @@ inputs or outputs, and that shouldn't change under a patch.
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
 | 2 | **Chordal**: one finger plays four notes that lead into the next chord, as stereo oscillators or strings the audio inputs can ring | written and builds, 2026-11-05; not yet flashed |
-| 3 | **Warps**, a straight port of Mutable's source (`third_party/eurorack/warps`, MIT), with Chordal's engine as a fifth carrier | on the bench, 2026-11-02: 96 kHz and the internal carrier pass |
+| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. Parasites written and builds, 2026-11-05; not yet flashed |
 
 ## Mode 1, the Move companion
 
@@ -127,14 +128,24 @@ are the items:
 | HOLD | on: a chord stays until the next one |
 | LEVEL | the output |
 
-The settings are kept in the EEPROM. Warps' CHORD carrier uses the same engine with whatever Chordal
+The settings are kept in the EEPROM. Warps' CHORD switch uses the same engine with whatever Chordal
 last saved.
 
 ## Mode 3, Warps
 
-Mutable Instruments' meta-modulator. Its DSP is built unchanged from
-`third_party/eurorack/warps` by `scripts/warps_build.py`; `warps_mode.cpp` takes the place of
-Warps' own codec, CV, knob and button code.
+Mutable Instruments' meta-modulator, with the eight further modes of Matthias Puech's
+[Parasites](https://mqtthiqs.github.io/parasites/warps) firmware. Its DSP is built unchanged from
+`third_party/parasites` by `scripts/warps_build.py`; `warps_mode.cpp` takes the place of Warps' own
+codec, CV, knob and button code. Parasites brings its own stmlib, so nothing here is built from
+`third_party/eurorack` any more.
+
+**How close META is to stock Warps.** Parasites keeps stock Warps as its Meta mode, and Boy starts
+there. The same input through both, on a Mac (2026-11-05): XFADE, DIODE RM, DIGI RM, XOR and COMPARE
+are sample-identical with an external carrier, and with the internal sine and nothing in IN 1. Three
+things differ, all as Parasites' manual says:
+- the wavefolder is inverted and about 1.9 dB quieter;
+- the vocoder's limiter takes a gain of 1.6, not 1.4;
+- audio on IN 1 modulates the internal carrier eight times harder.
 
 | Boy | Warps |
 |---|---|
@@ -146,7 +157,7 @@ Warps' own codec, CV, knob and button code.
 | PITCH2 | Level 2 CV |
 | GATE1 | Algorithm CV |
 | GATE2 | Timbre CV |
-| MIDI, USB and TRS, any channel but 10 | plays the chords, with CARR on CHORD |
+| MIDI, USB and TRS, any channel but 10 | plays the chords, with CHORD on |
 | GATE3, PITCH3, the gate outs | unused |
 
 All six CV jacks are inputs: every jack switch stays off for the session.
@@ -154,16 +165,34 @@ All six CV jacks are inputs: every jack switch stays off for the session.
 **The overlay.** The panel's labels are mode 1's, so Warps has a 3D-printed card that slips over rows
 2-6: `build123d/panels/teensy_move_reva_warps_overlay.py` (not printed or fitted yet).
 
-**The encoder** stands in for Warps' four knobs and its button. The screen lists six items, four
-at a time:
+**The encoder** stands in for Warps' four knobs and its button, and for Parasites' hold of the button
+to change mode. The screen lists seven items, four at a time:
 
 | Item | Warps | Shows |
 |---|---|---|
+| MODE | hold the button, turn the big knob | DOPPLER, FOLD, CHEBY, SHIFT, CRUSH, COMPARE, VOCODER, DELAY, META |
 | LEV1, LEV2 | the Level knobs | 0–100 %, and the jack, `*` when a cable is found |
 | ALGO | the Algorithm knob | the algorithm at the knob plus CV: XFADE, FOLD, DIODE RM, DIGI RM, XOR, COMPARE, VOCODER |
 | TIMB | the Timbre knob | 0–100 % |
-| CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW. CHORD is ours: Chordal's engine replaces audio in L, and the screen shows the chord. With ALGO on VOCODER, a voice on audio in R sings the chords |
-| SHIFT | the easter egg, the frequency shifter | off, on. The four knobs become FDBK, WET, FREQ and MIX |
+| CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW |
+| CHORD | ours: Chordal's engine replaces audio in L | off, or the chord being played. With MODE on VOCODER and CARR on EXT, a voice on audio in R sings the chords |
+
+**The modes.** The names on the screen change with the mode, from Parasites' manual. The jacks stay
+the same: each CV adds to its item.
+
+| MODE | ALGO becomes | TIMB becomes | LEV1, LEV2 become | CARR becomes |
+|---|---|---|---|---|
+| META, stock Warps | ALGO | TIMB | | |
+| DOPPLER, a binaural panner: two sources circling the head | X | Y | RATE and DEPTH of the circling | SPACE: TINY, SMALL, LARGE, HUGE |
+| FOLD | FOLDS | BIAS | | |
+| CHEBY, a Chebyshev waveshaper: with SINE, a simple additive voice | ORDER, 0 to 16 | GAIN | | |
+| SHIFT, the frequency shifter, stock's easter egg | FREQ | MIX, up against down | FDBK, WET | |
+| CRUSH, a dual bit-mangler | BITS | XMOD: dry, AND, XOR | | |
+| COMPARE, with a Chebyshev after it | FUNC, eight comparisons | ORDER | | |
+| VOCODER | WARP, the formant shift | RELS, the release; from about 93 % it freezes the bands | | |
+| DELAY, a tape loop with two heads | SPEED: 50 % is stopped, below it runs backwards | LEN, the distance between the heads | FDBK, WET | TYPE: OPEN, DUAL, TAPE, PING |
+
+There's no crossfade between modes and no CV for MODE, as in Parasites: a change of mode jumps.
 
 The gestures are the chooser's (David, 2026-11-02: one gesture to scroll on both pages):
 - **Turn** to move the marker `>`.
@@ -224,7 +253,8 @@ it was left.
   stands in for Warps' STM32 debug pin.
 - `scripts/warps_build.py`: compiles Warps' DSP and the stmlib it needs.
 - `scripts/host/`: `build_chord_render.sh` builds `chord_render`, which renders the chord engine and
-  Warps' DSP to a file on a Mac, to hear changes before flashing.
+  Warps' DSP to a file on a Mac, to hear changes before flashing. Its `parasites` scene is a tour of the
+  modes.
 
 ## Building and flashing
 
@@ -237,8 +267,8 @@ This Mac is arm64 with no Rosetta:
 - `scripts/arm64_toolchain.py` swaps in PlatformIO's arm64 GCC;
 - `teensy-gui` (the Teensy Loader app) replaces `teensy-cli`.
 
-`scripts/warps_build.py` compiles Warps from the `third_party/eurorack` submodule; run
-`git submodule update --init` first on a fresh clone.
+`scripts/warps_build.py` compiles Warps from the `third_party/parasites` submodule; run
+`git submodule update --init --recursive` first on a fresh clone.
 
 The Teensy has VIN–VUSB cut, so the rack has to be on. Uploads often report `Error -1` and still
 program the board: check before retrying.
@@ -280,9 +310,9 @@ CPU first:** it decides how much of this can run alongside Warps.
 6. **CV.** PITCH1-3 and GATE1 into four oscillators, or one at a time on a tuner. Don't chase the
    tuning. GATE2 follows the chord, GATE3 moves slowly, and the gate outs trigger as the notes enter.
 7. **TRS MIDI in.** The first time on this board: Move or another source into the TRS jack.
-8. **In Warps** (mode 3): CARR to CHORD, ALGO to VOCODER, a voice or drums into audio in R, and play
-   the Move. Read the CPU line: Warps and the chords together are what has to fit. ALGO fully up
-   freezes the vocoder's bands, so a held vowel keeps singing the chords.
+8. **In Warps** (mode 3): CHORD on, CARR on EXT, MODE on VOCODER, a voice or drums into audio in R,
+   and play the Move. Read the CPU line: Warps and the chords together are what has to fit. RELS
+   from about 93 % freezes the vocoder's bands, so a held vowel keeps singing the chords.
 
 ## Mode 3 on the bench
 
@@ -319,8 +349,11 @@ scroll, so Warps now uses the chooser's. David: "perfect".
    - **GATE3 and PITCH3:** Warps doesn't use them, so check them on the monitor's reading alone.
    - Take each cable out: its `*` should go within about a tenth of a second.
 6. **Output DC.** ALGO on COMPARE, both inputs patched: the outs average 0 V on a meter.
-7. **SHIFT on:** the frequency shifter. ALGO becomes FREQ and shifts the carrier (in L) up or down
-   either side of 50 %.
-8. **Back to the chooser:** hold 2 s.
+7. **MODE on SHIFT,** the frequency shifter, with CARR on SINE. FREQ shifts whatever's on the inputs up
+   or down either side of 50 %. OUT and AUX are the two directions.
+8. **The other modes,** each by ear, with `chord_render parasites` as the reference: DOPPLER (take both
+   outs as a stereo pair), FOLD, CHEBY with CARR on SINE, CRUSH, COMPARE, VOCODER and DELAY in all four
+   TYPEs. Note the CPU in each: the monitor names the mode.
+9. **Back to the chooser:** hold 2 s.
 
 Note the CPU figures: Warps ran on a 168 MHz Cortex-M4.
