@@ -1,6 +1,6 @@
 # Eurorack Firmware Monorepo
 
-Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWish/eurorack_electronics) — analog breadboard layouts, drum-voice schematics, and a layout visualiser.
+Companion repo: [Eight4aWish/eurorack_electronics](https://github.com/Eight4aWish/eurorack_electronics) — analog breadboard layouts, the analogue board behind Boy, and a layout visualiser.
 
 ## Released modules
 
@@ -34,11 +34,17 @@ pio device monitor -b 115200
 
 ## Teensy 4.1 — `teensy_move`: Boy
 
-Boy on the analogue board Rev A (Teensy 4.1): the Ableton Move's companion in the rack, in a
-firmware whose mode is chosen at power-on. Mode 1, the Move companion: MIDI ch 1–3 to three gate
-and pitch CVs, ch 10 notes 36 and 37 to two drum triggers, MIDI clock and reset, from USB and TRS
-MIDI. Modes 2 (Warps) and 3 (other two-input processing) are to come. Hold the encoder's push for
-2 s to get back to the mode chooser.
+Boy on the analogue board Rev A (Teensy 4.1), in a firmware whose mode is chosen at power-on:
+
+1. **Move:** the Ableton Move's companion in the rack. MIDI ch 1–3 to three gate and pitch CVs,
+   ch 10 notes 36 and 37 to two drum triggers, MIDI clock and reset, from USB and TRS MIDI.
+2. **Chordal:** one finger plays four notes that lead into the next chord, from a bank of 16
+   patches. MIDI only.
+3. **Warps:** a port of Mutable Instruments Warps at 96 kHz, on Matthias Puech's
+   [Parasites](https://github.com/mqtthiqs/parasites) with its eight further modes, and Chordal's
+   engine as a switch for IN 1.
+
+Hold the encoder's push for 2 s to get back to the mode chooser.
 
 ```sh
 pio run -e teensy41

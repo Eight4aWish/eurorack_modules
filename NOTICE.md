@@ -78,11 +78,11 @@ Rev A (`teensy_move`).
 |---|---|---|
 | [Teensyduino](https://github.com/PaulStoffregen/cores) (PJRC) | MIT (with the standard PJRC clause for Teensy hardware) | Teensy 4.1 core + USB stack |
 | [Adafruit SSD1306](https://github.com/adafruit/Adafruit_SSD1306) + [Adafruit GFX](https://github.com/adafruit/Adafruit-GFX-Library) | BSD-3-Clause / MIT | OLED display |
-| [Mutable Instruments Warps](https://github.com/pichenettes/eurorack/tree/master/warps) (Émilie Gillet) | MIT | `teensy_move` only: Boy's mode 2, Warps' DSP unchanged |
+| [Parasites](https://github.com/mqtthiqs/parasites) (Matthias Puech), on [Mutable Instruments Warps](https://github.com/pichenettes/eurorack/tree/master/warps) (Émilie Gillet) | MIT | `teensy_move` only: Boy's mode 3, Warps' DSP and Parasites' further modes |
 | [Mutable Instruments stmlib](https://github.com/pichenettes/eurorack/tree/master/stmlib) (Émilie Gillet) | MIT | `teensy_move` only: DSP primitives used by Warps |
 
-Warps and stmlib come from the same `third_party/eurorack/` submodule as Girl's Elements, each
-file with its original copyright header and MIT permission notice.
+Warps and stmlib come from the `third_party/parasites/` submodule, each file with its original
+copyright header and MIT permission notice.
 
 ## Build & tooling (not redistributed)
 
