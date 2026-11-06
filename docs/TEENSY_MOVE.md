@@ -19,7 +19,7 @@ is in tune and clean in all its shapes (David).
 
 **2026-11-04:** CV in works, by ear, from V/oct into Warps' internal oscillator (David), the first
 time a Rev A CV input has read another module. Tracking and calibration are for later, on purpose.
-Audio in and the frequency shifter are still to try: see [Mode 3 on the bench](#mode-3-on-the-bench).
+Audio in works (David, 2026-11-06). The frequency shifter is still to try: see [Mode 3 on the bench](#mode-3-on-the-bench).
 
 **2026-11-05:** the set of modes is Move, Chordal, Warps (David). Chordal is new and goes in as mode 2,
 so Warps moves to mode 3, and now runs Parasites' DSP, with stock Warps as its META mode. Flashing this
@@ -44,7 +44,7 @@ inputs or outputs, and that shouldn't change under a patch.
 |---|---|---|
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
 | 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | works from MIDI, 2026-11-05; CV out and the audio inputs not yet tried |
-| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench, 2026-11-02: 96 kHz and the internal carrier pass. META with chords on HALO, the heaviest patch, runs at 61 % CPU, 2026-11-05; the other Parasites modes not yet tried by ear |
+| 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench: 96 kHz and the internal carrier pass (2026-11-02), and audio in works (2026-11-06). META with chords on HALO, the heaviest patch, runs at 61 % CPU, 2026-11-05; the other Parasites modes not yet tried by ear |
 
 ## Mode 1, the Move companion
 
@@ -354,7 +354,7 @@ CPU first:** it decides how much of this can run alongside Warps.
 
 ## Mode 3 on the bench
 
-**Run 2026-11-02, so far:** steps 2 and 3 pass. LEV1 at 0 % gave C2 on a tuner, so the codec
+**Run so far:** step 4, audio in, works (David, 2026-11-06). On 2026-11-02, steps 2 and 3 passed. LEV1 at 0 % gave C2 on a tuner, so the codec
 is at 96 kHz. The sine is clean on the Tiliqua's scope, and so are the other carrier shapes. The
 first gestures, a press to step through the items, were awkward against the chooser's turn to
 scroll, so Warps now uses the chooser's. David: "perfect".
