@@ -1,16 +1,13 @@
 # teensy_chaos v2 — settled decisions
 
-> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
-> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
-> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
-> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
-> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
-> `teensy_chaos` still builds; don't develop it here.
+> **A record from the Chaos firmware.** Since 2026-11-11 the Teensy Chaos hardware runs
+> **Secret** ([TEENSY_CHAOS.md](TEENSY_CHAOS.md)), the successor this plan led to; Chaos
+> itself is at tag `teensy-chaos-final`. The hardware facts below still hold.
 
 > **Status: design record, not implemented.** This captures what was settled in
 > design discussion, what is deliberately parked until the hardware is in hand,
-> and the hardware facts behind both. The shipping firmware remains the
-> six-algorithm CV chaos oscillator described in [TEENSY_CHAOS.md](TEENSY_CHAOS.md).
+> and the hardware facts behind both. The six-algorithm Chaos firmware it was
+> written against is at tag `teensy-chaos-final`.
 
 ## Scope
 

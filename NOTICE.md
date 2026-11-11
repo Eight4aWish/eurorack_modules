@@ -71,7 +71,7 @@ The Raspberry Pi Pico 2 W "output module" — 4 CV outs + 2 CV ins + display
 
 ## teensy_chaos, teensy_move
 
-Teensy 4.1 modules — chaotic/fractal synthesis (`teensy_chaos`) and Boy on the analogue board
+Teensy 4.1 modules — Secret on the Teensy Chaos hardware (`teensy_chaos`) and Boy on the analogue board
 Rev A (`teensy_move`).
 
 | Component | License | Role |

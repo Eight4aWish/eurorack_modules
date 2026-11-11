@@ -7,6 +7,7 @@
 // belong to the platform layer that owns these objects.
 
 #include <math.h>
+#include <stdint.h>
 
 namespace chaos_core {
 
@@ -22,9 +23,33 @@ namespace chaos_core {
         float stepsPerSample = 1.0f;
     };
 
+    // Natural rotation frequency over the CHAOS x CHAR plane, measured on the host
+    // by tools/pitchmap.cpp and emitted into PitchTables.h. f[] is row-major,
+    // `rows` CHAOS values from cLo to cHi by `cols` CHAR values from hLo to hHi, in
+    // cycles per unit of simulated time. refCentre/refAmp describe X (mean, and
+    // sqrt(2) x standard deviation): measured with the table, for TAME's cosine
+    // push, which went on 2026-10-10. Nothing reads them now; they stay in the
+    // generated tables rather than change the format.
+    struct PitchGrid {
+        int   rows, cols;
+        float cLo, cHi, hLo, hHi;
+        const float* f;
+        float refCentre, refAmp;
+    };
+
+    // What kind of pitch a system has (docs/SECRET.md, section 2). Descriptive:
+    // Voice treats every class the same way, time-scaling plus TAME's delayed
+    // feedback, and the feedback's gain is what differs per model.
+    enum PitchClass : unsigned char {
+        PITCH_COHERENT,     // rotation rate barely moves: a pitch with roughness
+        PITCH_FORCED,       // driven by its own equation: sings that drive's subharmonics
+        PITCH_INCOHERENT    // no stable rotation: an average pitch at best
+    };
+
     // ─── ChaosBase ────────────────────────────────────────────────────────────────
     // Abstract base for all chaotic algorithms. Subclasses populate metadata fields
-    // in their constructors and implement the four pure-virtual methods.
+    // in their constructors and implement the pure-virtual methods: init,
+    // setParams, stepSample, getX, getY, and saveState/loadState.
     class ChaosBase {
     public:
         const char* name       = "?";
@@ -111,8 +136,16 @@ namespace chaos_core {
         // it the step is held at dtBase and the extra time is bought with more
         // steps, which is what keeps stiff systems bounded under V/Oct.
         StepSchedule scheduleFor(float simRate, float sampleRate) const {
+            return scheduleFor(simRate, sampleRate, dtBase);
+        }
+
+        // As above, with the step held to `maxDt` rather than dtBase: stableDt(),
+        // where the safe step depends on a parameter. Identical arithmetic when
+        // maxDt == dtBase.
+        StepSchedule scheduleFor(float simRate, float sampleRate, float maxDt) const {
             StepSchedule s;
             if (!(sampleRate > 0.0f)) return s;              // false for NaN too
+            if (!(maxDt > 0.0f) || maxDt > dtBase) maxDt = dtBase;
 
             // The CPU ceiling is per second, so how many steps that allows per
             // sample falls as the sample rate rises — which is correct: a higher
@@ -120,13 +153,86 @@ namespace chaos_core {
             const float maxSteps = maxStepsPerSecond / sampleRate;
 
             float desiredDt = simRate / sampleRate;
-            const float hi  = dtBase * (maxSteps > 1.0f ? maxSteps : 1.0f);
+            const float hi  = maxDt * (maxSteps > 1.0f ? maxSteps : 1.0f);
             if (!(desiredDt > 1.0e-5f)) desiredDt = 1.0e-5f;  // false for NaN too
             else if (desiredDt > hi)    desiredDt = hi;
 
-            if (desiredDt <= dtBase) { s.stepDt = desiredDt; s.stepsPerSample = 1.0f; }
-            else                     { s.stepDt = dtBase;    s.stepsPerSample = desiredDt / dtBase; }
+            if (desiredDt <= maxDt) { s.stepDt = desiredDt; s.stepsPerSample = 1.0f; }
+            else                    { s.stepDt = maxDt;     s.stepsPerSample = desiredDt / maxDt; }
             return s;
+        }
+
+        // ─── Pitch and TAME ───────────────────────────────────────────────────
+        //
+        // Voice::setPitch() plays a note in Hz rather than a simulated-time rate:
+        // simRate = hz / naturalFreq(), so the attractor's own rotation lands on
+        // the note. How exactly it lands, and how TAME tightens it, is per class.
+        PitchClass       pitchClass  = PITCH_COHERENT;
+        const PitchGrid* pitchGrid   = nullptr;   // set from PitchTables.h
+        float            fNatDefault = 0.16f;     // cycles per sim time, if no grid
+
+        // TAME: delayed feedback control (Pyragas 1992; Voice.h). Full TAME adds
+        // K (v(t - T) - v(t)) to one equation, K = tameGain x 2 pi fNat and T one
+        // note period. Set per model from host measurements (tools/tametest.cpp,
+        // 2026-10-10): a gain that cleans the voice while the control stays a small
+        // fraction of v's own rate -- it finds an orbit of the equations rather
+        // than imposing one. 0 where no gain does that (Lorenz, Chua,
+        // Lorenz-Lu-Chen): TAME leaves those free.
+        float tameGain = 0.0f;
+        // Which state variable the feedback reads and whose equation takes it: X
+        // (0) unless a model locks better through another (Moore-Spiegel's jerk,
+        // Hindmarsh-Rose's slow current). Only OdeModel routes past 0; the hand-
+        // written steppers in Attractors.h take it on dX. tameAngle: that variable
+        // wraps (the pendulum's theta), so its history is unwrapped and the
+        // difference taken the short way round.
+        int   tameVar   = 0;
+        bool  tameAngle = false;
+
+        // Largest numerically safe step at these parameters. dtBase unless the
+        // system's stiffness moves with a parameter, as Van der Pol's does with mu.
+        virtual float stableDt(float chaos, float charV) const {
+            (void)chaos; (void)charV; return dtBase;
+        }
+
+        // Natural rotation frequency, in cycles per unit of simulated time:
+        // bilinear in the measured grid, clamped at its edges (MOD CV can push
+        // CHAOS past the pot range the grid covers).
+        virtual float naturalFreq(float chaos, float charV) const {
+            const PitchGrid* g = pitchGrid;
+            if (!g || g->rows < 2 || g->cols < 2) return fNatDefault;
+            float u = (chaos - g->cLo) / (g->cHi - g->cLo) * (float)(g->rows - 1);
+            float v = (charV - g->hLo) / (g->hHi - g->hLo) * (float)(g->cols - 1);
+            if (!(u > 0.0f)) u = 0.0f; else if (u > (float)(g->rows - 1)) u = (float)(g->rows - 1);
+            if (!(v > 0.0f)) v = 0.0f; else if (v > (float)(g->cols - 1)) v = (float)(g->cols - 1);
+            int i = (int)u; if (i > g->rows - 2) i = g->rows - 2;
+            int j = (int)v; if (j > g->cols - 2) j = g->cols - 2;
+            const float fu = u - (float)i, fv = v - (float)j;
+            const float* r0 = g->f + i * g->cols;
+            const float* r1 = r0 + g->cols;
+            const float a = r0[j] + (r0[j + 1] - r0[j]) * fv;
+            const float b = r1[j] + (r1[j + 1] - r1[j]) * fv;
+            return a + (b - a) * fu;
+        }
+
+        // TAME's term, written by Voice before every step: K (v(t - T) - v(t))
+        // sampled at the start (D0), middle (DH) and end (D1) of the step, so RK4
+        // sees it as a smooth input. Each algorithm adds it to dx (an OdeModel to
+        // the equation tameVar names). Zero leaves every trajectory bit-identical
+        // to an uncontrolled one.
+        float tameD0 = 0.0f, tameDH = 0.0f, tameD1 = 0.0f;
+
+        // State access, for a host that wants to hold or restore a trajectory.
+        // TAME's sync pulled back to a snapshot through these until 2026-10-09;
+        // nothing in Voice uses them now.
+        static constexpr int kMaxState = 8;
+        virtual int  saveState(float* s) const = 0;   // returns the count written
+        virtual void loadState(const float* s) = 0;
+        // The variable TAME's delayed feedback reads (tameVar), once a step: a
+        // model with its state in an array overrides this rather than copy it all.
+        virtual float tameState() const {
+            float s[kMaxState];
+            saveState(s);
+            return s[tameVar];
         }
 
         virtual ~ChaosBase() {}
@@ -136,7 +242,18 @@ namespace chaos_core {
         virtual float getX() const                                    = 0;
         virtual float getY() const                                    = 0;
 
+        // How many times the divergence guard has re-seeded this attractor. A
+        // re-seed is a jump in the output, so a host hunting clicks can tell a
+        // guard trip from its other causes. Written from stepSample() only, one
+        // word, so a control loop may read it while the audio runs.
+        uint32_t guardTrips = 0;
+
     protected:
+        // The divergence guard's re-seed: init(), counted. Every stepSample()
+        // guard calls this rather than init() directly; trajectories are
+        // unchanged.
+        void reseed() { ++guardTrips; init(); }
+
         // True once `v` has left the region any healthy trajectory stays in.
         // Apply to the variable `divergeBound` was chosen for.
         bool diverged(float v) const {

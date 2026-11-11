@@ -54,33 +54,23 @@ pio run -e teensy41 -t upload    # in the foreground
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for the modes, the MIDI map and the first-flash
 checklist.
 
-## Teensy 4.1 — `teensy_chaos`
+## Teensy 4.1 — `teensy_chaos`: Secret
 
-> **Frozen, 2026-09-30.** Chaos is being retired and the Teensy hardware
-> repurposed. Its successor, **Secret**, runs on the Hermetic Modular Alchemy Lab
-> in [`eurorack_daisy_patch_init`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main), where `chaos_core` now lives
-> ([`common/chaos_core/`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/common/chaos_core), with the new `pitchmap` tool) and
-> the plan is [`docs/SECRET.md`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/blob/main/docs/SECRET.md). This copy is kept so
-> `teensy_chaos` still builds; don't develop it here.
+**Secret**, the chaotic-attractor oscillator, on the Teensy Chaos hardware (10 HP: Teensy 4.1, Audio Shield, 128×64 OLED, four CV ins through an ADS1115, X/Y CV outs from an MCP4822). The DSP is the one Secret runs on the Alchemy Lab ([`eurorack_daisy_patch_init/daisy_chaos`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/daisy_chaos)), copied into [`libs/chaos_core/`](libs/chaos_core/): twelve RK4 models played by pitch, so V/OCT plays notes and TAME runs from free chaos to a locked tone. It replaced the Chaos firmware on 2026-11-11 (tag `teensy-chaos-final`).
 
-A 10 HP chaotic / fractal synthesis voice that exploits the Teensy 4.1's 600 MHz Cortex-M7 (hardware FPU, RK4 per audio sample) for stereo output via the Teensy Audio Shield (SGTL5000, I2S). Two attractor state variables drive the stereo audio out and a pair of MCP4822 CV outputs (X/Y); four CV inputs arrive through an ADS1115.
-
-- **Algorithms**: the shipping firmware cycles **6 continuous-ODE attractors** — Rössler, Van der Pol, Lorenz, Chua, Duffing, Coupled Rössler — by short-pressing BTN. (A larger 14-algorithm suite across Melodic / Percussive / Texture groups is the design roadmap, not yet wired up.)
-- **Controls**: CHAOS (bifurcation), RATE (integration step / frequency), CHAR (secondary parameter), DEPTH (mix / envelope decay). MOD adds bipolar modulation to CHAOS; ASGN is a menu-assignable mod target.
-- **V/Oct by oversampling**: CLK pitch raises the integration sub-step count per sample rather than enlarging `dt`, so even stiff systems (Lorenz/Chua) track 1 V/oct over several octaves without diverging. The ceiling on those extra steps is **per algorithm** (`ChaosBase::maxStepsPerSecond`), scaled by each system's measured per-step cost so none can overrun the audio budget.
-- **Peak CPU on screen**: top-right of the OLED shows peak audio-ISR load, reset on each algorithm change.
-- **Portable DSP core**: the attractors live in [`libs/chaos_core/`](libs/chaos_core/) — `ChaosBase`, the six algorithms and the registry, depending on nothing but `<math.h>`. `main.cpp` is the Teensy platform layer (audio graph, ADS1115, MCP4822, OLED, control loop). The core builds unchanged for Cortex-M7, STM32H7/Daisy and host compilers.
-- **Onboard AD envelope (VCA)**, off by default: long-press BTN opens the **ENV page** where CHAOS toggles it on/off and CHAR / DEPTH set Attack / Decay. When on, an RST rising edge fires a one-shot for a self-contained percussion voice; when off the module is a free-running drone.
-- **Display**: SSD1306 128×64 OLED — algorithm name, real-time phase-space plot, and parameter bars.
-
-Build & upload:
+- **Panel**: CHAOS (+ MOD CV), CHAR, RATE as TUNE (27.5–880 Hz, + ASGN as a second 1 V/oct input), DEPTH as TAME. CLK is V/OCT, RST is GATE.
+- **BTN**: short press for the next of twelve models; long press for the ENV page (Drone or Gated, attack + decay, sustain + release).
+- **Gated**: notes start at a zero crossing, and the attractor re-seeds only from silence.
+- **Screen**: phase-space plot, model, the pitch playing, TAME and peak CPU; off after 20 s untouched.
+- **Step caps** measured on this Teensy with the bench build: every model at most about half an audio block.
 
 ```sh
 pio run -e teensy_chaos
-pio run -e teensy_chaos -t upload
+pio run -e teensy_chaos -t upload        # in the foreground
+pio run -e teensy_chaos_bench -t upload  # step-cap bench over USB serial; reflash teensy_chaos after
 ```
 
-See [docs/TEENSY_CHAOS_V2.md](docs/TEENSY_CHAOS_V2.md) for the settled v2 control surface, platform analysis and hardware reference, and [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algorithm control detail, audio architecture, and the algorithm-suite roadmap.
+See [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md). [docs/TEENSY_CHAOS_V2.md](docs/TEENSY_CHAOS_V2.md) and [docs/TEENSY_CHAOS_FRACTALBITS.md](docs/TEENSY_CHAOS_FRACTALBITS.md) are design records from the Chaos firmware.
 
 ## Teensy 4.1 — `noise_test`: temporary test firmware, not a module
 

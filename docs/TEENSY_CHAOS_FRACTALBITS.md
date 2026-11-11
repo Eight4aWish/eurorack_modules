@@ -4,9 +4,9 @@
 > only — see [TEENSY_CHAOS_V2.md](TEENSY_CHAOS_V2.md). The percussion suite, the
 > MIDI/trigger kit and the Oscillator|Kit menu below are **not** being built.
 > This document is retained for the model-suitability analysis and the audio
-> architecture notes, which remain accurate. The current shipping firmware is the
-> CV chaos-oscillator with the gate-driven AD/SR envelope
-> ([TEENSY_CHAOS.md](TEENSY_CHAOS.md)).
+> architecture notes, which remain accurate. The hardware now runs **Secret**
+> ([TEENSY_CHAOS.md](TEENSY_CHAOS.md)); the Chaos firmware this plan was written
+> against is at tag `teensy-chaos-final`.
 
 ## Concept
 
