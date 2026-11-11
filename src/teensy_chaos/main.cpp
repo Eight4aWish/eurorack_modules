@@ -334,6 +334,32 @@ void loop() {
     }
     lastBtn = btn;
 
+    // ── Screen auto-off (2026-11-11) ──
+    // The noise test (eurorack_electronics/docs/noise_test.md) measured the panel, when powered,
+    // at about +11 dB on the output, a 5.7 kHz line at -76 dB. So after 20 s with no knob or
+    // button moved, it goes fully off, display and charge pump, and the first touch wakes it.
+    static constexpr uint32_t SCREEN_IDLE_MS = 20000;
+    static bool     screenOn   = true;
+    static uint32_t lastActive = millis();
+    static float    actRef[4]  = {ps[0], ps[1], ps[2], ps[3]};
+    bool active = btn;
+    for (int i = 0; i < 4; i++)
+        if (fabsf(ps[i] - actRef[i]) > 15.0f) { active = true; actRef[i] = ps[i]; }
+    if (active) {
+        lastActive = millis();
+        if (!screenOn) {
+            display.ssd1306_command(SSD1306_CHARGEPUMP);
+            display.ssd1306_command(0x14);
+            display.ssd1306_command(SSD1306_DISPLAYON);
+            screenOn = true;
+        }
+    } else if (screenOn && millis() - lastActive > SCREEN_IDLE_MS) {
+        display.ssd1306_command(SSD1306_DISPLAYOFF);
+        display.ssd1306_command(SSD1306_CHARGEPUMP);
+        display.ssd1306_command(0x10);
+        screenOn = false;
+    }
+
     // CV calibration (inverting front-end: higher Eurorack voltage → lower ADS code)
     float modVolts  = (CV_MOD_ZERO  - cv[0]) / CV_MOD_CPV;
     float asgnVolts = (CV_ASGN_ZERO - cv[1]) / CV_ASGN_CPV;
@@ -447,7 +473,7 @@ void loop() {
 
     // Display update (~10 fps)
     static uint32_t lastDisp = 0;
-    if (millis() - lastDisp > 100) {
+    if (screenOn && millis() - lastDisp > 100) {  // nothing to draw while it sleeps
         lastDisp = millis();
         display.clearDisplay();
 
