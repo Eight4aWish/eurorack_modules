@@ -82,6 +82,15 @@ pio run -e teensy_chaos -t upload
 
 See [docs/TEENSY_CHAOS_V2.md](docs/TEENSY_CHAOS_V2.md) for the settled v2 control surface, platform analysis and hardware reference, and [docs/TEENSY_CHAOS.md](docs/TEENSY_CHAOS.md) for the full I/O map, per-algorithm control detail, audio architecture, and the algorithm-suite roadmap.
 
+## Teensy 4.1 — `noise_test`: temporary test firmware, not a module
+
+`noise_boy` (Boy Rev A) and `noise_oldboy` (the retired old Boy, SGTL5000 Audio Shield): the noise-comparison schedule shared with `eurorack_daisy_patch_init/noise_test`, at 48 kHz with 48-sample blocks. Method and procedure: `eurorack_electronics/docs/noise_test.md`. See [docs/NOISE_TEST.md](docs/NOISE_TEST.md).
+
+```bash
+pio run -e noise_boy -t upload     # in the foreground; reflash env teensy41 after
+pio run -e noise_oldboy -t upload
+```
+
 ## Pico 2 W — `pico2w_oc`
 
 This target implements a menu-driven multi-patch Eurorack utility on Raspberry Pi Pico 2 W with an SSD1306 OLED, ADS1115 ADC inputs, and an MCP4728 quad DAC for CV outputs.
