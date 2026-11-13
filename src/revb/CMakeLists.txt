@@ -15,5 +15,5 @@ set(CMAKE_CXX_STANDARD 17)
 pico_sdk_init()
 
 add_subdirectory(card)
-add_subdirectory(apps/snare)
+add_subdirectory(apps/mod2)
 add_subdirectory(apps/bends)

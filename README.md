@@ -64,8 +64,9 @@ boards are in the post.**
 
 - **`bends`:** Vincent Maurer's Bends (MIT), a stereo multi-effect and glitch looper, behind the
   Computer panel. See [docs/REVB_COMPUTER.md](docs/REVB_COMPUTER.md).
-- **`snare`:** HAGIWO's MOD2 LFSR Snare (CC0), behind the MOD2/Melon panel. See
-  [docs/REVB_MOD2.md](docs/REVB_MOD2.md).
+- **`mod2`:** HAGIWO's MOD2 voices (CC0) behind the MOD2/Melon panel, one at a time from a menu
+  on the encoder: nine drums so far (kick, retro kick, snare, clap, hi-hat, claves, FM drum, metal,
+  laser). See [docs/REVB_MOD2.md](docs/REVB_MOD2.md).
 
 ```sh
 cmake -S src/revb -B build/revb -DPICO_SDK_PATH=/path/to/pico-sdk

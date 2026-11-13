@@ -8,8 +8,8 @@
 # build directory the first time.
 #
 #   scripts/revb.sh                build every app
-#   scripts/revb.sh snare          build one
-#   scripts/revb.sh flash snare    build it, then copy it to the Pico: hold BOOTSEL while
+#   scripts/revb.sh mod2           build one
+#   scripts/revb.sh flash mod2     build it, then copy it to the Pico: hold BOOTSEL while
 #                                  plugging the Pico in first, so it shows as the RP2350 drive
 #
 # Apps come out as build/revb/apps/<app>/<app>.uf2. docs/REVB_COMPUTER.md has the rest.

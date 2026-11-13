@@ -25,8 +25,8 @@ translating each program's CMake file, and its Arduino framework would mean rewo
 
 ```sh
 scripts/revb.sh               # every app
-scripts/revb.sh snare         # one
-scripts/revb.sh flash snare   # build it and copy it to the Pico, held in BOOTSEL (the RP2350 drive)
+scripts/revb.sh mod2          # one
+scripts/revb.sh flash mod2    # build it and copy it to the Pico, held in BOOTSEL (the RP2350 drive)
 ```
 
 Each app comes out as `build/revb/apps/<app>/<app>.uf2`. The SDK builds its own picotool (2.1.1)
@@ -37,7 +37,7 @@ Set `PICO_SDK_PATH` yourself and run CMake directly to use another SDK.
 | App | Source | Code | RAM |
 | --- | --- | --- | --- |
 | `bends` | `third_party/workshop_computer/bends/` (unmodified) | 74 KB | 224 KB of 520 |
-| `snare` | `src/revb/apps/snare/` | 29 KB | 85 KB |
+| `mod2` | `src/revb/apps/mod2/` | 64 KB | 121 KB |
 
 Each app is its own image for now, one at a time in flash. A launcher that keeps several in flash
 and boots the one chosen comes later. **The target (David, 2026-11-13): 15 Workshop Computer
@@ -183,7 +183,7 @@ On Rev B:
 ## Bench checklist, first power-up
 
 1. **Clocks,** each 256, 64 and 1 times the sample rate: for Bends 6.14 MHz on GP21 (MCLK),
-   1.535 MHz on BCK and 23.99 kHz on LRCK; for the snare 12.28 MHz, 3.07 MHz and 47.97 kHz.
+   1.535 MHz on BCK and 23.99 kHz on LRCK; for `mod2` 12.28 MHz, 3.07 MHz and 47.97 kHz.
 2. **Audio:** a sine through each input to each output with `bends` set clean; level and polarity
    at the jacks. A DC level out sets `CODEC_OUT_VOLTS` (Rev A's 9.72 V until measured).
 3. **Converter bus:** CV out 1 and 2 at −5, 0 and +5 V on a meter. CV in 1 and 2 read back.

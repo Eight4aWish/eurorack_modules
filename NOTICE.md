@@ -92,7 +92,7 @@ Wealth: the analogue board Rev B with a Pico 2 W, in `src/revb`.
 |---|---|---|
 | [ComputerCard](https://github.com/TomWhitwell/Workshop_Computer) (Chris Johnson) | MIT | the API `src/revb/card/ComputerCard.h` reimplements for Rev B; no code copied |
 | [Bends](https://github.com/TomWhitwell/Workshop_Computer/tree/main/releases/45_bends) (Vincent Maurer) | MIT | the `bends` app, vendored unmodified in `third_party/workshop_computer/bends/` with its LICENSE |
-| [MOD2 LFSR Snare](https://github.com/modulove/MOD2) (HAGIWO) | CC0 1.0 | the `snare` app's sound engine, ported in `src/revb/apps/snare/` |
+| [MOD2](https://github.com/modulove/MOD2) voices (HAGIWO): kick, retro game kick, LFSR snare, clap, hi-hat, claves, FM drum, metal hit, arcade laser | CC0 1.0 | the `mod2` app's sound engines, ported in `src/revb/apps/mod2/voices/` |
 | [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) | BSD-3-Clause | runtime and hardware libraries |
 
 ## Build & tooling (not redistributed)
