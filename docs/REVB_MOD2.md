@@ -1,6 +1,6 @@
 # Wealth: MOD2 and Melon voices
 
-HAGIWO's MOD2 voices and WGD Modular's Melon voices on **Wealth** (the analogue board Rev B with a
+HAGIWO's MOD2 voices and WGD Modular's Melon voices on **Wealth** (a working name; the analogue board Rev B with a
 Pico 2 W), behind the **MOD2/Melon panel**. They use the same driver as the Workshop Computer programs
 (`src/revb/card/ComputerCard.h`, see [REVB_COMPUTER.md](REVB_COMPUTER.md)). The first is the
 **LFSR Snare**.

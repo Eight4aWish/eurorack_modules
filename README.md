@@ -56,7 +56,7 @@ checklist.
 
 ## Pico 2 W — `src/revb`: Wealth
 
-**Wealth** is the analogue board Rev B with a Pico 2 W, hosting other people's apps. Its firmware is built with the Pico SDK (not PlatformIO).
+**Wealth** (a working name; it may carry Boy's name instead) is the analogue board Rev B with a Pico 2 W, hosting other people's apps. Its firmware is built with the Pico SDK (not PlatformIO).
 A Rev B version of the Workshop Computer's `ComputerCard.h` runs Workshop Computer programs
 unchanged, and ports of MOD2 and Melon voices on the same driver. **Builds; not yet run: the
 boards are on order.**

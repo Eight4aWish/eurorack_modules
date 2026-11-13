@@ -1,6 +1,6 @@
 # Wealth: Workshop Computer programs
 
-**Wealth** (*twelve for wealth*) is the analogue board Rev B (`pico_revb`) with a **Pico 2 W**,
+**Wealth** (*twelve for wealth*, a working name: the names are undecided (David, 2026-11-13): Health and Wealth, or Boy's name for every Rev A and Rev B board) is the analogue board Rev B (`pico_revb`) with a **Pico 2 W**,
 hosting other people's apps. This is its firmware behind the **Computer panel**: Music Thing Workshop Computer programs, built unchanged against a Rev B
 version of `ComputerCard.h`. The first is **Bends**. MOD2 and Melon voices share the same driver;
 see [REVB_MOD2.md](REVB_MOD2.md). The other Rev B module, the ESP32-P4 gesture controller, is
