@@ -56,10 +56,11 @@ checklist.
 
 ## Pico 2 W — `src/revb`: Wealth
 
-**Wealth** (a working name; it may carry Boy's name instead) is the analogue board Rev B with a Pico 2 W, hosting other people's apps. Its firmware is built with the Pico SDK (not PlatformIO).
+**Wealth** (a working name; it may carry Boy's name instead) is the analogue board Rev B with a Pico 2 W, hosting other people's apps. Its firmware is built with the Pico SDK and CMake, not a PlatformIO env: `scripts/revb.sh` builds
+it with the Pico packages PlatformIO already holds, nothing else to install.
 A Rev B version of the Workshop Computer's `ComputerCard.h` runs Workshop Computer programs
 unchanged, and ports of MOD2 and Melon voices on the same driver. **Builds; not yet run: the
-boards are on order.**
+boards are in the post.**
 
 - **`bends`:** Vincent Maurer's Bends (MIT), a stereo multi-effect and glitch looper, behind the
   Computer panel. See [docs/REVB_COMPUTER.md](docs/REVB_COMPUTER.md).

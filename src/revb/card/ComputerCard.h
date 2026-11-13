@@ -3,9 +3,9 @@
 //
 // ComputerCard for the analogue board Rev B with a Pico 2 W, behind the "Computer" panel.
 //
-// A drop-in replacement for Chris Johnson's ComputerCard.h (version 0.3.0, the Music Thing
-// Workshop System Computer, MIT): the same class, the same calls and the same value ranges, so a
-// card written against it builds for Rev B unchanged. Behind them is Rev B's hardware: the PCM3060
+// A drop-in replacement for Chris Johnson's ComputerCard.h (version 0.4.0, 14 June 2026, the Music
+// Thing Workshop System Computer, MIT): the same class, the same calls and the same value ranges, so
+// a card written against it builds for Rev B unchanged. Behind them is Rev B's hardware: the PCM3060
 // codec for audio, the ADS8688 and DAC8568 for CV, a 74HCT595 for the pulse outs, an MCP3208 for
 // the knobs and Z, a TCA9555 for the jack switches and the encoder's push, and a small SSD1306 in
 // place of the six LEDs.
@@ -14,8 +14,10 @@
 // requirements, and docs/REVB_COMPUTER.md in this repo for the panel and how it is wired.
 //
 // What differs from a Workshop Computer, by design:
-// - The sample rate is 47 973.6 Hz (or half that with COMPUTERCARD_SAMPLE_RATE_DIV 2): clk_sys
-//   runs at 196.5 MHz, and MCLK (256 fs) and the I2S clocks are whole divisions of it. 1 cent flat.
+// - The sample rate is 47 973.6 Hz, 1 cent flat of a Workshop Computer's fixed 48 kHz: clk_sys runs
+//   at 196.5 MHz, and MCLK (256 fs) and the I2S clocks are whole divisions of it. Canonical
+//   ComputerCard has no other rate. Bends ships a copy that adds COMPUTERCARD_SAMPLE_RATE_DIV
+//   (default 2, 24 kHz) and asks for 2 itself; Rev B honours the define and defaults to 1.
 // - Inputs and outputs are read and written in blocks of four samples. CV in and out move once a
 //   block, which at 48 kHz is 12 kHz.
 // - Connected()/Disconnected(): there is no normalisation probe. A CV jack, and an audio jack
@@ -26,6 +28,9 @@
 //   reach only hole J102, so a card that drives them directly harms nothing.
 // - The LEDs are drawn on the screen. Calibration is the board's nominal transfer, until Rev B's
 //   EEPROM calibration is written.
+// - If the core running the audio stops (a flash write pauses it, say), the outputs fall silent
+//   within three blocks rather than repeating, and the interrupt takes its place from the DMA
+//   again when it resumes.
 
 #ifndef COMPUTERCARD_H
 #define COMPUTERCARD_H
@@ -52,7 +57,7 @@
 #include "revb_screen.h"
 
 #ifndef COMPUTERCARD_SAMPLE_RATE_DIV
-#define COMPUTERCARD_SAMPLE_RATE_DIV 2  // ComputerCard 0.3.0's default
+#define COMPUTERCARD_SAMPLE_RATE_DIV 1  // 48 kHz, canonical ComputerCard's only rate (Bends sets 2)
 #endif
 
 #ifndef REVB_APP_NAME
@@ -102,7 +107,9 @@ constexpr uint32_t BLOCK = 4;     // frames per DMA block
 // ---- Levels. ComputerCard's +-2048 is about +-6 V on a Workshop Computer.
 constexpr float VOLTS_PER_UNIT = 6.0f / 2048;
 constexpr float CODEC_IN_VOLTS = 11.0f;   // a full-scale codec input is about 22 Vpp at the jack, inverted
-constexpr float CODEC_OUT_VOLTS = 10.0f;  // a sample of 1.0 is about +10 V at the jack
+// A sample of 1.0 at the jack: Rev A's outs read +4.86 V for 0.5 (analogue_board_reva_firmware.md);
+// measure on Rev B
+constexpr float CODEC_OUT_VOLTS = 9.72f;
 // CV out (spec §15, ±10 V variant): Vout = 8.5 x 2.5 x code / 65536 - 10.714 V. The two-way
 // channels sag about 1 % into the board's own load (1 kOhm into the path to the ADC); CVO7's
 // 1 kOhm sits inside its loop.
@@ -163,8 +170,12 @@ class ComputerCard {
   Switch __not_in_flash_func(SwitchVal)() { return switchVal; }
   bool __not_in_flash_func(SwitchChanged)() { return switchVal != lastSwitchVal; }
 
-  /// Set audio output (values -2048 to 2047)
-  void __not_in_flash_func(AudioOut)(int i, int16_t val) { audioOut[i & 1] = val * revb::VOLTS_PER_UNIT; }
+  /// Set audio output (values -2048 to 2047, clipped there as a Workshop Computer's DAC write does)
+  void __not_in_flash_func(AudioOut)(int i, int16_t val) {
+    if (val < -2048) val = -2048;
+    if (val > 2047) val = 2047;
+    audioOut[i & 1] = val * revb::VOLTS_PER_UNIT;
+  }
   void __not_in_flash_func(AudioOut1)(int16_t val) { AudioOut(0, val); }
   void __not_in_flash_func(AudioOut2)(int16_t val) { AudioOut(1, val); }
 
@@ -252,6 +263,16 @@ class ComputerCard {
     return r;
   }
   bool CVOutsCalibrated() const { return false; }
+
+  // ComputerCard 0.4.0's additions
+  /// The flash's size: the build's, 4 MB on a Pico 2 W (0.4.0 asks the chip; Rev B has one chip)
+  uint32_t FlashSizeBytes() const { return PICO_FLASH_SIZE_BYTES; }
+  /// No input calibration on Rev B yet
+  bool InputsCalibrated() const { return false; }
+  /// Audio in, in millivolts at the jack: nominal, and 0 while the jack counts as open, as AudioIn
+  int32_t __not_in_flash_func(AudioInMillivolts)(int i) { return audioInMv[i & 1]; }
+  int32_t __not_in_flash_func(AudioIn1Millivolts)() { return audioInMv[0]; }
+  int32_t __not_in_flash_func(AudioIn2Millivolts)() { return audioInMv[1]; }
   void Abort() { aborted = true; }
 
   uint16_t CRCencode(const uint8_t *data, int length) {  // CRC-16-CCITT, as ComputerCard's
@@ -290,6 +311,7 @@ class ComputerCard {
   volatile int32_t knobs[3] = {0, 0, 0};
   volatile Switch switchVal = Middle, lastSwitchVal = Middle;
   int16_t adcInL = 0, adcInR = 0;
+  int32_t audioInMv[2] = {0, 0};
   volatile int16_t cv[2] = {0, 0};
   bool pulse[2] = {false, false}, lastPulse[2] = {false, false};
   volatile bool connected[6] = {false, false, false, false, false, false};
@@ -308,19 +330,19 @@ class ComputerCard {
   bool pushHeld = false;
   volatile bool pushPressed = false;
   int32_t knobAcc[4] = {0, 0, 0, 0};  // knob readings x 16, smoothed
+  uint8_t knobSeeded = 0;             // bit n: knob n has had its first reading
   uint8_t knobNext = 0;
   uint8_t gateShown = 0xFF;
   uint32_t potDue = 0, tcaDue = 0, screenDue = 0;
   uint8_t tcaPort0 = revb::TCA_OE_N;
 
-  // ---- audio: DMA ping-pong on PIO0 (I2S), three TX buffers and two RX, each one block
+  // ---- audio: DMA on PIO0 (I2S), three TX buffers, each zeroed once sent, and two RX, each one block
   PIO pioAudio = pio0, pioConv = pio1;
   uint smAudio = 0, smConv = 0;
-  int dmaTx[3] = {-1, -1, -1}, dmaRx[2] = {-1, -1};
+  int dmaTx[3] = {-1, -1, -1}, dmaClr[3] = {-1, -1, -1}, dmaRx[2] = {-1, -1};
   alignas(32) inline static uint32_t txBuf[3][2 * revb::BLOCK];
   alignas(32) inline static uint32_t rxBuf[2][2 * revb::BLOCK];
-  uint32_t blockCount = 0;
-  uint32_t divPhase = 0;
+  inline static uint32_t zeroWord = 0;  // in RAM: what the clear channels copy
 
   // ---- the converter bus: one batch of frames a block, by DMA. Four ADC frames (each returns
   // the channel the frame before it selected) and the two CV outs.
@@ -385,10 +407,29 @@ class ComputerCard {
     gpio_set_function(revb::PIN_SCL, GPIO_FUNC_I2C);
     if (!I2cPresent(revb::ADDR_EE)) return false;
 
-    // The expander: every jack switch off and the gate outputs disabled, output register first
+    // The expander: every jack switch off and the gate outputs disabled. Output register first, as
+    // Rev A's board.cpp: it powers up all ones, which as outputs would close every jack switch.
+    TcaWrite(2, tcaPort0);
     TcaWrite(6, 0x80);  // CFG0: port 0 outputs, P07 an input
     TcaWrite(7, 0xFF);  // CFG1: port 1 inputs
+
+    // The panel bus next, so the knobs and Z read true within a few milliseconds of Run(): a
+    // program may read them at power-up (Bends takes Z held down then as a factory reset). SPI1 at
+    // 1 MHz (requirement 14), the MCP3208 and the 595.
+    spi_init(spi1, 1000000);
+    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
+    gpio_set_function(revb::PIN_SPIB_SCK, GPIO_FUNC_SPI);
+    gpio_set_function(revb::PIN_SPIB_MOSI, GPIO_FUNC_SPI);
+    gpio_set_function(revb::PIN_SPIB_MISO, GPIO_FUNC_SPI);
+    for (uint p : {revb::PIN_CS_POT, revb::PIN_CS_595}) {
+      gpio_init(p);
+      gpio_put(p, 1);
+      gpio_set_dir(p, GPIO_OUT);
+    }
+    WriteGates(0);  // a whole word latched before the outputs turn on (requirement 4)
+    tcaPort0 &= ~revb::TCA_OE_N;
     TcaWrite(2, tcaPort0);
+    for (int i = 0; i < 16; i++) ReadNextKnob();  // the knobs read before the first sample
 
     // The converter bus on PIO1
     smConv = pio_claim_unused_sm(pioConv, true);
@@ -416,22 +457,6 @@ class ComputerCard {
 
     // The ADC: ±10.24 V on every channel (requirement 8)
     for (uint8_t ch = 0; ch < 8; ch++) ConvFrame(false, (uint32_t)((0x05 + ch) << 9 | 0x100) << 16);
-
-    // The panel bus: SPI1 at 1 MHz (requirement 14), the MCP3208 and the 595
-    spi_init(spi1, 1000000);
-    spi_set_format(spi1, 8, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
-    gpio_set_function(revb::PIN_SPIB_SCK, GPIO_FUNC_SPI);
-    gpio_set_function(revb::PIN_SPIB_MOSI, GPIO_FUNC_SPI);
-    gpio_set_function(revb::PIN_SPIB_MISO, GPIO_FUNC_SPI);
-    for (uint p : {revb::PIN_CS_POT, revb::PIN_CS_595}) {
-      gpio_init(p);
-      gpio_put(p, 1);
-      gpio_set_dir(p, GPIO_OUT);
-    }
-    WriteGates(0);  // a whole word latched before the outputs turn on (requirement 4)
-    tcaPort0 &= ~revb::TCA_OE_N;
-    TcaWrite(2, tcaPort0);
-    for (int i = 0; i < 64; i++) ReadNextKnob();  // the knobs read before the first sample
 
     // Gate inputs: the LM393s have their own pull-ups. The encoder on gate inputs 2 and 4.
     for (uint p : {revb::PIN_GATE_IN1, revb::PIN_GATE_IN2, revb::PIN_GATE_IN3, revb::PIN_GATE_IN4}) {
@@ -469,9 +494,13 @@ class ComputerCard {
     memset(txBuf, 0, sizeof(txBuf));
     memset(rxBuf, 0, sizeof(rxBuf));
     for (int i = 0; i < 3; i++) dmaTx[i] = dma_claim_unused_channel(true);
+    for (int i = 0; i < 3; i++) dmaClr[i] = dma_claim_unused_channel(true);
     for (int i = 0; i < 2; i++) dmaRx[i] = dma_claim_unused_channel(true);
-    // TX: A -> B -> C -> A, each reading its own buffer through a 32-byte ring, so a channel needs
-    // no re-arming and the chain keeps the codec clocked even if this core stops for a while.
+    // TX: A -> clear A -> B -> clear B -> C -> clear C -> A. Each TX channel reads its own buffer
+    // through a 32-byte ring, so it needs no re-arming, and the chain keeps the codec clocked even if
+    // this core stops for a while. Each clear channel then zeroes the buffer just sent (8 words,
+    // unpaced, well inside the 2 frames the FIFO holds), so a buffer the interrupt hasn't refilled
+    // plays silence: a stalled core goes quiet instead of looping the last three blocks.
     for (int i = 0; i < 3; i++) {
       dma_channel_config d = dma_channel_get_default_config(dmaTx[i]);
       channel_config_set_transfer_data_size(&d, DMA_SIZE_32);
@@ -479,8 +508,15 @@ class ComputerCard {
       channel_config_set_write_increment(&d, false);
       channel_config_set_ring(&d, false, 5);
       channel_config_set_dreq(&d, pio_get_dreq(pioAudio, smAudio, true));
-      channel_config_set_chain_to(&d, dmaTx[(i + 1) % 3]);
+      channel_config_set_chain_to(&d, dmaClr[i]);
       dma_channel_configure(dmaTx[i], &d, &pioAudio->txf[smAudio], txBuf[i], 2 * revb::BLOCK, false);
+      dma_channel_config z = dma_channel_get_default_config(dmaClr[i]);  // unpaced by default
+      channel_config_set_transfer_data_size(&z, DMA_SIZE_32);
+      channel_config_set_read_increment(&z, false);
+      channel_config_set_write_increment(&z, true);
+      channel_config_set_ring(&z, true, 5);  // the write wraps back to the buffer's start
+      channel_config_set_chain_to(&z, dmaTx[(i + 1) % 3]);
+      dma_channel_configure(dmaClr[i], &z, txBuf[i], &zeroWord, 2 * revb::BLOCK, false);
     }
     // RX: A -> B -> A, the same way; their completions are the audio interrupt
     for (int i = 0; i < 2; i++) {
@@ -535,6 +571,22 @@ class ComputerCard {
     return u < -2048 ? -2048 : u > 2047 ? 2047 : u;
   }
 
+  // The TX buffer to fill: two on from the one being sent, so it plays after the next, two to three
+  // blocks from now. Taken from the DMA's own position rather than counted, so after a stall (a
+  // flash write, an interrupt held off) the interrupt can't go on writing into the buffer being sent.
+  int __not_in_flash_func(TxTarget)() {
+    for (int tries = 0; tries < 8; tries++)
+      for (int i = 0; i < 3; i++) {
+        if (dma_channel_is_busy(dmaTx[i])) return (i + 2) % 3;
+        if (dma_channel_is_busy(dmaClr[i])) {  // buffer i just sent; i + 1 is next
+          while (dma_channel_is_busy(dmaClr[i])) {
+          }
+          return i;
+        }
+      }
+    return -1;  // between two links of the chain eight times over: can't happen
+  }
+
   void __not_in_flash_func(AudioBlock)() {
     int rx = -1;
     for (int i = 0; i < 2; i++)
@@ -543,10 +595,12 @@ class ComputerCard {
         rx = i;
       }
     if (rx < 0) return;
+    if (dma_channel_is_busy(dmaRx[rx])) rx ^= 1;  // after a stall both had finished: take the newest
+    int target = TxTarget();
+    if (target < 0) return;
     uint32_t in[2 * revb::BLOCK];
     memcpy(in, rxBuf[rx], sizeof(in));
-    uint32_t *out = txBuf[blockCount % 3];  // the buffer that plays three blocks from now
-    blockCount++;
+    uint32_t *out = txBuf[target];
     if (aborted) {
       memset(out, 0, sizeof(txBuf[0]));
       return;
@@ -557,8 +611,12 @@ class ComputerCard {
     for (uint32_t f = 0; f < revb::BLOCK; f++) {
       float l = (int32_t)in[2 * f] * (1.0f / 2147483648.0f);
       float r = (int32_t)in[2 * f + 1] * (1.0f / 2147483648.0f);
-      adcInL = (connected[Audio1] || !REVB_AUDIO_DETECT) ? ToUnits(-l * revb::CODEC_IN_VOLTS) : 0;
-      adcInR = (connected[Audio2] || !REVB_AUDIO_DETECT) ? ToUnits(-r * revb::CODEC_IN_VOLTS) : 0;
+      bool onL = connected[Audio1] || !REVB_AUDIO_DETECT, onR = connected[Audio2] || !REVB_AUDIO_DETECT;
+      float vl = -l * revb::CODEC_IN_VOLTS, vr = -r * revb::CODEC_IN_VOLTS;
+      adcInL = onL ? ToUnits(vl) : 0;
+      adcInR = onR ? ToUnits(vr) : 0;
+      audioInMv[0] = onL ? (int32_t)lroundf(vl * 1000.0f) : 0;
+      audioInMv[1] = onR ? (int32_t)lroundf(vr * 1000.0f) : 0;
       for (int i = 0; i < 2; i++) {
         lastPulse[i] = pulse[i];
         pulse[i] = gpio_get(revb::PIN_PULSE_IN[i]);
@@ -654,7 +712,14 @@ class ComputerCard {
     gpio_put(revb::PIN_CS_POT, 1);
     int32_t raw = ((rx[1] & 0x0F) << 8) | rx[2];
     int32_t &acc = knobAcc[knobNext];
-    acc += raw - (acc >> 4);  // a one-pole smoother; acc holds the reading x 16
+    if (knobSeeded & (1u << knobNext)) {
+      acc += raw - (acc >> 4);  // a one-pole smoother; acc holds the reading x 16
+    } else {
+      // Start from the first reading, not from 0: smoothing up from 0, Z read Down for its first
+      // twenty readings, and a program checking Z at power-up saw it held down
+      acc = raw << 4;
+      knobSeeded |= 1u << knobNext;
+    }
     int32_t v = acc >> 4;
     if (knobNext < 3) {
       knobs[knobNext] = v;

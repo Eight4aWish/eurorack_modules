@@ -47,6 +47,16 @@ left undrilled.
 OUT DC is what the MOD2 gives with JP2 closed: 0 to about +10 V, +5 V at rest. It is for the
 voices with envelope and LFO modes (`tides`). For a drum, use OUT.
 
+## Which voices
+
+MOD2 has 19 voices (`modulove/MOD2`, `Firmware/`) and Melon 17 (`wgd-modular/melon-firmwares`).
+About 11 are the same HAGIWO voices on both, so about 25 are distinct; most are HAGIWO's own, with
+Melon's drums and fxloperformer by Vincent Maurer and RALPS by mxzrmxzrmxzr.
+
+**Not ported (David, 2026-11-13): voices that copy a module already in the rack.** Braids (on both)
+and Melon's reese_bass, a Braids clone, are Joy; MOD2's Tides is the Behringer Waves. Melon's
+drums stays: its pattern map is Grids-like, but its sounds are its own.
+
 ## LFSR Snare
 
 HAGIWO's MOD2 "LFSR Snare Ver1.0" (`modulove/MOD2`, `Firmware/snare/snare.ino`, CC0 1.0): a
@@ -68,5 +78,5 @@ and the LFSR clock keeps its 125 kHz cap in Hz. The noise is sampled at 48 kHz r
 on the bench once that's built.
 
 ```sh
-cmake --build build/revb --target snare    # build/revb/apps/snare/snare.uf2
+scripts/revb.sh snare    # build/revb/apps/snare/snare.uf2
 ```

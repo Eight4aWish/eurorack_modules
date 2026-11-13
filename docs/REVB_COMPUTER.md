@@ -17,15 +17,22 @@ measured values this driver starts from.
 
 ## Build and flash
 
-Pico SDK 2.x and CMake, not PlatformIO: Workshop Computer programs are Pico SDK projects.
+Pico SDK and CMake, not a PlatformIO env (David, 2026-11-13): Workshop Computer programs are Pico SDK
+projects, and CMake builds them as published. PlatformIO's own `picosdk` framework would mean
+translating each program's CMake file, and its Arduino framework would mean reworking them.
+`scripts/revb.sh` builds with the packages PlatformIO already holds for `pico2w_oc` (the Pico SDK
+2.2.1 inside Arduino-Pico, its arm64 GCC 14.3, ninja), so there is nothing else to install:
 
 ```sh
-cmake -S src/revb -B build/revb -DPICO_SDK_PATH=/path/to/pico-sdk   # PICO_BOARD is pico2_w
-cmake --build build/revb -j
+scripts/revb.sh               # every app
+scripts/revb.sh snare         # one
+scripts/revb.sh flash snare   # build it and copy it to the Pico, held in BOOTSEL (the RP2350 drive)
 ```
 
-Each app comes out as `build/revb/apps/<app>/<app>.uf2`. Hold BOOTSEL while plugging in USB and
-copy the `.uf2` to the drive, or `picotool load -x <app>.uf2`.
+Each app comes out as `build/revb/apps/<app>/<app>.uf2`. The SDK builds its own picotool (2.1.1)
+into `build/revb` the first time, for the UF2s. Flashing copies to the drive, because that picotool
+has no USB here (no libusb `pkg-config`) and PlatformIO's picotool 2.0.0 can't read SDK 2.2 images.
+Set `PICO_SDK_PATH` yourself and run CMake directly to use another SDK.
 
 | App | Source | Code | RAM |
 | --- | --- | --- | --- |
@@ -34,7 +41,10 @@ copy the `.uf2` to the drive, or `picotool load -x <app>.uf2`.
 
 Each app is its own image for now, one at a time in flash. A launcher that keeps several in flash
 and boots the one chosen comes later. **The target (David, 2026-11-13): 15 Workshop Computer
-programs plus one MOD2/Melon app** holding every ported voice behind a voice menu. That fits the
+programs plus one MOD2/Melon app** holding every ported voice behind a voice menu. **The selection
+is strict:** of the 148 published programs, each has to earn its place, and none that duplicates a
+module already in the rack goes in (Braids, Plaits, Clouds, Rings, Elements, Beads, Grids, Peaks,
+Stages, Tides, Warps, the Turing Machine family; `eight4awish/MODULES.md` has the rack). That fits the
 Pico 2 W's 4 MB with room to spare: 213 of the 225 releases for 2 MB cards need 512 KB or less, and
 the median is about 96 KB. The boot ROM's partition table holds at most 16 partitions
 (`PARTITION_TABLE_MAX_PARTITIONS`). If the launcher can't sit outside them, it keeps its own slot
@@ -42,12 +52,13 @@ table and boots each app with `rom_chain_image()` instead. Settings go in the EE
 
 ## The driver: `src/revb/card/ComputerCard.h`
 
-The same class, calls and value ranges as Chris Johnson's ComputerCard 0.3.0 (MIT), so a
-program written against it builds for Rev B as it stands. Behind it:
+The same class, calls and value ranges as Chris Johnson's ComputerCard 0.4.0 (14 June 2026, MIT),
+so a program written against it builds for Rev B as it stands. That includes 0.4.0's
+`AudioInMillivolts()`, `InputsCalibrated()` and `FlashSizeBytes()`. Behind it:
 
 | ComputerCard | Rev B |
 | --- | --- |
-| Audio in and out, ±2048 ≈ ±6 V | PCM3060 over I2S (PIO0, DMA). Full scale is about ±11 V in, ±10 V out. `AudioOutVolts()` reaches the full ±10 V |
+| Audio in and out, ±2048 ≈ ±6 V | PCM3060 over I2S (PIO0, DMA). Full scale is about ±11 V in, ±9.7 V out. `AudioOut()` clips at ±2048, as a Workshop Computer's DAC write does; `AudioOutVolts()` reaches the full range |
 | CV in, ±2048 ≈ ±6 V | ADS8688, ±10.24 V range |
 | CV out, ±2048 ≈ ±6 V; `Precise`, `MIDINote`, `Millivolts` | DAC8568 at ±10 V |
 | Pulse in | Gate inputs (LM393s), read every sample |
@@ -58,9 +69,14 @@ program written against it builds for Rev B as it stands. Behind it:
 
 **Timing.** clk_sys runs at **196.5 MHz** (12 MHz × 131 / 8). MCLK on GPOUT0 and the I2S program
 both divide it by 16 (32 at half rate), so MCLK is 256 fs and the sample rate is
-**47 973.6 Hz**, 1 cent flat of 48 kHz. Programs that ask for `COMPUTERCARD_SAMPLE_RATE_DIV 2`
-(ComputerCard 0.3.0's default; Bends does) run the codec itself at 23 986.8 Hz. Audio moves in
-DMA blocks of four frames and plays three blocks after it arrives, about 0.25 ms at 48 kHz. The
+**47 973.6 Hz**, 1 cent flat of a Workshop Computer's fixed 48 kHz. Canonical ComputerCard has no
+other rate. Bends ships a copy that adds `COMPUTERCARD_SAMPLE_RATE_DIV` (defaulting to 2) and asks
+for 2 itself, so it runs the codec at 23 986.8 Hz; Rev B honours the define and defaults to 1.
+Audio moves in DMA blocks of four frames and plays two to three blocks after it arrives, about
+0.2 ms at 48 kHz. Each output buffer is zeroed by DMA once sent, and the interrupt takes the buffer
+to fill from the DMA's position, not a count. So if the core running the audio stops (a flash
+write, say), the outputs fall silent within three blocks instead of looping them, and the audio
+picks up cleanly when it resumes. The
 converter bus (PIO1, 12.3 MHz SCK) sends one batch of frames per block, by DMA: four ADC reads and
 two DAC writes. CV in and out move once a block (12 kHz at 48 kHz). The interrupt runs on the
 core that calls `Run()`; Bends calls it from core 1, as on a Workshop Computer.
@@ -75,8 +91,11 @@ has arrived in the last 2 s. As on a Workshop Computer, an unpatched audio or CV
 with `REVB_AUDIO_DETECT=0` on a board without the DC taps.
 
 **Start-up** follows the spec: nothing but I2C starts unless the EEPROM answers (requirement 1).
-The DAC holds 0 V on every channel before its reference comes on and before CV out 1's switch
-closes (requirement 3). A whole gate word is latched before the 595's outputs are enabled
+The expander's output register is written before its pins become outputs, since it powers up all
+ones, which would close every jack switch. The panel bus starts next, and each knob and Z start
+from their first reading rather than smoothing up from zero, so a program that reads Z at power-up
+sees where it is (Bends takes Z held down then as a factory reset). The DAC holds 0 V on every
+channel before its reference comes on and before CV out 1's switch closes (requirement 3). A whole gate word is latched before the 595's outputs are enabled
 (requirement 4). The ADC is set to ±10.24 V on every channel (requirement 8).
 
 **Not like a Workshop Computer:**
@@ -87,7 +106,8 @@ closes (requirement 3). A whole gate word is latched before the 595's outputs ar
   hole J102, so a program that drives them directly (Bends' Texture) harms nothing; its output
   goes nowhere.
 - `USBPowerState()` is `Unsupported`, `HardwareVersion()` is `Unknown`, and `UniqueCardID()`
-  is the Pico's own ID.
+  is the Pico's own ID. `InputsCalibrated()` is false and `AudioInMillivolts()` nominal;
+  `FlashSizeBytes()` is the build's 4 MB rather than the chip's own report.
 - Extensions for programs written for Rev B: `AudioOutVolts()`, `EncoderTurns()`, `PushHeld()`,
   `PushPressed()`, `DisplayName()` and `SampleRate()`.
 
@@ -155,8 +175,9 @@ On Rev B:
   pulse-out GPIO. On Rev B the pulse outs go through the 595, which can't carry it, so the PWM
   goes to GP12 and hole J102. To get it back, run a wire from J102's GP12 hole through 1 kΩ, with
   clamps, to a jack (untried).
-- Presets save to the top sector of the Pico 2 W's flash, as on a 2 MB program card. Audio
-  repeats a few milliseconds during a save while core 1 is paused; the I2S clocks keep running.
+- Presets save to the top sector of the Pico 2 W's flash, as on a 2 MB program card. The audio
+  falls silent during a save (a sector erase, tens of milliseconds) while core 1 is paused, then
+  picks up again; the I2S clocks keep running.
 - It sets 192 MHz itself; `Run()` then sets 196.5 MHz, which the codec's clocks need.
 
 ## Bench checklist, first power-up
@@ -164,7 +185,7 @@ On Rev B:
 1. **Clocks,** each 256, 64 and 1 times the sample rate: for Bends 6.14 MHz on GP21 (MCLK),
    1.535 MHz on BCK and 23.99 kHz on LRCK; for the snare 12.28 MHz, 3.07 MHz and 47.97 kHz.
 2. **Audio:** a sine through each input to each output with `bends` set clean; level and polarity
-   at the jacks.
+   at the jacks. A DC level out sets `CODEC_OUT_VOLTS` (Rev A's 9.72 V until measured).
 3. **Converter bus:** CV out 1 and 2 at −5, 0 and +5 V on a meter. CV in 1 and 2 read back.
 4. **Open-jack levels:** each CV input and each audio tap with nothing patched. Set `OPEN_CV` and
    `OPEN_AUDIO` from the readings.
