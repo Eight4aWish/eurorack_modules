@@ -54,9 +54,9 @@ pio run -e teensy41 -t upload    # in the foreground
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for the modes, the MIDI map and the first-flash
 checklist.
 
-## Pico 2 W — `src/revb`: Boy Rev B apps
+## Pico 2 W — `src/revb`: Wealth
 
-Firmware for the analogue board Rev B with a Pico 2 W, built with the Pico SDK (not PlatformIO).
+**Wealth** is the analogue board Rev B with a Pico 2 W, hosting other people's apps. Its firmware is built with the Pico SDK (not PlatformIO).
 A Rev B version of the Workshop Computer's `ComputerCard.h` runs Workshop Computer programs
 unchanged, and ports of MOD2 and Melon voices on the same driver. **Builds; not yet run: the
 boards are on order.**
@@ -270,5 +270,5 @@ is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 - **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port rewrites one line — the resonator mode count, set by `RESOLUTION` in `scripts/elements_build.py` — into `elements/dsp/voice.cc` at build time; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
 - **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
-- **Workshop Computer** programs and **ComputerCard** (MIT; Tom Whitwell's Music Thing Modular, Chris Johnson's ComputerCard, Vincent Maurer's Bends) and **HAGIWO's MOD2** voices (CC0) — for the Boy Rev B apps in `src/revb`. Bends is vendored unmodified under `third_party/workshop_computer/`.
+- **Workshop Computer** programs and **ComputerCard** (MIT; Tom Whitwell's Music Thing Modular, Chris Johnson's ComputerCard, Vincent Maurer's Bends) and **HAGIWO's MOD2** voices (CC0) — for Wealth, in `src/revb`. Bends is vendored unmodified under `third_party/workshop_computer/`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

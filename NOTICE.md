@@ -84,9 +84,9 @@ Rev A (`teensy_move`).
 Warps and stmlib come from the `third_party/parasites/` submodule, each file with its original
 copyright header and MIT permission notice.
 
-## revb (Boy Rev B apps)
+## revb (Wealth)
 
-Firmware for the analogue board Rev B with a Pico 2 W, in `src/revb`.
+Wealth: the analogue board Rev B with a Pico 2 W, in `src/revb`.
 
 | Component | License | Role |
 |---|---|---|

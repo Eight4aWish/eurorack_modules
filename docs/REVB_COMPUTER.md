@@ -1,9 +1,10 @@
-# Rev B Computer: Workshop Computer programs on Boy Rev B
+# Wealth: Workshop Computer programs
 
-Firmware for the analogue board Rev B (`pico_revb`) with a **Pico 2 W**, behind the
-**Computer panel**: Music Thing Workshop Computer programs, built unchanged against a Rev B
+**Wealth** (*twelve for wealth*) is the analogue board Rev B (`pico_revb`) with a **Pico 2 W**,
+hosting other people's apps. This is its firmware behind the **Computer panel**: Music Thing Workshop Computer programs, built unchanged against a Rev B
 version of `ComputerCard.h`. The first is **Bends**. MOD2 and Melon voices share the same driver;
-see [REVB_MOD2.md](REVB_MOD2.md).
+see [REVB_MOD2.md](REVB_MOD2.md). The other Rev B module, the ESP32-P4 gesture controller, is
+**Health**.
 
 **Status (2026-11-13): builds, not yet run.** The Rev B boards are on order. The two PIO programs
 pass a cycle-level simulation (`revb_i2s`: words out and in, left and right in order, I2S's
