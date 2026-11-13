@@ -3,7 +3,8 @@
 //
 // Mode 1, the Move companion. Ported from the old Boy (tag teensy-move-old-final):
 // - three voices, MIDI ch 1-3: GATE1-3 and PITCH1-3 (the old Boy's ch 4 and mod outs have no jacks)
-// - drums on ch 10: note 36 fires DRM1, note 37 DRM2, 500 us pulses
+// - drums on ch 10: notes 36-39 fire DRM1, DRM2, then audio out L and R, 500 us pulses. The audio outs
+//   are DC-coupled, so a +5 V pulse there is a trigger: four drums, as the old Boy and Move's kit
 // - MIDI clock: a pulse on CLK every 16th; Start sends a pulse on RST
 // - MIDI from USB (the Move) and from the TRS input, merged
 // - encoder push: a long press sends a reset pulse; held for 2 s it ends the session and goes back
@@ -25,9 +26,10 @@ constexpr uint8_t PITCH_CV[VOICES] = {board::PITCH1, board::PITCH2, board::PITCH
 constexpr uint8_t GATE_CV[VOICES] = {board::GATE1, board::GATE2, board::GATE3};
 constexpr float GATE_VOLTS = 5.0f;
 
-constexpr uint8_t DRUMS = 2;
-constexpr uint8_t DRUM_NOTE[DRUMS] = {36, 37};
-constexpr uint8_t DRUM_BIT[DRUMS] = {board::DRUM1, board::DRUM2};
+constexpr uint8_t DRUMS = 4;
+constexpr uint8_t DRUM_NOTE[DRUMS] = {36, 37, 38, 39};
+constexpr uint8_t GATE_DRUMS = 2;  // drums 1-2 on the 595's gate outs; 3-4 on the audio outs
+constexpr uint8_t DRUM_BIT[GATE_DRUMS] = {board::DRUM1, board::DRUM2};
 constexpr uint32_t DRUM_TRIG_US = 500;  // short, so gate-sensitive hats don't read a trigger as a gate
 constexpr uint32_t DRUM_DISP_MS = 300;  // a hit stays on screen this long
 
@@ -56,6 +58,35 @@ static uint8_t lastCh, lastNote, lastVel;
 static uint32_t lastMidiMs, lastPaintMs;
 
 static AudioOutputI2S *audioOut;
+
+// Drums 3 and 4 as +5 V pulses on audio out L and R. A pulse starts with the next audio block, so it
+// lands 1-2 ms after a 595 drum fired by the same MIDI pass; its width is exact, to the sample.
+class DrumOuts : public AudioStream {
+ public:
+  DrumOuts() : AudioStream(0, nullptr) {}
+  void fire(uint8_t ch) { fire_[ch] = true; }  // from loop(); only ever set here, cleared in update()
+  void update() override {
+    for (uint8_t ch = 0; ch < 2; ch++) {
+      if (fire_[ch]) fire_[ch] = false, left_[ch] = WIDTH;
+      audio_block_t *b = allocate();
+      if (!b) return;
+      for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+        b->data[i] = left_[ch] ? LEVEL : 0;
+        if (left_[ch]) left_[ch]--;
+      }
+      transmit(b, ch);
+      release(b);
+    }
+  }
+
+ private:
+  static constexpr uint32_t WIDTH = (uint32_t)(DRUM_TRIG_US * AUDIO_SAMPLE_RATE_EXACT / 1e6f + 0.5f);
+  // +5 V: a sample of 0.5 measured +4.86 V on both outs in the bring-up
+  static constexpr int16_t LEVEL = (int16_t)(32767 * 0.5f * 5.0f / 4.86f);
+  volatile bool fire_[2] = {false, false};
+  uint32_t left_[2] = {0, 0};
+};
+static DrumOuts *drumOuts;
 
 static void updatePitch(Voice &v) {
   v.volts = ((v.note < 0 ? 36 : v.note) - 36) / 12.0f + v.bend / 12.0f;  // note 36 at 0 V, as the old Boy
@@ -95,8 +126,12 @@ static void noteOn(byte ch, byte note, byte vel) {
   if (ch == 10) {
     for (uint8_t i = 0; i < DRUMS; i++)
       if (note == DRUM_NOTE[i]) {
-        drumTrig[i] = true;
-        drumUntilUs[i] = micros() + DRUM_TRIG_US;
+        if (i < GATE_DRUMS) {
+          drumTrig[i] = true;
+          drumUntilUs[i] = micros() + DRUM_TRIG_US;
+        } else {
+          drumOuts->fire(i - GATE_DRUMS);
+        }
         drumSeenMs[i] = millis();
       }
     return;
@@ -156,10 +191,13 @@ void begin() {
   board::gates_write(0);
   board::gate_outputs(true);
 
-  // Mode 1 makes no sound, but the audio outs are DC-coupled: clock the codec and send silence, so
-  // they hold the 0 V measured in the bring-up instead of whatever an unclocked codec gives
-  AudioMemory(2);
+  // The audio outs are DC-coupled: they carry drums 3 and 4 as pulses, and between pulses the codec
+  // sends silence, so they hold the 0 V measured in the bring-up
+  AudioMemory(4);
+  drumOuts = new DrumOuts();
   audioOut = new AudioOutputI2S();
+  new AudioConnection(*drumOuts, 0, *audioOut, 0);  // drum 3: audio out L
+  new AudioConnection(*drumOuts, 1, *audioOut, 1);  // drum 4: audio out R
 
   usbMIDI.setHandleNoteOn(noteOn);
   usbMIDI.setHandleNoteOff(noteOff);
@@ -193,7 +231,7 @@ static void paint(uint32_t now) {
   }
   for (uint8_t i = 0; i < DRUMS; i++) d[i] = drumSeenMs[i] && now - drumSeenMs[i] <= DRUM_DISP_MS ? '#' : '-';
   bool clocked = lastClockTickMs && now - lastClockTickMs <= 500;
-  snprintf(line, sizeof(line), "G %s %s %s  D %c%c %s", g[0], g[1], g[2], d[0], d[1], clocked ? "CLK" : "");
+  snprintf(line, sizeof(line), "G %s %s %s D%c%c%c%c %s", g[0], g[1], g[2], d[0], d[1], d[2], d[3], clocked ? "CLK" : "");
   screen::row(0, line);
   snprintf(line, sizeof(line), "P%+6.2f%+6.2f%+6.2f", voice[0].volts, voice[1].volts, voice[2].volts);
   screen::row(1, line);
@@ -227,7 +265,7 @@ void loop() {
   uint32_t now = millis(), nowUs = micros();
   if (clkUntil && (int32_t)(now - clkUntil) >= 0) clk = false, clkUntil = 0;
   if (rstUntil && (int32_t)(now - rstUntil) >= 0) rst = false, rstUntil = 0;
-  for (uint8_t i = 0; i < DRUMS; i++)
+  for (uint8_t i = 0; i < GATE_DRUMS; i++)
     if (drumUntilUs[i] && (int32_t)(nowUs - drumUntilUs[i]) >= 0) drumTrig[i] = false, drumUntilUs[i] = 0;
 
   // pitches before gates, so anything sampling pitch on the gate's edge sees the new note
@@ -242,7 +280,7 @@ void loop() {
   }
 
   uint8_t word = (clk << board::CLK) | (rst << board::RST);
-  for (uint8_t i = 0; i < DRUMS; i++) word |= drumTrig[i] << DRUM_BIT[i];
+  for (uint8_t i = 0; i < GATE_DRUMS; i++) word |= drumTrig[i] << DRUM_BIT[i];
   if (word != gateWord) board::gates_write(word), gateWord = word;
 
   if (now - lastPaintMs >= 250) {

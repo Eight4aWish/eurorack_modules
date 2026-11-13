@@ -52,7 +52,8 @@ inputs or outputs, and that shouldn't change under a patch.
 |---|---|
 | ch 1–3 notes | GATE1–3 (+5 V) and PITCH1–3, 1 V/oct, note 36 at 0 V (the old Boy's law); notes above about 99 clip |
 | ch 1–3 pitch bend | ±2 semitones |
-| ch 10 note 36, note 37 | DRM1, DRM2: 500 µs pulses |
+| ch 10 notes 36, 37 | DRM1, DRM2: 500 µs pulses |
+| ch 10 notes 38, 39 | audio out L, R: 500 µs pulses at +5 V, 1–2 ms after a DRM1/DRM2 pulse from the same MIDI (2026-11-13, not yet on the bench) |
 | clock | CLK: a 5 ms pulse every 16th (24 ppqn ÷ 6) |
 | Start | RST: an 8 ms pulse; Stop drops every gate |
 
@@ -63,11 +64,12 @@ inputs or outputs, and that shouldn't change under a patch.
   - row 1: the gates, as note names while they're on, then the drums and `CLK` while clock arrives;
   - row 2: the three pitch voltages;
   - row 3: the last MIDI event and its input for a second.
-- **The audio outs** sit at 0 V: the codec runs, sending silence.
+- **The audio outs** are drums 3 and 4. They're DC-coupled, so a +5 V pulse there is a trigger, and
+  between pulses they sit at 0 V. With DRM1 and DRM2 that's four drums on notes 36–39, as the old
+  Boy had and as Move's drum kit sends.
 
 **What changed from the old Boy:**
 - three voices, not four; no mod outs, so no velocity or CC#42;
-- two drums, not four;
 - no FX;
 - no pots, and the encoder replaces the button;
 - TRS MIDI in.
@@ -319,8 +321,9 @@ With nothing patched, then patching one thing at a time:
    - Each GATE goes to +5 V while a note is held.
    - Each PITCH steps 1 V an octave: meter C1 (note 36) at 0 V and C2 at 1 V.
    - The screen names the notes.
-3. **Drums.** Ch 10 notes 36 and 37 should fire DRM1 and DRM2. A drum module or the ES-10 shows a
-   pulse that a meter misses.
+3. **Drums.** Ch 10 notes 36 and 37 should fire DRM1 and DRM2, and notes 38 and 39 audio out L and
+   R. A drum module or the ES-10 shows a pulse that a meter misses. Check drums 3 and 4 reach
+   +5 V and trigger the modules they're patched to.
 4. **Clock.** With Move playing, CLK pulses every 16th, and `CLK` shows on screen. Start pulses RST.
 5. **TRS.** The same from a MIDI source on the TRS jack (Type A).
 6. **Encoder.**
