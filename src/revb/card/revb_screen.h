@@ -19,7 +19,7 @@
 #define REVB_SCREEN_W 64
 #endif
 #ifndef REVB_SCREEN_H
-#define REVB_SCREEN_H 32
+#define REVB_SCREEN_H 48
 #endif
 #ifndef REVB_SCREEN_COL_OFFSET
 #define REVB_SCREEN_COL_OFFSET 32

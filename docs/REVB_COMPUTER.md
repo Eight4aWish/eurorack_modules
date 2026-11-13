@@ -102,7 +102,7 @@ its left. Cell numbers are the deck's JPS cells.
 
 | Panel | Cell | Hole(s) | Channel |
 | --- | --- | --- | --- |
-| Screen | JPS1 | J703 (RSI 13-16): I2C and power | SSD1306 at 0x3C, 64×32 (0.49") by default |
+| Screen | JPS1 | J703 (RSI 13-16): I2C and power | SSD1306 at 0x3C, 64×48 (0.66"), the screen on Joy and the MultiFX patch.init |
 | Encoder A, B | JPS2 | GIN2 (R21), GIN4 (R33) | gate inputs 2 and 4; common to a +3V3D hole, not POT_REF |
 | Encoder push | JPS2 | SW2 (R6) | TCA9555 P11 |
 | Z | JPS3 | POT3 (LO2), POT_REF (LO1), GND | MCP3208 ch 2: up to POT_REF, down to GND, the common to POT3 with 100k to POT_REF and 100k to GND, so the middle reads about half |
@@ -128,8 +128,8 @@ cable for the two audio-input runs, with the shield grounded at one end on an AG
 codec. Unused: CV1, CVI7, GOUT3-4, POT1-2, MIDI.
 
 **The screen** shows the program's name, the six LEDs (filled when bright, outlined when dim),
-Z's position, and which inputs count as patched (A, C, P for jacks 1 and 2). For a 0.66" 64×48
-panel build with `REVB_SCREEN_H=48`. `REVB_SCREEN_COL_OFFSET` (32) places either in the
+Z's position, and which inputs count as patched (A, C, P for jacks 1 and 2). For a 0.49" 64×32
+panel build with `REVB_SCREEN_H=32`. `REVB_SCREEN_COL_OFFSET` (32) places either in the
 controller's 128 columns.
 
 ## Bends
