@@ -144,8 +144,11 @@ On Rev B:
   core 0, as on a Workshop Computer.
 - **Jack detection works for Audio 1-2 and CV 1-2** (normalling Audio 2 to Audio 1, Extended Mono
   Mode). Clock Sync on Pulse 1 counts as patched once a clock arrives.
-- **Texture (Pulse out 2's PWM audio stream) is lost.** Bends drives it on a raw GPIO, which on
-  Rev B goes to hole J102 only. Pulse out 2 still gives Bends' ordinary pulse output.
+- **Texture is lost, so Pulse out 2 is silent in Bends.** Texture is the only thing Bends puts on
+  Pulse out 2: its microsound engine as 10-bit PWM at about 190 kHz, written straight to the
+  pulse-out GPIO. On Rev B the pulse outs go through the 595, which can't carry it, so the PWM
+  goes to GP12 and hole J102. To get it back, run a wire from J102's GP12 hole through 1 kΩ, with
+  clamps, to a jack (untried).
 - Presets save to the top sector of the Pico 2 W's flash, as on a 2 MB program card. Audio
   repeats a few milliseconds during a save while core 1 is paused; the I2S clocks keep running.
 - It sets 192 MHz itself; `Run()` then sets 196.5 MHz, which the codec's clocks need.
