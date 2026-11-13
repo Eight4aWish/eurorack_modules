@@ -32,7 +32,12 @@ copy the `.uf2` to the drive, or `picotool load -x <app>.uf2`.
 | `snare` | `src/revb/apps/snare/` | 29 KB | 85 KB |
 
 Each app is its own image for now, one at a time in flash. A launcher that keeps several in flash
-partitions and boots the one chosen comes later.
+and boots the one chosen comes later. **The target (David, 2026-11-13): 15 Workshop Computer
+programs plus one MOD2/Melon app** holding every ported voice behind a voice menu. That fits the
+Pico 2 W's 4 MB with room to spare: 213 of the 225 releases for 2 MB cards need 512 KB or less, and
+the median is about 96 KB. The boot ROM's partition table holds at most 16 partitions
+(`PARTITION_TABLE_MAX_PARTITIONS`). If the launcher can't sit outside them, it keeps its own slot
+table and boots each app with `rom_chain_image()` instead. Settings go in the EEPROM, not flash.
 
 ## The driver: `src/revb/card/ComputerCard.h`
 
