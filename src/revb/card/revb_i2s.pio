@@ -1,0 +1,39 @@
+; SPDX-License-Identifier: MIT
+; Copyright (c) 2026 David Baghurst
+;
+; Full-duplex I2S master for the PCM3060 on the analogue board Rev B (hardware mode, I2S,
+; 24-bit data in 32-bit slots, codec ADC and DAC both slaves).
+;
+; Side-set: bit 0 = BCK (GP26), bit 1 = LRCK (GP27). Out pin: DOUT to the codec's DIN (GP28).
+; In pin: the codec's DOUT (GP22). Four cycles per bit: data changes with BCK falling and is
+; sampled with BCK rising, so 64 bits a frame take 256 cycles, the same as MCLK at 256 fs when
+; MCLK is clk_sys divided by this program's clock divider.
+;
+; I2S: LRCK changes during the last bit (LSB) of the previous word, and the MSB follows one BCK
+; after. Each word is 32 bits, MSB first: TX words are a sample << 8, RX words carry it the same way.
+; Left (LRCK low) then right. Autopull and autopush at 32 bits.
+
+.program revb_i2s
+.side_set 2
+
+.wrap_target
+left_bit:
+    out pins, 1         side 0b00
+    nop                 side 0b00
+    in pins, 1          side 0b01
+    jmp x-- left_bit    side 0b01
+    out pins, 1         side 0b10   ; left LSB; LRCK goes high for the right word
+    nop                 side 0b10
+    in pins, 1          side 0b11
+    set x, 30           side 0b11
+right_bit:
+    out pins, 1         side 0b10
+    nop                 side 0b10
+    in pins, 1          side 0b11
+    jmp x-- right_bit   side 0b11
+    out pins, 1         side 0b00   ; right LSB; LRCK goes low for the next left word
+    nop                 side 0b00
+    in pins, 1          side 0b01
+public entry_point:
+    set x, 30           side 0b01
+.wrap

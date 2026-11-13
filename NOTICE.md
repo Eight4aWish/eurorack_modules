@@ -84,6 +84,17 @@ Rev A (`teensy_move`).
 Warps and stmlib come from the `third_party/parasites/` submodule, each file with its original
 copyright header and MIT permission notice.
 
+## revb (Boy Rev B apps)
+
+Firmware for the analogue board Rev B with a Pico 2 W, in `src/revb`.
+
+| Component | License | Role |
+|---|---|---|
+| [ComputerCard](https://github.com/TomWhitwell/Workshop_Computer) (Chris Johnson) | MIT | the API `src/revb/card/ComputerCard.h` reimplements for Rev B; no code copied |
+| [Bends](https://github.com/TomWhitwell/Workshop_Computer/tree/main/releases/45_bends) (Vincent Maurer) | MIT | the `bends` app, vendored unmodified in `third_party/workshop_computer/bends/` with its LICENSE |
+| [MOD2 LFSR Snare](https://github.com/modulove/MOD2) (HAGIWO) | CC0 1.0 | the `snare` app's sound engine, ported in `src/revb/apps/snare/` |
+| [Raspberry Pi Pico SDK](https://github.com/raspberrypi/pico-sdk) | BSD-3-Clause | runtime and hardware libraries |
+
 ## Build & tooling (not redistributed)
 
 - [PlatformIO](https://platformio.org/) (Apache-2.0) — build system

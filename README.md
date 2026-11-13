@@ -54,6 +54,23 @@ pio run -e teensy41 -t upload    # in the foreground
 See [docs/TEENSY_MOVE.md](docs/TEENSY_MOVE.md) for the modes, the MIDI map and the first-flash
 checklist.
 
+## Pico 2 W — `src/revb`: Boy Rev B apps
+
+Firmware for the analogue board Rev B with a Pico 2 W, built with the Pico SDK (not PlatformIO).
+A Rev B version of the Workshop Computer's `ComputerCard.h` runs Workshop Computer programs
+unchanged, and ports of MOD2 and Melon voices on the same driver. **Builds; not yet run: the
+boards are on order.**
+
+- **`bends`:** Vincent Maurer's Bends (MIT), a stereo multi-effect and glitch looper, behind the
+  Computer panel. See [docs/REVB_COMPUTER.md](docs/REVB_COMPUTER.md).
+- **`snare`:** HAGIWO's MOD2 LFSR Snare (CC0), behind the MOD2/Melon panel. See
+  [docs/REVB_MOD2.md](docs/REVB_MOD2.md).
+
+```sh
+cmake -S src/revb -B build/revb -DPICO_SDK_PATH=/path/to/pico-sdk
+cmake --build build/revb -j    # build/revb/apps/<app>/<app>.uf2
+```
+
 ## Teensy 4.1 — `teensy_chaos`: Secret
 
 **Secret**, the chaotic-attractor oscillator, on the Teensy Chaos hardware (10 HP: Teensy 4.1, Audio Shield, 128×64 OLED, four CV ins through an ADS1115, X/Y CV outs from an MCP4822). The DSP is the one Secret runs on the Alchemy Lab ([`eurorack_daisy_patch_init/daisy_chaos`](https://github.com/Eight4aWish/eurorack_daisy_patch_init/tree/main/daisy_chaos)), copied into [`libs/chaos_core/`](libs/chaos_core/): twelve RK4 models played by pitch, so V/OCT plays notes and TAME runs from free chaos to a locked tone. It replaced the Chaos firmware on 2026-11-11 (tag `teensy-chaos-final`).
@@ -253,4 +270,5 @@ is in [`NOTICE.md`](NOTICE.md). Headline acknowledgments:
 - **Mutable Instruments Elements + stmlib** (MIT, [Émilie Gillet](https://github.com/pichenettes)) — the modal-synthesis DSP that `ksoloti_elements` (**Girl**) ports to the Ksoloti Big Genes board. Vendored under `third_party/eurorack/`; each file retains its original MIT header. The Elements port rewrites one line — the resonator mode count, set by `RESOLUTION` in `scripts/elements_build.py` — into `elements/dsp/voice.cc` at build time; the third-party source is otherwise unmodified.
 - **ESP-IDF** (Apache-2.0, Espressif) + **Arduino-ESP32** (LGPL) + **pioarduino/platform-espressif32** — runtime for `esp32_clklink` and `nanoesp32_corthex`.
 - **Teensyduino** (MIT, PJRC) — for `teensy_chaos` and `teensy_move`.
+- **Workshop Computer** programs and **ComputerCard** (MIT; Tom Whitwell's Music Thing Modular, Chris Johnson's ComputerCard, Vincent Maurer's Bends) and **HAGIWO's MOD2** voices (CC0) — for the Boy Rev B apps in `src/revb`. Bends is vendored unmodified under `third_party/workshop_computer/`.
 - **Adafruit**, **ArduinoJson**, **ESPAsyncWebServer**, **FortySevenEffects MIDI Library**, **Bounce2** — peripheral and protocol libraries across multiple modules. Full attributions per module in [`NOTICE.md`](NOTICE.md).

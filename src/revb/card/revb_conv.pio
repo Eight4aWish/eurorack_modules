@@ -1,0 +1,39 @@
+; SPDX-License-Identifier: MIT
+; Copyright (c) 2026 David Baghurst
+;
+; The converter bus (SPI-A) on the analogue board Rev B: the ADS8688 and the DAC8568, 32-bit
+; frames, SPI mode 1 (clock idles low, data changes on the rising edge, both parts latch on the
+; falling edge). Both chip selects and the clock are side-set, which the Rev B pin map allows:
+; CS_DAC GP16, CS_ADC GP17, SCK GP18 are consecutive. MOSI GP19 is the out pin, MISO GP20 the in pin.
+;
+; Side-set: bit 0 = CS_DAC, bit 1 = CS_ADC (both active low), bit 2 = SCK.
+; Each frame takes two TX words: a selector (0 = ADS8688, anything else = DAC8568), then the
+; 32-bit frame, MSB first. Every frame pushes one 32-bit RX word: what the part sent back.
+; Four cycles per bit, so SCK is the state machine clock / 4.
+
+.program revb_conv
+.side_set 3
+
+.wrap_target
+    pull block          side 0b011
+    out x, 32           side 0b011
+    pull block          side 0b011
+    set y, 31           side 0b011
+    jmp !x adc_start    side 0b011
+    nop                 side 0b010 [2]  ; CS_DAC low: 60 ns of set-up before the first edge
+dac_bit:
+    out pins, 1         side 0b110
+    nop                 side 0b110
+    in pins, 1          side 0b010
+    jmp y-- dac_bit     side 0b010
+    jmp done            side 0b010
+adc_start:
+    nop                 side 0b001 [2]  ; CS_ADC low
+adc_bit:
+    out pins, 1         side 0b101
+    nop                 side 0b101
+    in pins, 1          side 0b001
+    jmp y-- adc_bit     side 0b001
+done:
+    push block          side 0b011  ; both chip selects high again
+.wrap

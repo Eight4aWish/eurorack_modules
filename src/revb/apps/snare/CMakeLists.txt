@@ -1,0 +1,6 @@
+add_executable(snare snare.cpp)
+target_link_libraries(snare revb_card)
+target_compile_options(snare PRIVATE -Wall -Wextra -Wdouble-promotion)
+pico_enable_stdio_uart(snare 0)
+pico_enable_stdio_usb(snare 0)
+pico_add_extra_outputs(snare)
