@@ -53,7 +53,7 @@ inputs or outputs, and that shouldn't change under a patch.
 | ch 1–3 notes | GATE1–3 (+5 V) and PITCH1–3, 1 V/oct, note 36 at 0 V (the old Boy's law); notes above about 99 clip |
 | ch 1–3 pitch bend | ±2 semitones |
 | ch 10 notes 36, 37 | DRM1, DRM2: 500 µs pulses |
-| ch 10 notes 38, 39 | audio out L, R: 500 µs pulses at +5 V, 1–2 ms after a DRM1/DRM2 pulse from the same MIDI (2026-11-13, not yet on the bench) |
+| ch 10 notes 38, 39 | audio out L, R: 500 µs pulses at +5 V, 1.5–3 ms after a DRM1/DRM2 pulse from the same MIDI (the audio buffering at 96 kHz), so no audible flam (2026-11-13) |
 | clock | CLK: a 5 ms pulse every 16th (24 ppqn ÷ 6) |
 | Start | RST: an 8 ms pulse; Stop drops every gate |
 

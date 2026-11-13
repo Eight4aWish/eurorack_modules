@@ -59,8 +59,10 @@ static uint32_t lastMidiMs, lastPaintMs;
 
 static AudioOutputI2S *audioOut;
 
-// Drums 3 and 4 as +5 V pulses on audio out L and R. A pulse starts with the next audio block, so it
-// lands 1-2 ms after a 595 drum fired by the same MIDI pass; its width is exact, to the sample.
+// Drums 3 and 4 as +5 V pulses on audio out L and R. A pulse starts with the next audio block and then
+// waits out the I2S buffering, so with 96-sample blocks at 96 kHz (1 ms) it lands 1.5-3 ms after a 595
+// drum fired by the same MIDI pass, with up to 1 ms of jitter: no audible flam. Its width is exact, to
+// the sample.
 class DrumOuts : public AudioStream {
  public:
   DrumOuts() : AudioStream(0, nullptr) {}
@@ -193,7 +195,9 @@ void begin() {
 
   // The audio outs are DC-coupled: they carry drums 3 and 4 as pulses, and between pulses the codec
   // sends silence, so they hold the 0 V measured in the bring-up
-  AudioMemory(4);
+  // Steady state holds four blocks (two per out at the I2S output); 8 leaves room, since a failed
+  // allocate would drop a hit
+  AudioMemory(8);
   drumOuts = new DrumOuts();
   audioOut = new AudioOutputI2S();
   new AudioConnection(*drumOuts, 0, *audioOut, 0);  // drum 3: audio out L
