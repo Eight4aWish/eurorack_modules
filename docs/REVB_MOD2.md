@@ -152,7 +152,7 @@ A short push triggers, on release; a push held half a second swaps the noise (HA
 | Control | Does |
 | --- | --- |
 | Main | decay, longer clockwise |
-| X | decay curve, longer clockwise |
+| X | decay again, longer clockwise: the original calls it decay curve, but it scales the same exponential as Main |
 | Y | filter frequency, 100 Hz to 16 kHz |
 | IN2 | high at the trigger: half level |
 
@@ -170,8 +170,10 @@ has settled.
 
 ### FM drum
 
-HAGIWO's MOD2 FM Drum Ver1.2 (`Firmware/fm_drum`): a two-operator FM voice, six parameters on two
-pages, with pickup as the kick's. IN2 high at the trigger halves the level.
+HAGIWO's MOD2 FM Drum Ver1.2 (`Firmware/fm_drum`): a two-operator FM voice on two pages, with
+pickup as the kick's. Y is the same modulation index on both pages, and it also sets the soft clip's
+drive, so there are five parameters, not the six its header counts. IN2 high at the trigger halves
+the level.
 
 | Control | FM DRUM 1 | FM DRUM 2 |
 | --- | --- | --- |
