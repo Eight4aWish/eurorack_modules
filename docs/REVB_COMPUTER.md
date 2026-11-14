@@ -108,6 +108,11 @@ channel before its reference comes on and before CV out 1's switch closes (requi
 - `USBPowerState()` is `Unsupported`, `HardwareVersion()` is `Unknown`, and `UniqueCardID()`
   is the Pico's own ID. `InputsCalibrated()` is false and `AudioInMillivolts()` nominal;
   `FlashSizeBytes()` is the build's 4 MB rather than the chip's own report.
+- **The audio inputs don't pass DC.** The Computer uses one jack for audio and CV, so programs
+  read CV on it: BuzzyBee's 1 V/oct pitch, for one, or LightPen's blue sensor. Rev B has
+  dedicated CV inputs, and `AudioIn()` comes from the codec, which is AC-coupled. Each audio jack
+  also reaches the ADS8688 through its DC tap (ch 3 and 5), so a program that reads CV there
+  needs the driver to serve `AudioIn()` from that channel instead. That option isn't written yet.
 - Extensions for programs written for Rev B: `AudioOutVolts()`, `EncoderTurns()`, `PushHeld()`,
   `PushPressed()`, `DisplayName()` and `SampleRate()`.
 
@@ -131,7 +136,7 @@ its left. Cell numbers are the deck's JPS cells.
 | Screen | JPS1 | J703 (RSI 13-16): I2C and power | SSD1306 at 0x3C, 64×48 (0.66"), the screen on Joy and the MultiFX patch.init |
 | Encoder A, B | JPS2 | GIN2 (R21), GIN4 (R33) | gate inputs 2 and 4; common to a +3V3D hole, not POT_REF |
 | Encoder push | JPS2 | SW2 (R6) | TCA9555 P11 |
-| Z | JPS3 | POT3 (LO2), POT_REF (LO1), GND | MCP3208 ch 2: up to POT_REF, down to GND, the common to POT3 with 100k to POT_REF and 100k to GND, so the middle reads about half |
+| Z | JPS3 | POT3 (LO2), POT_REF (LO1), GND | MCP3208 ch 2: up to POT_REF, down to GND, the common to POT3 with 100k to POT_REF and 100k to GND, so the middle reads about half. The part is the Workshop Computer's own switch, desoldered for Wealth (David, 2026-11-14): up latching, down momentary |
 | Main | JPS4 | POT4 (R8), POT_REF (R7) | MCP3208 ch 3 |
 | X | JPS5 | POT5 (LO5), POT_REF (LO4) | MCP3208 ch 4 |
 | Y | JPS6 | POT6 (LO8), POT_REF (LO7) | MCP3208 ch 5 |
