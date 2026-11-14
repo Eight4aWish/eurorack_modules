@@ -108,11 +108,9 @@ channel before its reference comes on and before CV out 1's switch closes (requi
 - `USBPowerState()` is `Unsupported`, `HardwareVersion()` is `Unknown`, and `UniqueCardID()`
   is the Pico's own ID. `InputsCalibrated()` is false and `AudioInMillivolts()` nominal;
   `FlashSizeBytes()` is the build's 4 MB rather than the chip's own report.
-- **The audio inputs don't pass DC.** The Computer uses one jack for audio and CV, so programs
-  read CV on it: BuzzyBee's 1 V/oct pitch, for one, or LightPen's blue sensor. Rev B has
-  dedicated CV inputs, and `AudioIn()` comes from the codec, which is AC-coupled. Each audio jack
-  also reaches the ADS8688 through its DC tap (ch 3 and 5), so a program that reads CV there
-  needs the driver to serve `AudioIn()` from that channel instead. That option isn't written yet.
+- **CV is read on a CV input, audio on an audio input.** `AudioIn()` comes from the codec, which
+  is AC-coupled. A Computer's audio jacks pass DC, so some programs take CV on them (BuzzyBee's
+  1 V/oct pitch, LightPen's blue sensor); a port of one reads that CV on a Rev B CV input.
 - Extensions for programs written for Rev B: `AudioOutVolts()`, `EncoderTurns()`, `PushHeld()`,
   `PushPressed()`, `DisplayName()` and `SampleRate()`.
 
