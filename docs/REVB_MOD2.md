@@ -75,7 +75,8 @@ OUT.
 
 MOD2 has 19 voices (`modulove/MOD2`, `Firmware/`) and Melon 17 (`wgd-modular/melon-firmwares`).
 About 11 are the same HAGIWO voices on both, so about 25 are distinct; most are HAGIWO's own, with
-Melon's drums and fxloperformer by Vincent Maurer and RALPS by mxzrmxzrmxzr. Melon's versions of
+Melon's drums by Vincent Maurer, fxloperformer (its effects, adapted by mxzrmxzrmxzr) and RALPS by
+mxzrmxzrmxzr. Melon's versions of
 the six shared drums (clap, claves, FM drum, hi-hat, kick, metal hit) are MOD2's engines with
 comments trimmed and its RGB LED added, so the ports follow MOD2's.
 
@@ -88,8 +89,16 @@ comments trimmed and its RGB LED added, so the ports follow MOD2's.
 - **Sample players.** MOD2's breakbeats and sample, and Melon's sample_player and drums (a
   Grids-style drum machine whose kits are mostly sampled 808, 909, 606, LinnDrum and Simmons).
 
-**Still to port:** MOD2's flux, mod303, radio, spiral, square_vco and vco (mod303, radio and vco
-are on Melon too), and Melon's fxloperformer, palimpsest, RALPS and string_mouth.
+**The other ten, read 2026-11-14:**
+
+- **To hear first:** mod303, a generative acid line (Melon's version, which corrects POT3), and
+  spiral, Shepard and Risset illusions. A render on a computer before deciding.
+- **Not ported:**
+  - radio: a sample player;
+  - square_vco, vco, string_mouth and flux: they duplicate the rack (the T01, MultiOsc, Plaits,
+    Rings, the 903A);
+  - fxloperformer and palimpsest: effects that need an audio input this panel doesn't have;
+  - RALPS.
 
 ## The voices
 
