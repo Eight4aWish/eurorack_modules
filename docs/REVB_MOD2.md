@@ -44,7 +44,8 @@ for it. The sector is the one below Bends', so neither app loses the other's set
 ## The MOD2/Melon panel
 
 The Computer panel's cells and holes, so one wired board runs either family. Blank cells are
-left undrilled.
+left undrilled. The board's two audio inputs are among them, because a MOD2 has none (its effects
+take audio through the CV jack); a voice that processes audio would need them drilled.
 
 | Row | Left | Middle | Right |
 | --- | --- | --- | --- |
@@ -91,14 +92,19 @@ comments trimmed and its RGB LED added, so the ports follow MOD2's.
 
 **The other ten, read 2026-11-14:**
 
-- **To hear first:** mod303, a generative acid line (Melon's version, which corrects POT3), and
-  spiral, Shepard and Risset illusions. A render on a computer before deciding.
+- **To hear first:**
+  - mod303, a generative acid line (Melon's version, which corrects POT3);
+  - spiral, Shepard and Risset illusions;
+  - RALPS, random percussion with a groove looper.
+
+  A render on a computer before deciding.
+- **Effects to reconsider:** fxloperformer and palimpsest. On a MOD2 they take audio in through
+  its CV jack. Wealth has the codec's stereo audio inputs, so the MOD2/Melon panel would need its
+  audio-in holes drilled (see below).
 - **Not ported:**
   - radio: a sample player;
   - square_vco, vco, string_mouth and flux: they duplicate the rack (the T01, MultiOsc, Plaits,
-    Rings, the 903A);
-  - fxloperformer and palimpsest: effects that need an audio input this panel doesn't have;
-  - RALPS.
+    Rings, the 903A).
 
 ## The voices
 
