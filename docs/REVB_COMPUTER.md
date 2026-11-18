@@ -1,5 +1,8 @@
 # Wealth: Workshop Computer programs
 
+**Dropped, David 2026-11-18: not a current planned project.** This page is kept as it was on that
+day; the code builds, but it was never run on a board.
+
 **Wealth** (*twelve for wealth*, a working name: the names are undecided (David, 2026-11-13): Health and Wealth, or Boy's name for every Rev A and Rev B board) is the analogue board Rev B (`pico_revb`) with a **Pico 2 W**,
 hosting other people's apps. This is its firmware behind the **Computer panel**: Music Thing Workshop Computer programs, built unchanged against a Rev B
 version of `ComputerCard.h`. The first is **Bends**. MOD2 and Melon voices share the same driver;

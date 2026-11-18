@@ -1,5 +1,8 @@
 # Wealth: MOD2 and Melon voices
 
+**Dropped, David 2026-11-18: not a current planned project.** This page is kept as it was on that
+day; the app builds and renders on the Mac, but it was never run on a board.
+
 HAGIWO's MOD2 voices and WGD Modular's Melon voices on **Wealth** (a working name; the analogue board Rev B with a
 Pico 2 W), behind the **MOD2/Melon panel**. They are one app, `mod2`, playing one voice at a time,
 chosen from a menu on the encoder. It uses the same driver as the Workshop Computer programs
