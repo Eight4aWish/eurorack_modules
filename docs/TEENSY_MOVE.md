@@ -184,20 +184,23 @@ things differ, all as Parasites' manual says:
 | audio in R | IN 2, the modulator |
 | audio out L | OUT |
 | audio out R | AUX |
-| PITCH1 | Level 1 CV, and V/oct with the internal oscillator on |
-| PITCH2 | Level 2 CV |
 | GATE1 | Algorithm CV |
-| GATE2 | Timbre CV |
+| PITCH1 | Timbre CV |
+| GATE2 | Level 1 CV, and V/oct with the internal oscillator on |
+| PITCH2 | Level 2 CV |
 | MIDI, USB and TRS, any channel but 10 | plays the chords, with CHORD on |
 | GATE3, PITCH3, the gate outs | unused |
 
-All six CV jacks are inputs: every jack switch stays off for the session.
+All six CV jacks are inputs: every jack switch stays off for the session. They pair as Warps' controls
+read, ALGO and TIMB on the top row and LEV1 and LEV2 below (since 2026-11-21, for the face mask; Level 1
+was on PITCH1 and Timbre on GATE2 before).
 
-**The mask.** The panel's labels are mode 1's, so Warps and Chordal each have a 3D-printed face mask:
-`build123d/panels/teensy_move_reva_mask.py` (not printed or fitted yet). It says what the CV and gate jacks
-do, and leaves the screen, the encoder and the audio jacks and their labels showing. Knurled M3 thumbscrews
-in the two lower rack slots hold it on; it adds 1.6 mm, so they need that much more length than the panel's
-screws.
+**The mask.** The panel's labels are mode 1's, so each app gets a 3D-printed face mask,
+`build123d/panels/teensy_move_reva_mask.py`: Move and Warps so far, drafted 2026-11-21, not printed yet. It's
+a 1.0 mm sheet the panel's full size, held by the panel's own four rack screws, with every label its own and
+the app's name at the top; it goes on with the encoder knob fitted. Warps' reads ALGO and TIMB over LEV1 and
+LEV2, then CARR, MOD, OUT and AUX on the audio jacks, and leaves the six unused jacks blank. The 5 Nov design,
+a card over the CV jacks only, is in `teensy_move_reva_mask_old.py`.
 
 **The encoder** stands in for Warps' four knobs and its button, and for Parasites' hold of the button
 to change mode. The screen lists seven items, four at a time:
@@ -378,7 +381,7 @@ scroll, so Warps now uses the chooser's. David: "perfect".
    in R (the modulator), at about 10 Vpp. Turn ALGO through all seven algorithms. Out R (AUX)
    carries the two inputs mixed.
 5. **CV ins.** The first time any of Rev A's CV inputs reads another module. One at a time:
-   - **V/oct into PITCH1,** with CARR on SINE, ALGO on XFADE, TIMB at 0 % and LEV1 at 40 %. Out L:
+   - **V/oct into GATE2,** with CARR on SINE, ALGO on XFADE, TIMB at 0 % and LEV1 at 40 %. Out L:
      nothing patched, C4. Patched at 0 V, C2; 1 V, C3; 2 V, C4; 3 V, C5. From a 1 kΩ output expect
      about 13 cents flat an octave, the same loading as any 100 kΩ input; don't chase it.
    - **The reading:** the monitor's voltage against a meter at the source, steady and in both polarities.
@@ -386,7 +389,7 @@ scroll, so Warps now uses the chooser's. David: "perfect".
      a `*`; an open jack reads +0.207 V.
    - **An LFO into GATE1:** the ALGO name moves, and the jack shows `G1*`.
    - **An envelope into PITCH2:** the modulator's level follows it, over 0 to about 6 V.
-   - **Into GATE2:** Timbre moves.
+   - **Into PITCH1:** Timbre moves.
    - **GATE3 and PITCH3:** Warps doesn't use them, so check them on the monitor's reading alone.
    - Take each cable out: its `*` should go within about a tenth of a second.
 6. **Output DC.** ALGO on COMPARE, both inputs patched: the outs average 0 V on a meter.

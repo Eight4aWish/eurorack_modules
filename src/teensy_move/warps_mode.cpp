@@ -7,9 +7,10 @@
 // ui.cc): the codec, the CVs, the knobs and the button.
 // - audio in L is Warps' IN 1, the carrier; audio in R is IN 2, the modulator
 // - audio out L is Warps' OUT; audio out R is AUX
-// - CV in: PITCH1 Level 1 (V/oct too, with the internal oscillator on), PITCH2 Level 2, GATE1
-//   Algorithm, GATE2 Timbre. Every jack switch stays off, so all six are inputs; GATE3 and PITCH3
-//   are unused, and so are the gate outs.
+// - CV in, in pairs as Warps' controls read: GATE1 Algorithm and PITCH1 Timbre on the top row, GATE2
+//   Level 1 (V/oct too, with the internal oscillator on) and PITCH2 Level 2 below (David, 2026-11-21:
+//   "Algo Timb / Levl1 Levl2", for the face mask). Every jack switch stays off, so all six are
+//   inputs; GATE3 and PITCH3 are unused, and so are the gate outs.
 // - MIDI plays the chord engine, with CHORD on: its chords replace IN 1, in Chordal's last settings.
 //   In the vocoder, with CARR on EXT, that's a voice on IN 2 singing the chords.
 // - the encoder stands in for the four knobs and the button. As in the chooser, a turn moves the
@@ -51,7 +52,7 @@ constexpr uint8_t MODE = 2;  // this mode's place in main.cpp's MODES: its EEPRO
 
 // ---- jacks
 enum Knob : uint8_t { LEVEL1, LEVEL2, ALGO, TIMBRE, KNOBS };
-constexpr uint8_t CV_JACK[KNOBS] = {board::PITCH1, board::PITCH2, board::GATE1, board::GATE2};
+constexpr uint8_t CV_JACK[KNOBS] = {board::GATE2, board::PITCH2, board::GATE1, board::PITCH1};
 constexpr uint8_t SPARE_JACK[2] = {board::GATE3, board::PITCH3};  // unused here: read for the bench report
 constexpr float CV_SCALE[KNOBS] = {36 / 100.0f / 3.3f, 36 / 100.0f / 3.3f, 33 / 100.0f / 3.3f, 33 / 100.0f / 3.3f};
 constexpr float OPEN_WINDOW = 0.020f, OPEN_STEADY = 0.004f;  // V
@@ -290,7 +291,7 @@ static const char *algorithm_name(float a) {  // the nearest of Warps' positions
 }
 
 static void paint() {
-  static const char *const JACK[KNOBS] = {"P1", "P2", "G1", "G2"};
+  static const char *const JACK[KNOBS] = {"G2", "P2", "G1", "P1"};
   const Face &face = FACE[set.feature];
   uint8_t top = sel < 4 ? 0 : sel - 3;
   for (uint8_t r = 0; r < 4; r++) {
