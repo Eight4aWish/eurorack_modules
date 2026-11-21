@@ -12,8 +12,10 @@
 
 namespace board {
 
-// The panel jacks on the six CV channels: DAC8568 channel n is board jack CV(n+1)
-enum Cv : uint8_t { GATE3 = 0, PITCH2 = 1, PITCH3 = 2, GATE1 = 3, PITCH1 = 4, GATE2 = 5 };
+// The panel jacks on the six CV channels: DAC8568 channel n is board jack CV(n+1). PITCH1 and PITCH2
+// follow the deck as found on 2026-11-21 (pitch1 on CV2, pitch2 on CV5), the other way round from the
+// bring-up plan; the calibration table is per DAC channel, so it holds either way.
+enum Cv : uint8_t { GATE3 = 0, PITCH1 = 1, PITCH3 = 2, GATE1 = 3, PITCH2 = 4, GATE2 = 5 };
 constexpr uint8_t CV_ALL = 0x3F;
 
 // The 74HCT595 gate word: bit n drives GOUTn+1, and 1 = +5 V

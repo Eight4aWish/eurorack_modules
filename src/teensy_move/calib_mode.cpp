@@ -29,8 +29,18 @@ constexpr float METER_HI = 4.0f, METER_LO = -4.0f;
 constexpr float CODES_PER_VOLT = 65536 / (4.3f * 2.5f * 0.982f);  // the stage's slope, near enough to converge
 constexpr float LOOP_TOL = 0.0002f;                                 // V: done when the jack reads within this
 constexpr float POINT_WARN = 0.002f;                                // V: a point that ends further off is reported
-// the panel's names for the Cv channels, in DAC channel order
-static const char *const NAME[board::CAL_CHANNELS] = {"GATE3", "PITCH2", "PITCH3", "GATE1", "PITCH1", "GATE2"};
+// the panel's name for a DAC channel, from board::Cv so it follows the map
+static const char *name(uint8_t ch) {
+  switch (ch) {
+    case board::GATE1: return "GATE1";
+    case board::GATE2: return "GATE2";
+    case board::GATE3: return "GATE3";
+    case board::PITCH1: return "PITCH1";
+    case board::PITCH2: return "PITCH2";
+    case board::PITCH3: return "PITCH3";
+    default: return "?";
+  }
+}
 
 enum State : uint8_t { INTRO, METER_HI_STEP, METER_LO_STEP, LOOP_PROMPT, LOOPBACK, CHECK, FAILED };
 static State state;
@@ -151,7 +161,7 @@ void loop() {
 
     case LOOPBACK:
       loopback_point();
-      snprintf(b, sizeof(b), "%-6s %+dV", NAME[lp_ch], board::CAL_VMIN + lp_pt);
+      snprintf(b, sizeof(b), "%-6s %+dV", name(lp_ch), board::CAL_VMIN + lp_pt);
       rows("CALIBRATING", b, "", "");
       if (++lp_pt == board::CAL_POINTS) {
         lp_pt = 0;
@@ -175,7 +185,7 @@ void loop() {
         for (uint8_t ch = 0; ch < board::CAL_CHANNELS; ch++) board::cv_write(ch, check_v);
       }
       snprintf(b, sizeof(b), "all jacks %+d.000 V", check_v);
-      snprintf(c, sizeof(c), "worst %s %+dV %.1fmV", NAME[worst_ch], board::CAL_VMIN + worst_pt, worst_err * 1000);
+      snprintf(c, sizeof(c), "worst %s %+dV %.1fmV", name(worst_ch), board::CAL_VMIN + worst_pt, worst_err * 1000);
       rows(worst_err > POINT_WARN ? "SAVED: check worst" : "SAVED: meter check", b, c, "turn: volts, hold:out");
       break;
 
