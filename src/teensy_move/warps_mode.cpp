@@ -8,9 +8,11 @@
 // - audio in L is Warps' IN 1, the carrier; audio in R is IN 2, the modulator
 // - audio out L is Warps' OUT; audio out R is AUX
 // - CV in, in pairs as Warps' controls read: GATE1 Algorithm and PITCH1 Timbre on the top row, GATE2
-//   Level 1 (V/oct too, with the internal oscillator on) and PITCH2 Level 2 below (David, 2026-11-21:
-//   "Algo Timb / Levl1 Levl2", for the face mask). Every jack switch stays off, so all six are
-//   inputs; GATE3 and PITCH3 are unused, and so are the gate outs.
+//   Level 1 and PITCH2 Level 2 below (David, 2026-11-21: "Algo Timb / Levl1 Levl2", for the face
+//   mask), and GATE3 the internal oscillator's V/oct. On Warps, Level 1's jack doubles as V/oct, so
+//   the oscillator's pitch and channel 1's level can't be patched apart; here they can (David,
+//   2026-11-21). Every jack switch stays off, so all six are inputs; PITCH3 is unused, and so are the
+//   gate outs.
 // - MIDI plays the chord engine, with CHORD on: its chords replace IN 1, in Chordal's last settings.
 //   In the vocoder, with CARR on EXT, that's a voice on IN 2 singing the chords.
 // - the encoder stands in for the four knobs and the button. As in the chooser, a turn moves the
@@ -53,7 +55,7 @@ constexpr uint8_t MODE = 2;  // this mode's place in main.cpp's MODES: its EEPRO
 // ---- jacks
 enum Knob : uint8_t { LEVEL1, LEVEL2, ALGO, TIMBRE, KNOBS };
 constexpr uint8_t CV_JACK[KNOBS] = {board::GATE2, board::PITCH2, board::GATE1, board::PITCH1};
-constexpr uint8_t SPARE_JACK[2] = {board::GATE3, board::PITCH3};  // unused here: read for the bench report
+constexpr uint8_t SPARE_JACK[2] = {board::GATE3, board::PITCH3};  // GATE3 the V/oct; PITCH3 unused, read for the bench report
 constexpr float CV_SCALE[KNOBS] = {36 / 100.0f / 3.3f, 36 / 100.0f / 3.3f, 33 / 100.0f / 3.3f, 33 / 100.0f / 3.3f};
 constexpr float OPEN_WINDOW = 0.020f, OPEN_STEADY = 0.004f;  // V
 constexpr uint32_t OPEN_MS = 100;
@@ -86,6 +88,8 @@ static uint32_t changedMs;  // a change waits 3 s to be written, so a turn isn't
 static volatile float cv_volts[KNOBS];
 static volatile bool cv_open[KNOBS] = {true, true, true, true};
 static float spare_volts[2];
+static volatile float voct_volts;  // GATE3
+static volatile bool voct_open = true;
 
 static chord::Engine &chords = chord::shared();
 static warps::Modulator modulator;
@@ -126,15 +130,15 @@ static void read_parameters(warps::Parameters *p) {
   CONSTRAIN(raw_algorithm, 0.0f, 1.0f);
   p->raw_algorithm = raw_algorithm;
 
-  // the internal oscillator: Level 1's knob sets its pitch, and its jack is V/oct
-  float note = 12.0f * cv_volts[LEVEL1];
+  // the internal oscillator: Level 1's knob sets its pitch, as on Warps, and GATE3 is its V/oct
+  float note = 12.0f * voct_volts;
   float interval = note - note_cv;
   if (interval < -0.4f || interval > 0.4f)
     note_cv = note;
   else
     note_cv += K_NOTE * interval;
   note_pot += K_NOTE * (60.0f * set.knob[LEVEL1] * 0.01f + 12.0f - note_pot);
-  p->note = cv_open[LEVEL1] ? note_pot + 24.0f : note_pot + note_cv;
+  p->note = voct_open ? note_pot + 24.0f : note_pot + note_cv;
 
   p->carrier_shape = set.carrier;
 }
@@ -198,8 +202,22 @@ struct Detect {
   uint32_t since;  // when the reading settled in the window; 0 while it hasn't
   float ref;
 };
-static Detect detect[KNOBS];
+static Detect detect[KNOBS], detect_voct;
 static bool cv_ok;
+
+// a jack is open while it reads the open level, steady, for OPEN_MS; any other reading is a cable
+static bool still_open(Detect &d, float v, bool open, uint32_t now) {
+  if (fabsf(v - board::CV_OPEN) > OPEN_WINDOW) {
+    d.since = 0;
+    return false;
+  }
+  if (!d.since || fabsf(v - d.ref) > OPEN_STEADY) {
+    d.since = now ? now : 1;
+    d.ref = v;
+    return open;
+  }
+  return now - d.since >= OPEN_MS ? true : open;
+}
 
 static void read_cvs() {
   if (!cv_ok) return;  // every jack stays open
@@ -208,18 +226,11 @@ static void read_cvs() {
   board::cv_read(SPARE_JACK, 2, spare_volts);
   uint32_t now = millis();
   for (uint8_t k = 0; k < KNOBS; k++) {
-    Detect &d = detect[k];
-    if (fabsf(v[k] - board::CV_OPEN) > OPEN_WINDOW) {
-      d.since = 0;
-      cv_open[k] = false;
-    } else if (!d.since || fabsf(v[k] - d.ref) > OPEN_STEADY) {
-      d.since = now ? now : 1;
-      d.ref = v[k];
-    } else if (now - d.since >= OPEN_MS) {
-      cv_open[k] = true;
-    }
+    cv_open[k] = still_open(detect[k], v[k], cv_open[k], now);
     cv_volts[k] = v[k];
   }
+  voct_open = still_open(detect_voct, spare_volts[0], voct_open, now);
+  voct_volts = spare_volts[0];
 }
 
 // ---- the encoder and the screen
