@@ -3,9 +3,17 @@
 //
 // Mode 1, the Move companion. Ported from the old Boy (tag teensy-move-old-final):
 // - three voices, MIDI ch 1-3: GATE1-3 and PITCH1-3 (the old Boy's ch 4 and mod outs have no jacks)
-// - drums on ch 10: notes 36-39 fire DRM1, DRM2, then audio out L and R, 500 us pulses. The audio outs
-//   are DC-coupled, so a +5 V pulse there is a trigger: four drums, as the old Boy and Move's kit
-// - MIDI clock: a pulse on CLK every 16th; Start sends a pulse on RST
+// - the jacks, in David's layout for the face mask (2026-11-21): drums 1-3 down the right where CLK,
+//   DRM1 and DRM2 are, drum 4 below them on audio out L, the clock where RST is (where Chordal's is),
+//   and reset on audio out R:
+//     GATE1 PITCH1 DRM1   (CLK)
+//     GATE2 PITCH2 DRM2   (DRM1)
+//     GATE3 PITCH3 DRM3   (DRM2)
+//     -     CLK    DRM4   (RST, audio out L)
+//     -     MIDI   RST    (audio out R)
+// - drums on ch 10: notes 36-39 fire drums 1-4, 500 us pulses. The audio outs are DC-coupled, so a
+//   +5 V pulse there is a trigger: four drums, as the old Boy and Move's kit
+// - MIDI clock: a pulse every 16th; Start sends a reset pulse
 // - MIDI from USB (the Move) and from the TRS input, merged
 // - encoder push: a long press sends a reset pulse; held for 2 s it ends the session and goes back
 //   to the mode chooser
@@ -28,8 +36,10 @@ constexpr float GATE_VOLTS = 5.0f;
 
 constexpr uint8_t DRUMS = 4;
 constexpr uint8_t DRUM_NOTE[DRUMS] = {36, 37, 38, 39};
-constexpr uint8_t GATE_DRUMS = 2;  // drums 1-2 on the 595's gate outs; 3-4 on the audio outs
-constexpr uint8_t DRUM_BIT[GATE_DRUMS] = {board::DRUM1, board::DRUM2};
+constexpr uint8_t GATE_DRUMS = 3;  // drums 1-3 on the 595's gate outs; drum 4 on audio out L
+constexpr uint8_t DRUM_BIT[GATE_DRUMS] = {board::CLK, board::DRUM1, board::DRUM2};
+constexpr uint8_t CLOCK_BIT = board::RST;              // the clock on the 595's RST out
+constexpr uint8_t DRUM4_OUT = 0, RESET_OUT = 1;        // audio out L, R
 constexpr uint32_t DRUM_TRIG_US = 500;  // short, so gate-sensitive hats don't read a trigger as a gate
 constexpr uint32_t DRUM_DISP_MS = 300;  // a hit stays on screen this long
 
@@ -48,8 +58,8 @@ static Voice voice[VOICES];
 
 static bool drumTrig[DRUMS];
 static uint32_t drumUntilUs[DRUMS], drumSeenMs[DRUMS];
-static bool clk, rst;
-static uint32_t clkUntil, rstUntil, lastClockTickMs;
+static bool clk;
+static uint32_t clkUntil, lastClockTickMs;
 static uint8_t gateWord;
 
 static char midiSrc = 'U';  // which input the handlers are being called from
@@ -59,17 +69,18 @@ static uint32_t lastMidiMs, lastPaintMs;
 
 static AudioOutputI2S *audioOut;
 
-// Drums 3 and 4 as +5 V pulses on audio out L and R. A pulse starts with the next audio block and then
+// Drum 4 and reset as +5 V pulses on audio out L and R. A pulse starts with the next audio block and then
 // waits out the I2S buffering, so with 96-sample blocks at 96 kHz (1 ms) it lands 1.5-3 ms after a 595
-// drum fired by the same MIDI pass, with up to 1 ms of jitter: no audible flam. Its width is exact, to
-// the sample.
+// pulse fired by the same MIDI pass, with up to 1 ms of jitter: no audible flam. Its width is exact, to
+// the sample: a drum's 500 us, reset's 8 ms.
 class DrumOuts : public AudioStream {
  public:
   DrumOuts() : AudioStream(0, nullptr) {}
-  void fire(uint8_t ch) { fire_[ch] = true; }  // from loop(); only ever set here, cleared in update()
+  // from loop(); only ever set here, taken in update()
+  void fire(uint8_t ch, uint32_t us) { fire_[ch] = (uint32_t)(us * AUDIO_SAMPLE_RATE_EXACT / 1e6f + 0.5f); }
   void update() override {
     for (uint8_t ch = 0; ch < 2; ch++) {
-      if (fire_[ch]) fire_[ch] = false, left_[ch] = WIDTH;
+      if (fire_[ch]) left_[ch] = fire_[ch], fire_[ch] = 0;
       audio_block_t *b = allocate();
       if (!b) return;
       for (uint32_t i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
@@ -82,10 +93,9 @@ class DrumOuts : public AudioStream {
   }
 
  private:
-  static constexpr uint32_t WIDTH = (uint32_t)(DRUM_TRIG_US * AUDIO_SAMPLE_RATE_EXACT / 1e6f + 0.5f);
   // +5 V: a sample of 0.5 measured +4.86 V on both outs in the bring-up
   static constexpr int16_t LEVEL = (int16_t)(32767 * 0.5f * 5.0f / 4.86f);
-  volatile bool fire_[2] = {false, false};
+  volatile uint32_t fire_[2] = {0, 0};  // samples wide, 0 for none
   uint32_t left_[2] = {0, 0};
 };
 static DrumOuts *drumOuts;
@@ -132,7 +142,7 @@ static void noteOn(byte ch, byte note, byte vel) {
           drumTrig[i] = true;
           drumUntilUs[i] = micros() + DRUM_TRIG_US;
         } else {
-          drumOuts->fire(i - GATE_DRUMS);
+          drumOuts->fire(DRUM4_OUT, DRUM_TRIG_US);
         }
         drumSeenMs[i] = millis();
       }
@@ -169,15 +179,16 @@ static void onClock() {
   }
 }
 
+static void resetPulse() { drumOuts->fire(RESET_OUT, RST_PULSE_MS * 1000); }
+
 static void onStart() {
-  rst = true;
-  rstUntil = millis() + RST_PULSE_MS;
+  resetPulse();
   resetTicks();
 }
 
 static void onStop() {
   for (Voice &v : voice) v.gate = false;
-  clk = rst = false;
+  clk = false;
   resetTicks();
 }
 
@@ -257,8 +268,7 @@ void loop() {
 
   switch (board::poll_push()) {
     case board::Push::LONG:
-      rst = true;
-      rstUntil = millis() + RST_PULSE_MS;
+      resetPulse();
       break;
     case board::Push::MENU:
       board::back_to_menu();
@@ -268,7 +278,6 @@ void loop() {
 
   uint32_t now = millis(), nowUs = micros();
   if (clkUntil && (int32_t)(now - clkUntil) >= 0) clk = false, clkUntil = 0;
-  if (rstUntil && (int32_t)(now - rstUntil) >= 0) rst = false, rstUntil = 0;
   for (uint8_t i = 0; i < GATE_DRUMS; i++)
     if (drumUntilUs[i] && (int32_t)(nowUs - drumUntilUs[i]) >= 0) drumTrig[i] = false, drumUntilUs[i] = 0;
 
@@ -283,7 +292,7 @@ void loop() {
     if (level != v.gateOut) board::cv_write(GATE_CV[i], level ? GATE_VOLTS : 0), v.gateOut = level;
   }
 
-  uint8_t word = (clk << board::CLK) | (rst << board::RST);
+  uint8_t word = clk << CLOCK_BIT;
   for (uint8_t i = 0; i < GATE_DRUMS; i++) word |= drumTrig[i] << DRUM_BIT[i];
   if (word != gateWord) board::gates_write(word), gateWord = word;
 

@@ -52,21 +52,32 @@ inputs or outputs, and that shouldn't change under a patch.
 |---|---|
 | ch 1–3 notes | GATE1–3 (+5 V) and PITCH1–3, 1 V/oct, note 36 at 0 V (the old Boy's law); notes above about 99 clip |
 | ch 1–3 pitch bend | ±2 semitones |
-| ch 10 notes 36, 37 | DRM1, DRM2: 500 µs pulses |
-| ch 10 notes 38, 39 | audio out L, R: 500 µs pulses at +5 V, 1.5–3 ms after a DRM1/DRM2 pulse from the same MIDI (the audio buffering at 96 kHz), so no audible flam (2026-11-13) |
-| clock | CLK: a 5 ms pulse every 16th (24 ppqn ÷ 6) |
-| Start | RST: an 8 ms pulse; Stop drops every gate |
+| ch 10 notes 36, 37, 38 | drums 1–3 on the CLK, DRM1 and DRM2 jacks: 500 µs pulses |
+| ch 10 note 39 | drum 4 on audio out L: a 500 µs pulse at +5 V, 1.5–3 ms after a gate-out pulse from the same MIDI (the audio buffering at 96 kHz), so no audible flam (2026-11-13) |
+| clock | the RST jack: a 5 ms pulse every 16th (24 ppqn ÷ 6) |
+| Start | reset on audio out R: an 8 ms pulse at +5 V, about 2 ms after the MIDI (the same buffering), well before the first 16th; Stop drops every gate |
+
+**The layout, 2026-11-21** (David, for the face mask; before it, drums 1–2 on DRM1 and DRM2, 3–4 on the audio
+outs, the clock on CLK and reset on RST). The clock now sits where Chordal's does:
+
+| | | |
+|---|---|---|
+| GATE1 | PITCH1 | DRM1 (CLK) |
+| GATE2 | PITCH2 | DRM2 (DRM1) |
+| GATE3 | PITCH3 | DRM3 (DRM2) |
+| – | CLK (RST) | DRM4 (audio out L) |
+| – | MIDI | RST (audio out R) |
 
 - **MIDI comes in on USB** (the Move) **and the TRS input** (Type A), merged. If both send clock,
-  CLK runs at the sum.
+  the clock runs at the sum.
 - **Encoder:** a long press (0.6 s) sends a reset pulse; hold 2 s for the chooser.
 - **Screen:**
   - row 1: the gates, as note names while they're on, then the drums and `CLK` while clock arrives;
   - row 2: the three pitch voltages;
   - row 3: the last MIDI event and its input for a second.
-- **The audio outs** are drums 3 and 4. They're DC-coupled, so a +5 V pulse there is a trigger, and
-  between pulses they sit at 0 V. With DRM1 and DRM2 that's four drums on notes 36–39, as the old
-  Boy had and as Move's drum kit sends.
+- **The audio outs** are drum 4 and reset. They're DC-coupled, so a +5 V pulse there is a trigger, and
+  between pulses they sit at 0 V. With the three gate-out drums that's four drums on notes 36–39, as
+  the old Boy had and as Move's drum kit sends.
 
 **What changed from the old Boy:**
 - three voices, not four; no mod outs, so no velocity or CC#42;
@@ -341,13 +352,14 @@ With nothing patched, then patching one thing at a time:
    - Each GATE goes to +5 V while a note is held.
    - Each PITCH steps 1 V an octave: meter C1 (note 36) at 0 V and C2 at 1 V.
    - The screen names the notes.
-3. **Drums.** Ch 10 notes 36 and 37 should fire DRM1 and DRM2, and notes 38 and 39 audio out L and
-   R. A drum module or the ES-10 shows a pulse that a meter misses. Check drums 3 and 4 reach
-   +5 V and trigger the modules they're patched to.
-4. **Clock.** With Move playing, CLK pulses every 16th, and `CLK` shows on screen. Start pulses RST.
+3. **Drums.** Ch 10 notes 36, 37 and 38 should fire the CLK, DRM1 and DRM2 jacks (DRM1-3 on the mask),
+   and note 39 audio out L. A drum module or the ES-10 shows a pulse that a meter misses. Check drum 4
+   reaches +5 V and triggers the module it's patched to.
+4. **Clock.** With Move playing, the RST jack (CLK on the mask) pulses every 16th, and `CLK` shows on
+   screen. Start pulses audio out R (RST on the mask).
 5. **TRS.** The same from a MIDI source on the TRS jack (Type A).
 6. **Encoder.**
-   - A long press pulses RST.
+   - A long press pulses audio out R (reset).
    - Hold 2 s: the chooser comes back and waits for a press, without restarting the rack.
 7. **Audio outs** at 0 V DC.
 
