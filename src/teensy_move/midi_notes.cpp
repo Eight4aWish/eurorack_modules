@@ -52,6 +52,15 @@ void begin(Note onFn, Note offFn, Bend bendTo, Stop stopTo) {
   trsNotes.turnThruOff();  // no MIDI out on Boy
 }
 
+void clock(Tick tick, Tick start) {
+  usbMIDI.setHandleClock(tick);
+  usbMIDI.setHandleStart(start);
+  usbMIDI.setHandleContinue(start);
+  trsNotes.setHandleClock(tick);
+  trsNotes.setHandleStart(start);
+  trsNotes.setHandleContinue(start);
+}
+
 void poll() {
   while (usbMIDI.read()) {
   }

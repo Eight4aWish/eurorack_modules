@@ -109,10 +109,24 @@ try: see [the bench list](#mode-2-on-the-bench).
 | MIDI, USB and TRS, any channel but 10 | a note plays a chord; bend is ±2 semitones. Transport stop, All Sound Off and All Notes Off end it within a second, whatever HOLD says (Stop on the Move confirmed, David, 2026-11-05) |
 | audio out L, R | the chord, in stereo |
 | audio in L, R | summed, they ring the strings |
-| PITCH1, PITCH2, PITCH3, GATE1 | the four notes, V/oct, gliding if GLIDE is up (note 36 at 0 V, as mode 1) |
-| GATE2 | 5 V while a chord is on |
+| GATE1, PITCH1, GATE2, PITCH2 | notes 1-4, V/oct, gliding if GLIDE is up (note 36 at 0 V, as mode 1) |
+| CLK, DRM1, DRM2, and PITCH3 | each note's gate, notes 1-4: 5 V while the note sounds; a note entering again while its gate is high drops it for 3 ms first, so every entry is a rising edge (David: "we don't need trig at all. instead each note gets a gate"). PITCH3 is a CV jack at 0 or 5 V |
 | GATE3 | the motion, slowly, ±5 V |
-| CLK, DRM1, DRM2, RST | each note's gate, notes 1-4 in that order: high while the note sounds; a note entering again while its gate is high drops it for 3 ms first, so every entry is a rising edge (since 2026-11-21, David: "we don't need trig at all. instead each note gets a gate"; a 5 ms trigger per note before, on CLK, DRUM2, DRUM1, RST) |
+| RST | a clock: a 5 ms pulse every 16th of MIDI clock, as mode 1's CLK, restarted by Start and Continue |
+
+**The layout, 2026-11-21** (David, for the face mask): the pitches in pairs on the top two rows, then MOTION
+and note 4's gate, the gates of notes 1-3 down the right, and the clock where RST is:
+
+| | | |
+|---|---|---|
+| NOTE1 (GATE1) | NOTE2 (PITCH1) | GATE1 (CLK) |
+| NOTE3 (GATE2) | NOTE4 (PITCH2) | GATE2 (DRM1) |
+| MOTION (GATE3) | GATE4 (PITCH3) | GATE3 (DRM2) |
+| IN-L | CLK (RST) | OUT-L |
+| IN-R | MIDI | OUT-R |
+
+Before it: the pitches on PITCH1-3 and GATE1, a chord gate on GATE2, and a 5 ms trigger per note on CLK, DRUM2,
+DRUM1 and RST. The chord gate went with the triggers: note 1's gate does its work.
 
 **The sound.** Four notes, a bass and three above it. Each note is up to five detuned oscillators spread
 across the stereo field, through a low-pass that tracks the note, blooms as it enters and breathes
@@ -351,9 +365,10 @@ CPU first:** it decides how much of this can run alongside Warps.
 3. **Move between chords** with STACK on 7TH: the notes on the monitor should barely move.
 4. **Stereo.** Take L and R one at a time, with SPREAD and MOTION up: they should clearly differ.
 5. **Strings.** SOUND at 100 %. Patch drums into audio in L. They should ring in the chord.
-6. **CV.** PITCH1-3 and GATE1 into four oscillators, or one at a time on a tuner. Don't chase the
-   tuning. GATE2 follows the chord, GATE3 moves slowly, and each gate out follows its note: with STRUM up
-   they rise one after another down the panel, and with HOLD on each new chord drops them briefly.
+6. **CV.** The four pitches into four oscillators, or one at a time on a tuner. Don't chase the
+   tuning (the pitches are on GATE1, PITCH1, GATE2, PITCH2). GATE3 moves slowly, and each note's gate
+   follows its note: with STRUM up they rise one after another, and with HOLD on each new chord drops them
+   briefly. With the Move playing, RST pulses on every 16th.
 7. **TRS MIDI in.** The first time on this board: Move or another source into the TRS jack.
 8. **In Warps** (mode 3): CHORD on, CARR on EXT, MODE on VOCODER, a voice or drums into audio in R,
    and play the Move. Read the CPU line: Warps and the chords together are what has to fit, and the chords are Chordal's

@@ -8,12 +8,17 @@
 //   until MIDI stop, which ends it whatever HOLD says.
 // - audio out L and R are the chord in stereo. Audio in L and R, summed, ring the strings: patch
 //   drums in, turn SOUND up, and they sound in the chord.
-// - CV out: PITCH1-3 and GATE1 are the four notes, V/oct, gliding if GLIDE is up (note 36 at 0 V, as
-//   mode 1). GATE2 is 5 V while a chord is on. GATE3 is the motion, slowly, +-5 V.
-// - gate outs: each note's own gate, notes 1-4 down the panel on CLK, DRM1, DRM2 and RST (David,
-//   2026-11-21: "we don't need trig at all. instead each note gets a gate"). High while the note
-//   sounds; a note that enters again while its gate is high drops it for 3 ms first, so every entry
-//   is a rising edge.
+// - the jacks, in David's layout for the face mask (2026-11-21):
+//     NOTE1 NOTE2 GATE1     on GATE1, PITCH1, CLK
+//     NOTE3 NOTE4 GATE2     on GATE2, PITCH2, DRM1
+//     MOTION GATE4 GATE3    on GATE3, PITCH3, DRM2
+//     IN-L  CLK   OUT-L     the clock on RST
+//   The NOTEs are V/oct, gliding if GLIDE is up (note 36 at 0 V, as mode 1). MOTION moves slowly, +-5 V.
+//   Each note has its own gate (David: "we don't need trig at all. instead each note gets a gate"),
+//   5 V while the note sounds; a note that enters again while its gate is high drops it for 3 ms
+//   first, so every entry is a rising edge. Note 4's is a CV jack at 0 or 5 V. The chord's own gate
+//   went with the triggers: note 1's gate does its work. CLK is a 5 ms pulse every 16th of MIDI clock,
+//   as mode 1's, restarted by Start and Continue.
 // - the encoder, as everywhere: a turn moves the marker, a press takes the marked item to edit, a
 //   turn sets it, a press lets it go. Held for 2 s it goes back to the mode chooser.
 // - PATCH, at the top, picks from a bank of sixteen and changes the sound as it turns. The items below
@@ -38,13 +43,17 @@ struct Settings {
 };
 static_assert(sizeof(Settings) <= 32, "a mode's EEPROM page holds 32 bytes");
 
-constexpr uint8_t PITCH_JACK[chord::kNotes] = {board::PITCH1, board::PITCH2, board::PITCH3, board::GATE1};
-constexpr uint8_t GATE_JACK = board::GATE2, MOTION_JACK = board::GATE3;
+static_assert(chord::kNotes == 4, "the layout has four notes");
+constexpr uint8_t PITCH_JACK[chord::kNotes] = {board::GATE1, board::PITCH1, board::GATE2, board::PITCH2};
+constexpr uint8_t MOTION_JACK = board::GATE3, GATE4_JACK = board::PITCH3;
 constexpr float GATE_VOLTS = 5.0f, MOTION_VOLTS = 5.0f;
-// Each note's gate, down the panel's gate outs in order. A note that enters again while its gate is high (the
+// Notes 1-3's gates on the gate outs, note 4's on GATE4_JACK. A note that enters again while its gate is high (the
 // next chord with no gap: HOLD, or legato) drops it for RETRIG_MS first, so an envelope starts on every entry.
-constexpr uint8_t NOTE_GATE[chord::kNotes] = {board::CLK, board::DRUM1, board::DRUM2, board::RST};
+constexpr uint8_t GATE_BIT[3] = {board::CLK, board::DRUM1, board::DRUM2};
 constexpr uint32_t RETRIG_MS = 3;
+// The clock on RST: MIDI clock is 24 ticks a quarter note, so every 6th is a 16th, as mode 1's CLK
+constexpr uint8_t CLOCK_BIT = board::RST, BEAT_DIV = 6;
+constexpr uint32_t CLOCK_PULSE_MS = 5;
 
 static chord::Engine &engine = chord::shared();
 static uint8_t patch;  // its place in the bank
@@ -71,10 +80,23 @@ static void off(uint8_t note) {
 
 static void bend(float semitones) { engine.Bend(semitones); }
 
+// the clock: the MIDI handlers run in midi_notes::poll(), on the loop, as jacks() does
+static uint8_t ticks;
+static uint32_t clockUntil;
+static void resetTicks() { ticks = BEAT_DIV - 1; }  // so the first tick after Start fires beat 1
+static void onClock() {
+  if (++ticks >= BEAT_DIV) {
+    ticks = 0;
+    clockUntil = (millis() + CLOCK_PULSE_MS) | 1;
+  }
+}
+
 static void stop() {
   AudioNoInterrupts();
   engine.Stop();
   AudioInterrupts();
+  resetTicks();
+  clockUntil = 0;
 }
 
 class ChordalStream : public AudioStream {
@@ -243,8 +265,9 @@ static void paint() {
 }
 
 // ---- the jacks
-static float jackVolts[chord::kNotes + 2];
+static float jackVolts[chord::kNotes + 2];  // the pitches, note 4's gate, the motion
 static uint32_t retrigUntil[chord::kNotes];
+static bool gateHigh[chord::kNotes];  // as last put out
 static uint8_t gateWord;
 
 static void write_if_moved(uint8_t i, uint8_t jack, float volts) {
@@ -257,7 +280,6 @@ static void jacks(uint32_t now) {
   // pitches before the gate, so anything sampling pitch on the gate's edge sees the new note
   for (uint8_t v = 0; v < chord::kNotes; v++)
     write_if_moved(v, PITCH_JACK[v], constrain((engine.Pitch(v) - 36.0f) / 12.0f, -10.0f, 10.0f));
-  write_if_moved(chord::kNotes, GATE_JACK, engine.GateOn() ? GATE_VOLTS : 0.0f);
   write_if_moved(chord::kNotes + 1, MOTION_JACK, engine.MotionOut() * MOTION_VOLTS);
 
   AudioNoInterrupts();
@@ -265,11 +287,14 @@ static void jacks(uint32_t now) {
   AudioInterrupts();
   uint8_t word = 0;
   for (uint8_t v = 0; v < chord::kNotes; v++) {
-    const uint8_t bit = 1 << NOTE_GATE[v];
-    if ((entered & (1 << v)) && (gateWord & bit)) retrigUntil[v] = (now + RETRIG_MS) | 1;  // high already: drop it first
+    if ((entered & (1 << v)) && gateHigh[v]) retrigUntil[v] = (now + RETRIG_MS) | 1;  // high already: drop it first
     if (retrigUntil[v] && (int32_t)(now - retrigUntil[v]) >= 0) retrigUntil[v] = 0;
-    if (engine.NoteGateOn(v) && !retrigUntil[v]) word |= bit;
+    gateHigh[v] = engine.NoteGateOn(v) && !retrigUntil[v];
+    if (v < 3 && gateHigh[v]) word |= 1 << GATE_BIT[v];
   }
+  write_if_moved(chord::kNotes, GATE4_JACK, gateHigh[3] ? GATE_VOLTS : 0.0f);
+  if (clockUntil && (int32_t)(now - clockUntil) >= 0) clockUntil = 0;
+  if (clockUntil) word |= 1 << CLOCK_BIT;
   if (word != gateWord) board::gates_write(word), gateWord = word;
 }
 
@@ -280,13 +305,15 @@ void begin() {
 
   // 0 V everywhere before the switches close (requirement 3.6)
   for (uint8_t v = 0; v < chord::kNotes; v++) board::cv_write(PITCH_JACK[v], 0);
-  board::cv_write(GATE_JACK, 0);
+  board::cv_write(GATE4_JACK, 0);
   board::cv_write(MOTION_JACK, 0);
   board::cv_outputs(board::CV_ALL);
   board::gates_write(0);
   board::gate_outputs(true);
 
   midi_notes::begin(on, off, bend, stop);
+  midi_notes::clock(onClock, resetTicks);
+  resetTicks();
 
   AudioMemory(16);
   // made in signal order, so the library updates them in that order within a block

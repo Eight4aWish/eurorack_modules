@@ -16,6 +16,9 @@ using Bend = void (*)(float semitones);
 using Stop = void (*)();
 
 void begin(Note on, Note off, Bend bend, Stop stop);
+// MIDI clock (24 ticks a quarter note) and Start or Continue, from both inputs, for a mode that wants them
+using Tick = void (*)();
+void clock(Tick tick, Tick start);
 void poll();  // every pass of the loop
 
 }  // namespace midi_notes
