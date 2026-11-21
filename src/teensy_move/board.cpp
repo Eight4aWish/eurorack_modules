@@ -56,6 +56,7 @@ struct CalRecord {
 static CalRecord cal_rec;
 static bool cal_ok = false, cal_off = false;
 static float cv_target[8], cv_corr[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+static uint32_t cv_changed_us[8];  // when each target last changed: the load correction waits for it to settle
 static uint8_t driven = 0;
 
 static uint32_t crc32(const uint8_t *d, size_t n) {
@@ -206,6 +207,7 @@ static uint16_t code_for(uint8_t ch, float volts) {
 
 void cv_write(uint8_t ch, float volts) {
   if (ch >= 8) return;
+  if (volts != cv_target[ch]) cv_changed_us[ch] = micros();
   cv_target[ch] = volts;
   dac_write(ch, code_for(ch, volts * cv_corr[ch]));
 }
@@ -243,7 +245,9 @@ uint8_t cv_driven() { return driven; }
 
 // Requirement 9. Each pass reads at most one switched-on channel, each 2 ms, so six take 12 ms. The
 // correction is a ratio, since a load to ground scales the jack: what was written over what the jack
-// reads, eased in so one noisy reading can't step the pitch.
+// reads, eased in so one noisy reading can't step the pitch. A channel whose voltage changed in the last
+// millisecond is left for the next pass: the jack and the ADC's input take tens of microseconds to
+// settle, and a reading taken during that, near enough to pass the +-3 % test, would nudge the pitch.
 void cv_service() {
   static uint32_t last;
   static uint8_t next;
@@ -257,7 +261,8 @@ void cv_service() {
   while (!(on & (1 << next)));
   uint8_t ch = next;
   float t = cv_target[ch];
-  if (fabsf(t) < 0.5f) return;  // too near 0 V for a ratio
+  if (fabsf(t) < 0.5f) return;                    // too near 0 V for a ratio
+  if (now - cv_changed_us[ch] < 1000) return;  // still settling
   float v = cv_adc_true(cv_read_avg(ch, 2));
   float want = cv_corr[ch] * t / v;  // the correction that would put t on the jack
   if (!(want > 0.97f && want < 1.03f)) {

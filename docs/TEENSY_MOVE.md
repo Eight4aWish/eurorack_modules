@@ -119,6 +119,8 @@ under the formula). **The load correction** (`board::cv_service()`, called by Mo
 switched-on output back every 12 ms and corrects the sag a load causes: a 100 kOhm V/oct input costs about
 1 % through the 1 kOhm output resistor, 12 cents an octave. It only acts above 0.5 V, eases in, and stops at
 3 %: a jack beyond that is taken to be driven by another output or shorted, and flagged (`board::cv_driven()`).
+It leaves an output alone for 1 ms after its voltage changes (since 2026-11-21), so it never reads a jack still
+settling to a new note.
 
 ## Mode 2, Chordal
 
