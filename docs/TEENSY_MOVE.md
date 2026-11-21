@@ -97,7 +97,9 @@ Fixed in passing:
   never waits more than about 1 ms on the screen.
 
 **Pitch calibration** (spec requirements 9 and 10, written and run on Boy 2026-11-21; David chose the method).
-**First run:** David's meter shows hundredths; after a few runs every output read **3.99 V at +4 V**, all six alike.
+**First run:** David's meter shows hundredths; after a few runs every output read **3.99 V at +4 V**, all six alike,
+and the check screen's ladder read **0.00, 1.00, 2.00, 3.00, 3.99**: right to the count but the top one, so the gain
+is within about 0.15 %, some 2 cents an octave.
 That's the meter's limit, not Boy's: a count is 10 mV (12 cents at 4 V, about 3 cents an octave), a trim to
 "4.00" lands anywhere from 3.995 to 4.005 V, and a hobby meter's DC accuracy is typically about 0.5 %, against
 the ADS8688's 0.05 %. A meter with a further digit would tighten the trim. Choose **CALIBRATE**, the last item in the chooser:
