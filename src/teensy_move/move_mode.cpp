@@ -201,6 +201,7 @@ void begin() {
     board::cv_write(GATE_CV[i], 0);
   }
   board::cv_outputs(board::CV_ALL);
+  board::cv_in_begin();  // the load correction reads each jack back (board::cv_service)
   board::gates_write(0);
   board::gate_outputs(true);
 
@@ -265,6 +266,7 @@ void loop() {
   midiSrc = 'T';
   while (trsMIDI.read()) {
   }
+  board::cv_service();  // the load correction (requirement 9)
 
   switch (board::poll_push()) {
     case board::Push::LONG:

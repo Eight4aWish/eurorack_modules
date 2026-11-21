@@ -308,6 +308,7 @@ void begin() {
   board::cv_write(GATE4_JACK, 0);
   board::cv_write(MOTION_JACK, 0);
   board::cv_outputs(board::CV_ALL);
+  board::cv_in_begin();  // the load correction reads each jack back (board::cv_service)
   board::gates_write(0);
   board::gate_outputs(true);
 
@@ -331,6 +332,7 @@ void loop() {
   ui();
   uint32_t now = millis();
   jacks(now);
+  board::cv_service();  // the load correction (requirement 9)
   if (now - lastPaintMs >= 100) {
     paint();
     lastPaintMs = now;

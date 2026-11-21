@@ -10,12 +10,14 @@
 // so a rack powering up comes back as it was. Holding the push for 2 s in any mode ends the session
 // and returns here without a power cycle; the chooser then waits for a press.
 //
-// Modes: 1, the Move companion; 2, Chordal; 3, Warps.
+// Modes: 1, the Move companion; 2, Chordal; 3, Warps. Last in the list, CALIBRATE sets the CV outputs'
+// calibration (calib_mode.cpp); it's never remembered as the last mode, so a rack can't power up into it.
 
 #include <Arduino.h>
 #include <CrashReport.h>
 
 #include "board.h"
+#include "calib_mode.h"
 #include "chordal_mode.h"
 #include "move_mode.h"
 #include "warps_mode.h"
@@ -30,8 +32,10 @@ static const Mode MODES[] = {
     {"MOVE companion", move_mode::begin, move_mode::loop},
     {"CHORDAL", chordal_mode::begin, chordal_mode::loop},  // chordal_mode::MODE is this place, 1
     {"WARPS", warps_mode::begin, warps_mode::loop},        // warps_mode::MODE is this place, 2
+    {"CALIBRATE", calib_mode::begin, calib_mode::loop},    // last: not a mode to come back to
 };
 constexpr uint8_t NUM_MODES = sizeof(MODES) / sizeof(MODES[0]);
+constexpr uint8_t CALIBRATE = NUM_MODES - 1;
 constexpr uint32_t CHOOSER_WAIT_MS = 3000;
 
 static const Mode *mode;
@@ -93,9 +97,9 @@ void setup() {
 
   bool wait = board::take_menu_request();
   uint8_t pick = board::saved_mode();
-  if (pick >= NUM_MODES) pick = 0;
+  if (pick >= CALIBRATE) pick = 0;
   pick = choose(pick, wait);
-  board::save_mode(pick);
+  if (pick != CALIBRATE) board::save_mode(pick);
   for (uint8_t r = 0; r < 4; r++) screen::row(r, "");
   mode = &MODES[pick];
   mode->begin();

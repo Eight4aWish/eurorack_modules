@@ -29,6 +29,35 @@ bool begin();
 void cv_write(uint8_t ch, float volts);
 void cv_outputs(uint8_t mask);  // bit n = DAC channel n's jack switch on
 
+// CV out calibration (spec requirement 10, as O&C: a point per volt per channel), kept in the EEPROM.
+// For each of the six channels, the DAC code that puts each whole volt from -5 to +5 V on the jack
+// with nothing patched; cv_write() interpolates between them. The CALIBRATE mode finds the codes by
+// loopback, each jack read by the ADC, after a meter has set the ADC: two readings on one jack, which
+// serve all six because the ADS8688's channels match to 0.05 % and 0.75 mV (SBAS582, 25 C). Without a
+// table cv_write() uses the design formula and one measured gain.
+constexpr int8_t CAL_VMIN = -5, CAL_VMAX = 5;
+constexpr uint8_t CAL_POINTS = CAL_VMAX - CAL_VMIN + 1, CAL_CHANNELS = 6;
+struct CvCal {
+  float adc_gain, adc_offset;  // jack volts = adc_gain * cv_read() + adc_offset: the meter's truth
+  uint16_t code[CAL_CHANNELS][CAL_POINTS];
+};
+bool cv_cal_valid();                    // a table came from the EEPROM, or was stored this session
+const CvCal &cv_cal();
+bool cv_cal_store(const CvCal &c);      // to the EEPROM, with a CRC; cv_write() uses it from then on
+void cv_cal_suspend(bool off);          // true: cv_write() uses the design formula (while calibrating)
+uint16_t cv_code_nominal(float volts);  // the design formula's code
+void cv_write_code(uint8_t ch, uint16_t code);
+float cv_read_avg(uint8_t ch, uint8_t n);  // one channel, n conversions averaged, volts as cv_read()
+float cv_adc_true(float v);                // a cv_read() value through the meter's correction
+
+// Load correction (spec requirement 9). A jack driving a 100 kOhm input loses about 1 % through its
+// 1 kOhm output resistor: 12 cents an octave. Each switched-on channel is read back while it plays and
+// its level corrected, within +-3 %; beyond that the jack is taken to be driven by another output or
+// shorted, left uncorrected, and flagged. Needs the calibration. Call every pass from a mode with CV
+// outputs; it reads one channel each 2 ms.
+void cv_service();
+uint8_t cv_driven();  // bit n: channel n read outside the +-3 % a load can explain
+
 // CV in. With its switch off a jack is an input: the ADS8688 reads it on ±10.24 V. cv_in_begin()
 // sets the ranges, false if the ADC doesn't echo them. cv_read() takes one conversion of each
 // channel listed (Cv numbering), as volts at the jack.

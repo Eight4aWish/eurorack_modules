@@ -8,6 +8,7 @@
 #include <QuadEncoder.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <stddef.h>
 
 namespace board {
 
@@ -39,8 +40,32 @@ static float jack_from_adc(float v) { return v + (v - ADC_VBIAS) / ADC_RLOAD; }
 // CV out stage (spec §15): Vout = 4.3 x 2.5 x code / 65536 - 3.3 x 2.5 x 22/34. Measured on Boy
 // (2026-11-01) with a meter at each jack: all six sit about 1.8 % under that, the 0 V code within
 // 13 mV. Most of it is the board's own load, the 1 kOhm output into the ~92 kOhm path to the ADC.
-// Per-channel calibration in the EEPROM (requirement 10) replaces this when it's written.
+// The calibration table (requirement 10, below) replaces this once the CALIBRATE mode has run.
 constexpr float CV_GAIN = 0.982f;
+
+// ---- the calibration table: 8 pages of the EEPROM, far below the settings and mode pages (0x1F00 up)
+constexpr uint16_t EE_CAL = 0x1C00;
+constexpr uint32_t CAL_MAGIC = 0x4C414342;  // "BCAL"
+constexpr uint16_t CAL_VERSION = 1;
+struct CalRecord {
+  uint32_t magic;
+  uint16_t version, points;
+  CvCal cal;
+  uint32_t crc;  // over everything before it
+};
+static CalRecord cal_rec;
+static bool cal_ok = false, cal_off = false;
+static float cv_target[8], cv_corr[8] = {1, 1, 1, 1, 1, 1, 1, 1};
+static uint8_t driven = 0;
+
+static uint32_t crc32(const uint8_t *d, size_t n) {
+  uint32_t c = 0xFFFFFFFF;
+  while (n--) {
+    c ^= *d++;
+    for (uint8_t k = 0; k < 8; k++) c = (c >> 1) ^ (0xEDB88320 & (0 - (c & 1)));
+  }
+  return ~c;
+}
 
 // ---- settings: one EEPROM page, clear of the last page the bring-up test uses; each mode's own
 // page sits below it
@@ -98,6 +123,19 @@ static bool ee_read(uint16_t a, uint8_t *d, uint8_t n) {
   return true;
 }
 
+// longer than a page: page by page, from a page boundary
+static bool ee_write_long(uint16_t a, const uint8_t *d, uint16_t n) {
+  for (uint16_t o = 0; o < n; o += EE_PAGE)
+    if (!ee_write(a + o, d + o, (uint8_t)min((int)EE_PAGE, (int)(n - o)))) return false;
+  return true;
+}
+
+static bool ee_read_long(uint16_t a, uint8_t *d, uint16_t n) {
+  for (uint16_t o = 0; o < n; o += EE_PAGE)
+    if (!ee_read(a + o, d + o, (uint8_t)min((int)EE_PAGE, (int)(n - o)))) return false;
+  return true;
+}
+
 static void dac_frame(uint32_t w) {
   SPI.beginTransaction(SPI_CONV);
   digitalWriteFast(PIN_CS_DAC, LOW);
@@ -142,15 +180,96 @@ bool begin() {
   enc->EncConfig.filterCount = 7;  // the longest input filter, against contact bounce
   enc->EncConfig.filterSamplePeriod = 255;
   enc->init();
+
+  // the calibration table, if the CALIBRATE mode has stored one and it reads back whole
+  cal_ok = ee_read_long(EE_CAL, (uint8_t *)&cal_rec, sizeof(cal_rec)) && cal_rec.magic == CAL_MAGIC &&
+           cal_rec.version == CAL_VERSION && cal_rec.points == CAL_POINTS &&
+           cal_rec.crc == crc32((const uint8_t *)&cal_rec, offsetof(CalRecord, crc));
   return true;
 }
 
-void cv_write(uint8_t ch, float volts) {
+uint16_t cv_code_nominal(float volts) {
   float code = (volts / CV_GAIN + 3.3f * 2.5f * 22 / 34) * 65536 / (4.3f * 2.5f);
-  dac_write(ch, constrain(lroundf(code), 0, 65535));
+  return constrain(lroundf(code), 0, 65535);
 }
 
-void cv_outputs(uint8_t mask) { set_port0((port0 & ~CV_ALL) | (mask & CV_ALL)); }
+// The code for `volts` at the jack: the table's two whole volts either side, interpolated; beyond -5
+// and +5 V the end segments carry on. The design formula with no table.
+static uint16_t code_for(uint8_t ch, float volts) {
+  if (!cal_ok || cal_off || ch >= CAL_CHANNELS) return cv_code_nominal(volts);
+  float p = volts - CAL_VMIN;
+  int i = constrain((int)floorf(p), 0, CAL_POINTS - 2);
+  float f = p - i;
+  const uint16_t *c = cal_rec.cal.code[ch];
+  return constrain(lroundf(c[i] + f * ((float)c[i + 1] - c[i])), 0, 65535);
+}
+
+void cv_write(uint8_t ch, float volts) {
+  if (ch >= 8) return;
+  cv_target[ch] = volts;
+  dac_write(ch, code_for(ch, volts * cv_corr[ch]));
+}
+
+void cv_write_code(uint8_t ch, uint16_t code) { dac_write(ch, code); }
+
+void cv_outputs(uint8_t mask) {
+  for (uint8_t ch = 0; ch < CAL_CHANNELS; ch++)
+    if (!(mask & (1 << ch))) cv_corr[ch] = 1, driven &= ~(1 << ch);  // an input now: its load correction starts over
+  set_port0((port0 & ~CV_ALL) | (mask & CV_ALL));
+}
+
+bool cv_cal_valid() { return cal_ok; }
+const CvCal &cv_cal() { return cal_rec.cal; }
+void cv_cal_suspend(bool off) { cal_off = off; }
+float cv_adc_true(float v) { return cal_ok && !cal_off ? cal_rec.cal.adc_gain * v + cal_rec.cal.adc_offset : v; }
+
+bool cv_cal_store(const CvCal &c) {
+  CalRecord r;
+  memset(&r, 0, sizeof(r));
+  r.magic = CAL_MAGIC;
+  r.version = CAL_VERSION;
+  r.points = CAL_POINTS;
+  r.cal = c;
+  r.crc = crc32((const uint8_t *)&r, offsetof(CalRecord, crc));
+  if (!ee_write_long(EE_CAL, (const uint8_t *)&r, sizeof(r))) return false;
+  CalRecord back;  // read back: a table is only trusted once the EEPROM holds it
+  if (!ee_read_long(EE_CAL, (uint8_t *)&back, sizeof(back)) || memcmp(&back, &r, sizeof(r)) != 0) return false;
+  cal_rec = r;
+  cal_ok = true;
+  return true;
+}
+
+uint8_t cv_driven() { return driven; }
+
+// Requirement 9. Each pass reads at most one switched-on channel, each 2 ms, so six take 12 ms. The
+// correction is a ratio, since a load to ground scales the jack: what was written over what the jack
+// reads, eased in so one noisy reading can't step the pitch.
+void cv_service() {
+  static uint32_t last;
+  static uint8_t next;
+  if (!cal_ok || cal_off) return;  // it measures against the calibrated ADC
+  uint32_t now = micros();
+  if (now - last < 2000) return;
+  last = now;
+  uint8_t on = port0 & CV_ALL;
+  if (!on) return;
+  do next = (next + 1) % CAL_CHANNELS;
+  while (!(on & (1 << next)));
+  uint8_t ch = next;
+  float t = cv_target[ch];
+  if (fabsf(t) < 0.5f) return;  // too near 0 V for a ratio
+  float v = cv_adc_true(cv_read_avg(ch, 2));
+  float want = cv_corr[ch] * t / v;  // the correction that would put t on the jack
+  if (!(want > 0.97f && want < 1.03f)) {
+    driven |= 1 << ch;  // more than a load can do: another output, or a short. Leave it alone.
+    return;
+  }
+  driven &= ~(1 << ch);
+  float c = cv_corr[ch] + 0.1f * (want - cv_corr[ch]);
+  if (fabsf(c - cv_corr[ch]) < 2e-5f) return;
+  cv_corr[ch] = c;
+  dac_write(ch, code_for(ch, t * c));
+}
 
 static uint16_t adc_frame(uint16_t cmd) {  // 32 clocks: a command in, the previous frame's conversion out
   SPI.beginTransaction(SPI_CONV);
@@ -186,6 +305,15 @@ void cv_read(const uint8_t *chs, uint8_t n, float *volts) {
     uint16_t code = adc_frame(i + 1 < n ? 0xC000 | (chs[i + 1] << 10) : 0x0000);  // the last: NO_OP
     volts[i] = jack_from_adc((code - 32768.0f) * 20.48f / 65536);
   }
+}
+
+float cv_read_avg(uint8_t ch, uint8_t n) {
+  float sum = 0, v;
+  for (uint8_t i = 0; i < n; i++) {
+    cv_read(&ch, 1, &v);
+    sum += v;
+  }
+  return sum / n;
 }
 
 void gates_write(uint8_t word) {

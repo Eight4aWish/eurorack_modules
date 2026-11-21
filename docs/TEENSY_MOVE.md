@@ -45,6 +45,7 @@ inputs or outputs, and that shouldn't change under a patch.
 | 1 | **Move companion** | works on the bench, 2026-11-01; TRS MIDI in not yet tried |
 | 2 | **Chordal**: one finger plays four notes that lead into the next chord, from a bank of 16 patches | works from MIDI, 2026-11-05; CV out and the audio inputs not yet tried |
 | 3 | **Warps**, a port of Mutable's source with Parasites' eight further modes (`third_party/parasites`, MIT), and Chordal's engine as IN 1 | stock Warps on the bench: 96 kHz and the internal carrier pass (2026-11-02), and audio in works (2026-11-06). META with chords on HALO, the heaviest patch, runs at 61 % CPU, 2026-11-05; the other Parasites modes not yet tried by ear |
+| – | **CALIBRATE**, last in the chooser and never remembered as the last mode: the CV outputs' calibration table and load correction (below) | written 2026-11-21, not yet run on the bench |
 
 ## Mode 1, the Move companion
 
@@ -95,9 +96,24 @@ Fixed in passing:
 - **Screen stalls.** Boy also sends a changed row in four 32-byte pieces, one per pass, so the loop
   never waits more than about 1 ms on the screen.
 
-**Pitch calibration** is one measured gain for all six CV outs. Every jack read 1.8% under the
-design formula with a meter. Per-channel calibration in the EEPROM (spec requirement 10), and the
-board's load servo (requirement 9), aren't written yet.
+**Pitch calibration** (spec requirements 9 and 10, written 2026-11-21, not yet run on the bench; David chose the
+method). Choose **CALIBRATE**, the last item in the chooser:
+1. Unpatch every CV jack and put a meter on PITCH1. Boy puts about +4 V there: turn the encoder until the meter
+   reads 4.000 V (a detent is about 1 mV, a quick turn ten), press; then the same at -4.000 V. Those two
+   readings make the ADC agree with the meter. One jack serves all six: the ADS8688's channels match to 0.05 %
+   and 0.75 mV (TI SBAS582, 25 C).
+2. Unpatch the meter and press. Each output is stepped through every whole volt from -5 to +5 V, read back
+   through the ADC at its own jack, and its DAC code adjusted until the jack reads that volt: 66 points in a
+   couple of seconds. The table goes into the EEPROM at 0x1C00 with a CRC, and is read back before it's used.
+3. CHECK: every output holds the same whole volt. Turn to step it from -5 to +5 V, and check any jack with the
+   meter. The screen names the worst point the loopback reached. Hold the push 2 s to leave.
+
+From then on `board::cv_write()` interpolates the table, a straight line between whole volts. Without a table it
+falls back to the design formula and the old single gain (0.982, from a meter on 1 Nov: every jack read 1.8 %
+under the formula). **The load correction** (`board::cv_service()`, called by Move and Chordal) reads each
+switched-on output back every 12 ms and corrects the sag a load causes: a 100 kOhm V/oct input costs about
+1 % through the 1 kOhm output resistor, 12 cents an octave. It only acts above 0.5 V, eases in, and stops at
+3 %: a jack beyond that is taken to be driven by another output or shorted, and flagged (`board::cv_driven()`).
 
 ## Mode 2, Chordal
 
