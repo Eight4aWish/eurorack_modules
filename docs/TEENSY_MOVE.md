@@ -244,7 +244,7 @@ for the face mask; Level 1 was on PITCH1, Timbre on GATE2, and V/oct shared Leve
 GATE3 unpatched, the oscillator's pitch is Level 1's knob alone, as on Warps with nothing in Level 1.
 
 **The mask.** The panel's labels are mode 1's, so each app gets a 3D-printed face mask,
-`build123d/panels/teensy_move_reva_mask.py`: Move and Warps so far, drafted 2026-11-21, not printed yet. It's
+`build123d/panels/teensy_move_reva_mask.py`: Move, Chordal and Warps, drafted 2026-11-21, not printed yet. It's
 a 1.0 mm sheet the panel's full size, held by the panel's own four rack screws, with every label its own and
 the app's name at the top; it goes on with the encoder knob fitted. Warps' reads ALGO and TIMB over LEV1 and
 LEV2 with V/OCT under LEV1, then CARR, MOD, OUT and AUX on the audio jacks, and leaves the five unused jacks
