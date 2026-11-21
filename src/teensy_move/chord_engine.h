@@ -87,6 +87,7 @@ class Engine {
   // For the CV outs and the screen
   float Pitch(int v) const { return voice_[v].note + bend_; }  // a MIDI note, while it glides
   bool GateOn() const;
+  bool NoteGateOn(int v) const { return voice_[v].gate > 0.5f; }  // note v is sounding
   float MotionOut() const { return motion_out_; }  // -1 to 1, slowly
   const char *ChordName() const { return name_; }
   // Bit n: note n has entered since the last call

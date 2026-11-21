@@ -10,7 +10,10 @@
 //   drums in, turn SOUND up, and they sound in the chord.
 // - CV out: PITCH1-3 and GATE1 are the four notes, V/oct, gliding if GLIDE is up (note 36 at 0 V, as
 //   mode 1). GATE2 is 5 V while a chord is on. GATE3 is the motion, slowly, +-5 V.
-// - gate outs: a 5 ms trigger as each note enters, in order, on CLK, DRUM2, DRUM1 and RST.
+// - gate outs: each note's own gate, notes 1-4 down the panel on CLK, DRM1, DRM2 and RST (David,
+//   2026-11-21: "we don't need trig at all. instead each note gets a gate"). High while the note
+//   sounds; a note that enters again while its gate is high drops it for 3 ms first, so every entry
+//   is a rising edge.
 // - the encoder, as everywhere: a turn moves the marker, a press takes the marked item to edit, a
 //   turn sets it, a press lets it go. Held for 2 s it goes back to the mode chooser.
 // - PATCH, at the top, picks from a bank of sixteen and changes the sound as it turns. The items below
@@ -38,7 +41,10 @@ static_assert(sizeof(Settings) <= 32, "a mode's EEPROM page holds 32 bytes");
 constexpr uint8_t PITCH_JACK[chord::kNotes] = {board::PITCH1, board::PITCH2, board::PITCH3, board::GATE1};
 constexpr uint8_t GATE_JACK = board::GATE2, MOTION_JACK = board::GATE3;
 constexpr float GATE_VOLTS = 5.0f, MOTION_VOLTS = 5.0f;
-constexpr uint32_t TRIG_MS = 5;
+// Each note's gate, down the panel's gate outs in order. A note that enters again while its gate is high (the
+// next chord with no gap: HOLD, or legato) drops it for RETRIG_MS first, so an envelope starts on every entry.
+constexpr uint8_t NOTE_GATE[chord::kNotes] = {board::CLK, board::DRUM1, board::DRUM2, board::RST};
+constexpr uint32_t RETRIG_MS = 3;
 
 static chord::Engine &engine = chord::shared();
 static uint8_t patch;  // its place in the bank
@@ -238,7 +244,7 @@ static void paint() {
 
 // ---- the jacks
 static float jackVolts[chord::kNotes + 2];
-static uint32_t trigUntil[chord::kNotes];
+static uint32_t retrigUntil[chord::kNotes];
 static uint8_t gateWord;
 
 static void write_if_moved(uint8_t i, uint8_t jack, float volts) {
@@ -259,9 +265,10 @@ static void jacks(uint32_t now) {
   AudioInterrupts();
   uint8_t word = 0;
   for (uint8_t v = 0; v < chord::kNotes; v++) {
-    if (entered & (1 << v)) trigUntil[v] = (now + TRIG_MS) | 1;
-    if (trigUntil[v] && (int32_t)(now - trigUntil[v]) >= 0) trigUntil[v] = 0;
-    if (trigUntil[v]) word |= 1 << v;
+    const uint8_t bit = 1 << NOTE_GATE[v];
+    if ((entered & (1 << v)) && (gateWord & bit)) retrigUntil[v] = (now + RETRIG_MS) | 1;  // high already: drop it first
+    if (retrigUntil[v] && (int32_t)(now - retrigUntil[v]) >= 0) retrigUntil[v] = 0;
+    if (engine.NoteGateOn(v) && !retrigUntil[v]) word |= bit;
   }
   if (word != gateWord) board::gates_write(word), gateWord = word;
 }
