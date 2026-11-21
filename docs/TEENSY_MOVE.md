@@ -261,7 +261,7 @@ to change mode. The screen lists seven items, four at a time:
 | ALGO | the Algorithm knob | the algorithm at the knob plus CV: XFADE, FOLD, DIODE RM, DIGI RM, XOR, COMPARE, VOCODER |
 | TIMB | the Timbre knob | 0–100 % |
 | CARR | the button: the carrier | EXT (audio in L), SINE, TRI, SAW |
-| CHORD | ours: Chordal's engine replaces audio in L | off, or the chord being played. With MODE on VOCODER and CARR on EXT, a voice on audio in R sings the chords |
+| CHORD | ours: Chordal's engine replaces audio in L | off, or on: the chord being played, and `---` while none is. With MODE on VOCODER and CARR on EXT, a voice on audio in R sings the chords |
 
 **The modes.** The names on the screen change with the mode, from Parasites' manual. The jacks stay
 the same: each CV adds to its item.
